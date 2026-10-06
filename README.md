@@ -1,52 +1,35 @@
 # RSNA Knee Abnormality Detection
 
-Research project for the RSNA Knee Abnormality Detection competition. The long-term objective is to develop a reproducible system for predicting 12 abnormalities from complete knee MRI studies, with validation designed to measure generalization rather than leaderboard fit. Report-derived labels may be investigated as a separate research component, subject to competition rules, licensing, and privacy constraints.
+This repository is a research project focused on predicting 12 abnormalities from complete knee MRI studies for the RSNA Knee Abnormality Detection competition. Its goal is a reproducible, competition-compatible approach whose quality is assessed through leakage-resistant validation and per-target evidence, not leaderboard movement alone. Report-derived labels are a potential research component, subject to verified competition terms, privacy requirements, and project authorization.
 
-## Current status
+## Project organization
 
-**The project is in Phase 0: competition setup and submission contract.** Phase 0 remains in progress; Phase 1 data exploration is planned but gated on Phase 0 completion and explicit data-access authorization. A constant-prediction smoke submission verified the end-to-end submission/scoring path, but it is not a model result. No trained model, local baseline, or model-performance claim is available.
-
-## Start safely
-
-The repository currently has no package manifest or dependency installation workflow. The local smoke check uses only Python's standard library and synthetic identifiers; it does not need competition data or network access.
-
-```bash
-python -m unittest discover -s tests -p test_smoke_submission.py -v
-python scripts/smoke_submission.py
-```
-
-The script writes a synthetic `submission.csv` under `outputs/phase0-smoke/`, validates its schema and values, and refuses to overwrite an existing file. Git ignores that generated output. These checks validate only the local synthetic CSV contract; they do not validate competition files, a model, or Kaggle execution. See [tests/README.md](tests/README.md) and [scripts/README.md](scripts/README.md).
-
-## Repository map
+The repository is organized around the research lifecycle:
 
 | Path | Purpose |
 |---|---|
-| `docs/ROADMAP.md` | Research phases, dependencies, and acceptance criteria. |
-| `docs/PROJECT_STATE.md` | Current phase, evidence, blockers, and next action. |
-| `docs/DECISIONS.md` | Durable constraints and their rationale. |
-| `docs/COMPETITION.md` | Source-linked competition contract and remaining unknowns. |
-| `docs/DATA.md` | Published data description and bounded local metadata evidence. |
-| `experiments/` | Experiment conventions and registry; results must be recorded without overwriting prior evidence. |
-| `src/rsna_knee/` | Reserved package boundaries for data, labels, models, training, inference, validation, and utilities; implementation is not yet present. |
-| `scripts/`, `tests/` | Focused local utilities and synthetic contract checks. |
-| `configs/`, `notebooks/` | Configuration and research-support areas; review contents and provenance before use or publication. |
+| `docs/` | Research roadmap, project decisions, competition and data constraints, and durable project guidance. |
+| `src/rsna_knee/` | Python package boundaries for data handling, labels, models, training, inference, validation, and shared utilities. |
+| `configs/` | Versioned settings for reproducible data, training, and evaluation workflows. |
+| `experiments/` | Experiment records and registry, including hypotheses, validation, results, and conclusions. |
+| `scripts/` | Focused command-line utilities for project workflows. |
+| `tests/` | Automated checks for data, model, validation, and inference contracts. |
+| `notebooks/` | Reproducible competition or research notebooks where they add value beyond reusable package code. |
 
-## Research and validation principles
+This describes the intended organization of the project; it does not imply that every component or capability is implemented.
 
-- Preserve study-level grouping where needed to prevent leakage; document and justify any validation change.
-- Report per-target behavior alongside aggregate metrics, and retain negative or inconclusive experiment results.
-- Do not use leaderboard movement alone as evidence that a method generalizes.
-- The 58 expert-labeled Gold-58 studies are reserved exclusively for final evaluation. Do not use them for training, prompt optimization, model selection, or tuning. Their count, identities, and label mapping remain unverified.
-- Read the [roadmap](docs/ROADMAP.md) and [project guidance](AGENTS.md) before beginning substantial work.
+## Research and evaluation principles
 
-## Data, licensing, and privacy
+- Keep studies grouped across leakage-sensitive validation boundaries and document any change to the evaluation design.
+- Report metrics for each target alongside aggregate results; retain negative and inconclusive findings.
+- Treat leaderboard movement as supplementary evidence, not proof of generalization.
+- Record meaningful experiments with their hypothesis, baseline, changed variable, validation protocol, results, and conclusion.
+- Reserve the 58 expert-labeled Gold-58 studies exclusively for final evaluation. Do not use them for training, prompt optimization, model selection, or tuning. Their count, identities, and label mapping remain unverified.
 
-Competition files are not included. Do not commit raw data, DICOM images, radiology reports, identifiers, credentials, checkpoints, generated predictions, or caches. The `.gitignore` protects common local data and generated-artifact patterns, but it is not a substitute for reviewing every file before publication. Keep any local data in the ignored `data/` and output locations, and follow the project's authorization boundaries before accessing or processing it.
+## Data, competition, and licensing
 
-Internal ODD task logs under `odd/tasks/` and machine-specific agent/runtime instructions are intentionally excluded from the public repository.
+Competition data is not part of this repository. Do not commit raw data, DICOM images, radiology reports, study identifiers, credentials, model checkpoints, generated predictions, or caches. Review every file intended for publication; `.gitignore` is only a safeguard.
 
-The competition's MIRA and winner-license language leaves questions about distributing competition-derived artifacts unresolved. This repository does not declare a project license or grant rights to competition data or derivatives. See [competition notes](docs/COMPETITION.md) and [data notes](docs/DATA.md); seek organizer clarification before distributing competition-derived artifacts or using them commercially.
+Verify current competition rules before relying on them, including constraints on external data, models, tools, report processing, and inference. The competition terms and their application to derived artifacts may require clarification. This repository does not grant rights to competition data or derivatives and does not declare a project license.
 
-## Next step
-
-Continue the remaining Phase 0 contract and environment work. Phase 1 is not yet authorized by this repository state. For current blockers and the evidence needed to close Phase 0, see [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
+For the project's durable constraints and research conventions, see [`docs/DECISIONS.md`](docs/DECISIONS.md), [`docs/COMPETITION.md`](docs/COMPETITION.md), [`docs/DATA.md`](docs/DATA.md), and [`AGENTS.md`](AGENTS.md).
