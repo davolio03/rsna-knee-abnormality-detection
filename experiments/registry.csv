@@ -1,0 +1,1 @@
+experiment_id,date,status,parent,hypothesis,labels_version,preprocessing_version,validation_version,model,macro_auc,acl_auc,mcl_auc,medial_meniscus_auc,lateral_meniscus_auc,medial_oa_auc,lateral_oa_auc,pf_oa_auc,effusion_auc,synovitis_auc,bakers_auc,contusion_auc,fracture_auc,training_time,inference_time,peak_vram,kaggle_score,conclusion,notes
