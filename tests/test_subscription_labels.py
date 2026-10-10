@@ -33,6 +33,21 @@ def gold_fixture(*extra_ids):
 
 
 class SubscriptionLabelContractTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows subprocess text encoding regression")
+    def test_process_stdin_is_utf8_for_unicode_report_text(self):
+        from rsna_knee.labels.subscription import _run_process
+
+        payload = "Synthetic — report’s café"
+        child = (
+            "import sys\n"
+            "data = sys.stdin.buffer.read()\n"
+            "try:\n    text = data.decode('utf-8')\n"
+            "except UnicodeDecodeError:\n    raise SystemExit(17)\n"
+            f"raise SystemExit(0 if text == {payload!r} else 18)\n"
+        )
+        result = _run_process([sys.executable, "-c", child], payload, 5)
+        self.assertEqual(result.returncode, 0)
+
     def test_diagnostics_journal_records_safe_cause_progress_and_offset(self):
         from rsna_knee.labels.subscription import codex_cli_infer
 

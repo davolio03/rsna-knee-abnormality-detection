@@ -279,7 +279,7 @@ def _run_process(command: list[str], input_text: str,
     try:
         process = subprocess.Popen(
             command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True,
+            stderr=subprocess.PIPE, text=True, encoding="utf-8",
         )
     except OSError as exc:
         raise LabelingError("Codex CLI process could not be started.", stage="process_spawn",
