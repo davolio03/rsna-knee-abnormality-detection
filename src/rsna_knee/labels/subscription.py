@@ -133,7 +133,10 @@ def codex_cli_infer(report: str, *, executable: str = "codex",
     except OSError:
         raise LabelingError("Codex CLI invocation failed or timed out.") from None
     if process.returncode != 0:
-        raise LabelingError("Codex CLI returned a non-zero exit status.")
+        raise LabelingError(
+            f"Codex CLI exited with status {process.returncode}; "
+            "stdout and stderr details are suppressed for privacy."
+        )
     try:
         answer = _final_agent_message(process.stdout)
         return validate_label_result(json.loads(answer))

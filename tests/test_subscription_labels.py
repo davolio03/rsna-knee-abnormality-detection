@@ -206,6 +206,23 @@ class SubscriptionLabelContractTests(unittest.TestCase):
         self.assertIn("synthetic report", process.communicate.call_args.kwargs["input"])
         self.assertNotIn("synthetic report", repr(result))
 
+    def test_cli_adapter_preserves_exit_code_without_leaking_process_output(self):
+        from rsna_knee.labels.subscription import _codex_command, codex_cli_infer
+
+        canary = "PRIVATE_STDERR_CANARY"
+        process = Mock(returncode=2)
+        process.communicate.return_value = (f"stdout {canary}", f"stderr {canary}")
+        with patch("rsna_knee.labels.subscription.subprocess.Popen", return_value=process) as popen:
+            with self.assertRaises(LabelingError) as raised:
+                codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
+
+        self.assertIn("2", str(raised.exception))
+        self.assertNotIn(canary, str(raised.exception))
+        self.assertIn("details are suppressed for privacy", str(raised.exception))
+        args, _ = popen.call_args
+        self.assertEqual(args[0], _codex_command())
+        self.assertIn("synthetic report", process.communicate.call_args.kwargs["input"])
+
     def test_cli_adapter_uses_windows_cmd_shim_without_passing_prompt_in_arguments(self):
         from rsna_knee.labels.subscription import codex_cli_infer
 
