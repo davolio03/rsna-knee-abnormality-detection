@@ -355,7 +355,7 @@ class SubscriptionLabelContractTests(unittest.TestCase):
         self.assertIn("synthetic report", process.communicate.call_args.kwargs["input"])
 
     def test_cli_adapter_uses_windows_cmd_shim_without_passing_prompt_in_arguments(self):
-        from rsna_knee.labels.subscription import codex_cli_infer
+        from rsna_knee.labels.subscription import _codex_command, codex_cli_infer
 
         response = {column: {"label": False, "evidence": "", "uncertainty": 0.5}
                     for column in LABEL_COLUMNS}
@@ -368,10 +368,29 @@ class SubscriptionLabelContractTests(unittest.TestCase):
                 codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
         args, kwargs = popen.call_args
         self.assertEqual(args[0], ["cmd.exe", "/d", "/s", "/c",
-                                   "codex.cmd exec --json --sandbox read-only -"])
+                                   "codex.cmd exec --json --sandbox read-only "
+                                   "--model gpt-6-luna --config "
+                                   "model_reasoning_effort=high -"])
+        self.assertEqual(
+            _codex_command(),
+            ["cmd.exe", "/d", "/s", "/c",
+             "codex.cmd exec --json --sandbox read-only --model gpt-6-luna "
+             "--config model_reasoning_effort=high -"],
+        )
         self.assertNotIn("synthetic report", " ".join(args[0]))
         self.assertIn("synthetic report", process.communicate.call_args.kwargs["input"])
         self.assertFalse(kwargs.get("shell", False))
+
+    @patch("rsna_knee.labels.subscription.os.name", "posix")
+    def test_cli_command_pins_luna_and_high_effort_without_invoking_codex(self):
+        from rsna_knee.labels.subscription import _codex_command
+
+        self.assertEqual(
+            _codex_command(),
+            ["codex", "exec", "--json", "--sandbox", "read-only",
+             "--model", "gpt-6-luna", "--config",
+             "model_reasoning_effort=high", "-"],
+        )
 
     def test_pilot_skip_offset_selects_only_following_records_and_enforces_total_cap(self):
         rows = [{"StudyInstanceUID": f"synthetic-{i}", "Report": f"report-{i}",

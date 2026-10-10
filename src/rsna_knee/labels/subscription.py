@@ -269,8 +269,11 @@ def _codex_command() -> list[str]:
     if os.name == "nt":
         # Keep report text on stdin; only this fixed command string reaches cmd.exe.
         return ["cmd.exe", "/d", "/s", "/c",
-                "codex.cmd exec --json --sandbox read-only -"]
-    return ["codex", "exec", "--json", "--sandbox", "read-only", "-"]
+                "codex.cmd exec --json --sandbox read-only --model gpt-6-luna "
+                "--config model_reasoning_effort=high -"]
+    return ["codex", "exec", "--json", "--sandbox", "read-only",
+            "--model", "gpt-6-luna", "--config",
+            "model_reasoning_effort=high", "-"]
 
 
 def _run_process(command: list[str], input_text: str,
