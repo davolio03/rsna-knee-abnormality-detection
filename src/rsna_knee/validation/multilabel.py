@@ -4,11 +4,100 @@ from __future__ import annotations
 
 import random
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from numbers import Integral
-from typing import TypeVar
+from typing import Generic, TypeVar
 
 
 StudyKey = TypeVar("StudyKey")
+
+
+@dataclass(frozen=True)
+class InnerSplit(Generic[StudyKey]):
+    """Disjoint training and validation study keys within one outer train set."""
+
+    train: tuple[StudyKey, ...]
+    validation: tuple[StudyKey, ...]
+
+
+@dataclass(frozen=True)
+class NestedSplit(Generic[StudyKey]):
+    """One outer train/test partition and its isolated inner selection splits."""
+
+    train: tuple[StudyKey, ...]
+    test: tuple[StudyKey, ...]
+    inner_splits: tuple[InnerSplit[StudyKey], ...]
+
+
+def nested_multilabel_splits(
+    study_keys: Sequence[StudyKey],
+    targets: Sequence[Sequence[int]],
+    outer_n_splits: int = 3,
+    inner_n_splits: int = 3,
+    seed: int = 42,
+) -> tuple[NestedSplit[StudyKey], ...]:
+    """Compose iterative multilabel folds into isolated nested CV partitions.
+
+    Defaults implement 3x3 nested study-level cross-validation. Each study key
+    occurs in one outer test fold; within each outer training set, each key
+    occurs in one inner validation fold. All complements preserve input order.
+    Inner folds are allocated using only their outer training rows, never outer
+    test rows. Inputs must satisfy ``iterative_multilabel_folds`` validation.
+
+    The outer allocator uses ``seed``; inner allocator number ``i`` (zero-based)
+    uses ``seed + 1 + i``. Fixed ordered inputs and seed reproduce all partitions.
+    Balancing is heuristic: neither equal fold sizes nor positive/negative
+    coverage for every target is guaranteed. Audit class counts before use.
+
+    Use ``outer.inner_splits`` to select among frozen candidates, then evaluate
+    the selected procedure with ``outer.test``. Do not tune candidates against
+    outer-test results. This utility generates membership only; it does not
+    select candidates, train models, or evaluate metrics.
+
+    Raises:
+        ValueError: For invalid inputs/fold counts, or if an allocated outer
+            training set has fewer studies than ``inner_n_splits``.
+
+    Example:
+        >>> splits = nested_multilabel_splits(range(9), [[0]] * 9)
+        >>> len(splits), len(splits[0].inner_splits)
+        (3, 3)
+    """
+    keys = _materialize(study_keys, "study_keys")
+    rows = [
+        _materialize(row, "target row") for row in _materialize(targets, "targets")
+    ]
+    if (
+        not isinstance(inner_n_splits, Integral)
+        or isinstance(inner_n_splits, bool)
+        or inner_n_splits < 2
+    ):
+        raise ValueError("inner_n_splits must be an integer of at least two")
+    inner_n_splits = int(inner_n_splits)
+    outer_folds = iterative_multilabel_folds(keys, rows, outer_n_splits, seed)
+    row_by_key = dict(zip(keys, rows))
+    nested = []
+    for index, test in enumerate(outer_folds):
+        test_set = set(test)
+        train = tuple(key for key in keys if key not in test_set)
+        if len(train) < inner_n_splits:
+            raise ValueError(
+                f"outer fold {index} has {len(train)} training studies; "
+                f"need at least inner_n_splits={inner_n_splits}"
+            )
+        inner_folds = iterative_multilabel_folds(
+            train,
+            [row_by_key[key] for key in train],
+            inner_n_splits,
+            int(seed) + 1 + index,
+        )
+        inner_splits = []
+        for validation in inner_folds:
+            validation_set = set(validation)
+            inner_train = tuple(key for key in train if key not in validation_set)
+            inner_splits.append(InnerSplit(inner_train, validation))
+        nested.append(NestedSplit(train, test, tuple(inner_splits)))
+    return tuple(nested)
 
 
 def iterative_multilabel_folds(
