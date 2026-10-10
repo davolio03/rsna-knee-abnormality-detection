@@ -63,6 +63,20 @@ A final corrected run in the private Kaggle notebook completed the light CSV met
 
 This is a light CSV metadata inventory, not a full corpus, scanner, or site audit. With only three test studies, these data cannot support reliable distribution-alignment or representativeness conclusions. The inventory does not characterize slices, image resolution, reports, label prevalence, image quality, or model performance. See the [Phase 1 ODD tracker](../odd/tasks/phase1-non-gold-metadata-inventory.md) for task evidence and scope.
 
+## Private Kaggle DICOM slice geometry pilot (2026-10-10)
+
+A bounded header-only scan examined the same deterministic five-study non-Gold training sample used for the earlier header pilot: 26 series and 662 counted `.dcm` files. Each header was read with `pydicom.dcmread(..., stop_before_pixels=True, specific_tags=...)`, selecting only geometry and header attributes. `PixelData`, reports, target values, and Gold-58 studies were not accessed; identifiers and raw content are not included here.
+
+| Check | Pilot observation |
+|---|---|
+| Header reads | 662/662 readable; zero missing series directories, read failures, or multiframe instances. |
+| Present in every header | `Rows`, `Columns`, `PixelSpacing`, `ImageOrientationPatient`, `ImagePositionPatient`, `SliceThickness`, and `Modality` (662/662 each). |
+| Other spacing metadata | `SpacingBetweenSlices` present in 415/662 headers, with seven distinct observed values; `SliceThickness` had four distinct observed values. |
+| Within-series geometry | All 26 series had positions for every readable header, no orientation variation, and no duplicate slice positions at a 0.001 mm tolerance. |
+| Position-derived adjacent distances | All 26 series had calculable, approximately regular adjacent distances under the pilot criterion. Across series, min / p25 / median / p75 / p95 / max: 3.2991 / 3.3 / 3.9 / 4.4 / 6.2783 / 7.7436 mm. |
+
+For each series, the scan projected `ImagePositionPatient` onto the slice normal derived from `ImageOrientationPatient`, sorted slices by that coordinate, and computed adjacent center distances. The `.dcm` count is an observed file count, not a certified image or series total. This is a tiny, deterministic five-study pilot; its distributions and regularity checks are not full-corpus estimates or evidence of population-level generalization. See the [Phase 1 geometry tracker](../odd/tasks/phase1-dicom-slice-geometry.md) for bounded task evidence.
+
 ## Submission-path evidence
 
 One authorized constant-prediction smoke submission completed successfully with public score 0.500. This is end-to-end submission/scoring-path evidence, not model-performance evidence, and it does not verify local downloadable files, training schema, or the full test schema. Private execution metadata is intentionally omitted from this public record. See the bounded status in [COMPETITION.md](COMPETITION.md).
