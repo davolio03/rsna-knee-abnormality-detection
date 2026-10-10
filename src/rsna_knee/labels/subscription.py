@@ -130,7 +130,7 @@ def codex_cli_infer(report: str, *, executable: str = "codex",
     )
     try:
         process = subprocess.run(
-            ["codex", "exec", "--json", "--sandbox", "read-only", "-"],
+            _codex_command(),
             input=prompt, text=True, capture_output=True, timeout=timeout_seconds,
             check=False,
         )
@@ -143,6 +143,14 @@ def codex_cli_infer(report: str, *, executable: str = "codex",
         return validate_label_result(json.loads(answer))
     except (ValueError, TypeError, json.JSONDecodeError):
         raise LabelingError("Codex CLI response was not valid structured label output.") from None
+
+
+def _codex_command() -> list[str]:
+    if os.name == "nt":
+        # Keep report text on stdin; only this fixed command string reaches cmd.exe.
+        return ["cmd.exe", "/d", "/s", "/c",
+                "codex.cmd exec --json --sandbox read-only -"]
+    return ["codex", "exec", "--json", "--sandbox", "read-only", "-"]
 
 
 def _final_agent_message(stdout: str) -> str:
@@ -166,10 +174,14 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
               max_records: int, output_path: str | Path,
               project_root: str | Path | None = None,
               subscription_oauth_confirmed: bool = False,
+              skip_records: int = 0,
               infer: Callable[[str], object] = codex_cli_infer) -> int:
     """Run/resume a small local pilot; outputs must stay under ignored data/outputs."""
     if isinstance(max_records, bool) or not isinstance(max_records, int) or not 1 <= max_records <= MAX_PILOT_RECORDS:
         raise LabelingError("max_records must be explicitly between 1 and 10.")
+    if (isinstance(skip_records, bool) or not isinstance(skip_records, int)
+            or skip_records < 0 or skip_records + max_records > MAX_PILOT_RECORDS):
+        raise LabelingError("skip_records and max_records must total no more than 10.")
     if subscription_oauth_confirmed is not True:
         raise LabelingError("Confirm ChatGPT subscription OAuth before running a pilot.")
     root = Path(project_root or Path(__file__).resolve().parents[3]).resolve()
@@ -178,11 +190,13 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
         destination.relative_to(root / "data" / "outputs")
     except ValueError:
         raise LabelingError("Pilot output must be stored under ignored data/outputs.") from None
-    selected = eligible_reports(rows, gold_ids=gold_ids)[:max_records]
+    eligible = eligible_reports(rows, gold_ids=gold_ids)
+    selected_end = skip_records + max_records
+    selected = eligible[skip_records:selected_end]
     destination.parent.mkdir(parents=True, exist_ok=True)
     records = _load_records(destination)
     completed = {record[STUDY_COLUMN] for record in records}
-    current_ids = {str(row[STUDY_COLUMN]).strip() for row in selected}
+    current_ids = {str(row[STUDY_COLUMN]).strip() for row in eligible[:selected_end]}
     if not completed.issubset(current_ids):
         raise LabelingError("Existing output does not match the current eligible cohort.")
     for row in selected:

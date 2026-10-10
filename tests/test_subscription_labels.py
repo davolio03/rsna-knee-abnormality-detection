@@ -125,7 +125,7 @@ class SubscriptionLabelContractTests(unittest.TestCase):
             codex_cli_infer("synthetic report", executable="openai")
 
     def test_cli_adapter_uses_codex_exec_stdin_and_does_not_leak_output(self):
-        from rsna_knee.labels.subscription import codex_cli_infer
+        from rsna_knee.labels.subscription import _codex_command, codex_cli_infer
 
         response = {column: {"label": False, "evidence": "", "uncertainty": 0.5}
                     for column in LABEL_COLUMNS}
@@ -137,10 +137,62 @@ class SubscriptionLabelContractTests(unittest.TestCase):
             result = codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
         self.assertEqual(result[LABEL_COLUMNS[0]]["label"], False)
         args, kwargs = run.call_args
-        self.assertEqual(args[0], ["codex", "exec", "--json", "--sandbox", "read-only", "-"])
+        self.assertEqual(args[0], _codex_command())
         self.assertIn("synthetic report", kwargs["input"])
         self.assertTrue(kwargs["capture_output"])
         self.assertNotIn("synthetic report", repr(result))
+
+    def test_cli_adapter_uses_windows_cmd_shim_without_passing_prompt_in_arguments(self):
+        from rsna_knee.labels.subscription import codex_cli_infer
+
+        response = {column: {"label": False, "evidence": "", "uncertainty": 0.5}
+                    for column in LABEL_COLUMNS}
+        stdout = json.dumps({"type": "item.completed", "item": {
+            "type": "agent_message", "text": json.dumps(response)}})
+        with patch("rsna_knee.labels.subscription.os.name", "nt"):
+            with patch("rsna_knee.labels.subscription.subprocess.run") as run:
+                run.return_value.returncode = 0
+                run.return_value.stdout = stdout
+                codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
+        args, kwargs = run.call_args
+        self.assertEqual(args[0], ["cmd.exe", "/d", "/s", "/c",
+                                   "codex.cmd exec --json --sandbox read-only -"])
+        self.assertNotIn("synthetic report", " ".join(args[0]))
+        self.assertIn("synthetic report", kwargs["input"])
+        self.assertFalse(kwargs.get("shell", False))
+
+    def test_pilot_skip_offset_selects_only_following_records_and_enforces_total_cap(self):
+        rows = [{"StudyInstanceUID": f"synthetic-{i}", "Report": f"report-{i}",
+                 **{column: "" for column in LABEL_COLUMNS}} for i in range(12)]
+        calls = []
+
+        def fake_infer(report):
+            calls.append(report)
+            return {column: {"label": False, "evidence": "synthetic", "uncertainty": 0.1}
+                    for column in LABEL_COLUMNS}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            prior = {column: {"label": False, "evidence": "synthetic", "uncertainty": 0.1}
+                     for column in LABEL_COLUMNS}
+            output.parent.mkdir(parents=True)
+            output.write_text(json.dumps({"StudyInstanceUID": "synthetic-0", "labels": prior}) + "\n",
+                              encoding="utf-8")
+            with self.assertRaises(LabelingError):
+                run_pilot(rows, gold_ids=gold_fixture(), skip_records=1, max_records=10,
+                          output_path=output, project_root=root,
+                          subscription_oauth_confirmed=True, infer=fake_infer)
+            self.assertEqual(calls, [])
+            self.assertEqual(run_pilot(
+                rows, gold_ids=gold_fixture(), skip_records=1, max_records=2,
+                output_path=output, project_root=root,
+                subscription_oauth_confirmed=True, infer=fake_infer,
+            ), 3)
+            self.assertEqual(calls, ["report-1", "report-2"])
+            ids = [json.loads(line)["StudyInstanceUID"]
+                   for line in output.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(ids, ["synthetic-0", "synthetic-1", "synthetic-2"])
 
     def test_inference_prompt_names_all_target_classes(self):
         from rsna_knee.labels.subscription import codex_cli_infer

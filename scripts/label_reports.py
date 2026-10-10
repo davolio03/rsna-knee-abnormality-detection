@@ -43,6 +43,8 @@ def main() -> int:
     parser.add_argument("--gold-exclusions", type=Path, required=True)
     parser.add_argument("--max-records", type=int, required=True,
                         help="Explicit pilot limit (1–10).")
+    parser.add_argument("--skip-records", type=int, default=0,
+                        help="Skip this many eligible rows when resuming (combined limit at most 10).")
     parser.add_argument("--subscription-oauth-confirmed", action="store_true", required=True,
                         help="Assert Codex CLI is authenticated with ChatGPT subscription OAuth.")
     parser.add_argument("--output", type=Path,
@@ -51,7 +53,8 @@ def main() -> int:
     try:
         total = run_pilot(
             _read_rows(args.train_csv), gold_ids=_read_gold_ids(args.gold_exclusions),
-            max_records=args.max_records, output_path=args.output,
+            max_records=args.max_records, skip_records=args.skip_records,
+            output_path=args.output,
             subscription_oauth_confirmed=args.subscription_oauth_confirmed,
         )
     except LabelingError as exc:
