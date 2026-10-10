@@ -48,6 +48,21 @@ This is an operational identification of the 58-row all-targets-present candidat
 
 Gold remains reserved exclusively for final evaluation of the label-generation strategy. Do not use these studies for training, prompt/threshold tuning, model selection, or strategy selection. This observation establishes candidate-set counts and a private exclusion artifact only; it does not establish label quality or expert-label provenance.
 
+## Private Kaggle non-Gold metadata inventory (2026-10-10)
+
+A final corrected run in the private Kaggle notebook completed the light CSV metadata inventory with Gold-58 excluded before training-series aggregation. It read only study keys from `train.csv` and `test.csv`, and the documented study/series keys and metadata columns from `train_series.csv` and `test_series.csv`. It did not examine reports, target values, or DICOM/image payloads. Gold IDs remain private and are not reproduced here.
+
+| File / measure | Observed aggregate |
+|---|---|
+| `train.csv` study keys | 4,407 rows and unique keys; 0 missing or duplicate keys. Exactly 58 matched the private exclusion artifact; 4,349 non-Gold studies remained. |
+| `test.csv` study keys | 3 rows and unique keys; 0 missing or duplicate keys; no train/test key overlap. |
+| `train_series.csv` after Gold exclusion | 24,035 rows and unique `SeriesInstanceUID`s; no duplicate rows or missing study/series keys; 4,349 studies represented. |
+| Series per non-Gold training study | Min / p25 / median / p75 / p90 / p95 / p99 / max: 3 / 5 / 5 / 6 / 7 / 9 / 10 / 14. |
+| Non-Gold training series metadata | `Fluid_Sensitive` and `Fat_Suppression`: 1 = 13,818; 0 = 10,217. `Anatomical_Plane`: Sagittal 9,728; Coronal 8,490; Axial 5,817. |
+| `test_series.csv` | 15 rows and unique series keys; 0 duplicates or missing study/series keys; 3 studies represented, each with 5 series. `Fluid_Sensitive` and `Fat_Suppression`: 1 = 9; 0 = 6. `Anatomical_Plane`: Sagittal 7, Axial 4, Coronal 4. |
+
+This is a light CSV metadata inventory, not a full corpus, scanner, or site audit. With only three test studies, these data cannot support reliable distribution-alignment or representativeness conclusions. The inventory does not characterize slices, image resolution, reports, label prevalence, image quality, or model performance. See the [Phase 1 ODD tracker](../odd/tasks/phase1-non-gold-metadata-inventory.md) for task evidence and scope.
+
 ## Submission-path evidence
 
 One authorized constant-prediction smoke submission completed successfully with public score 0.500. This is end-to-end submission/scoring-path evidence, not model-performance evidence, and it does not verify local downloadable files, training schema, or the full test schema. Private execution metadata is intentionally omitted from this public record. See the bounded status in [COMPETITION.md](COMPETITION.md).

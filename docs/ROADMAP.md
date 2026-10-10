@@ -10,7 +10,7 @@ Build a reproducible, leakage-resistant system that generates or evaluates train
 |---|---|---|
 | -1 — Project / Agent Infrastructure | Complete | None |
 | 0 — Competition Setup & Submission Contract | Complete (2026-10-10) | Phase -1 |
-| 1 — Dataset Understanding / EDA | Planned | Phase 0 |
+| 1 — Dataset Understanding / EDA | In progress (light non-Gold CSV metadata inventory tranche complete 2026-10-10) | Phase 0 |
 | 2 — Report-to-Label System | Planned | Phase 0; coordinate with Phase 3 evaluation policy |
 | 3 — Validation Design | Planned; critical | Phase 0; inform Phases 2 and 5 |
 | 4 — MRI Preprocessing & Efficient Data Layer | Planned | Phase 0–1 |
@@ -50,6 +50,8 @@ Build a reproducible, leakage-resistant system that generates or evaluates train
 **Dependencies:** Phase -1. Completion gates data-dependent EDA and informed pipeline work, but is not data-access authorization. Explicitly unresolved prerequisites for later inference/deployment include full local schema/data-quality inspection, representative full-size runtime and hardware feasibility, and Kaggle API/CLI access. Phase 1 remains gated on separately authorized data access. The MIRA/winner-license ambiguity remains a blocker to distribution or commercial deployment of competition-derived artifacts, not private research. Do not infer additional verification from this status.
 
 ## Phase 1 — Dataset Understanding / EDA
+
+**Status (2026-10-10):** The bounded light CSV metadata inventory for non-Gold training studies is complete and recorded in `docs/DATA.md`. This tranche used study keys and documented series metadata only; it is not completion of Phase 1. Its three-study test split is too small to establish reliable distribution alignment or representativeness, and no corpus/scanner/site or image-level audit was performed. Continue with other Phase 1 questions only within separately authorized data scope.
 
 **Goal:** Characterize the actual dataset and data quality without prematurely optimizing models.
 
