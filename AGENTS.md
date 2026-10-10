@@ -23,7 +23,7 @@ Read the relevant portions of:
 
 ## Gold-58 and data safety
 
-The 58 expert-labeled Gold-58 studies are reserved exclusively for final evaluation. Do not use them for training, prompt optimization, model selection, or tuning. Their count, study identities, and expert-label mapping remain unverified unless checked within an explicitly authorized scope.
+Gold-58 may be used only to compare a short, predeclared set of report-labeling prompt strategies through nested study-level cross-validation, as specified in D004. Freeze candidate prompts, the selection protocol, and metrics before evaluating outer folds; use outer folds only to evaluate the inner-selection procedure, never for prompt iteration. These results are not a separate independent final test set. Before any run, inspect per-target prevalence and positive/negative counts and confirm fold feasibility; this has not been checked. Do not use Gold-58 for model training or downstream classifier model selection without separate authorization. Preserve all competition licensing, external-service, and data-privacy constraints. Candidate IDs and expert-label provenance remain unverified from label values.
 
 Never commit raw competition data, DICOMs, radiology reports, identifiers, credentials, checkpoints, generated predictions, or caches. `.gitignore` is a safeguard, not a replacement for reviewing every publication candidate. Verify competition rules from official sources before relying on them, and do not assume local-only functionality satisfies the Kaggle inference contract.
 

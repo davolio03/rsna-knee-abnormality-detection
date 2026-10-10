@@ -3,11 +3,11 @@
 - **Last updated:** 2026-10-10
 - **Current phase:** Phase 1 - Dataset Understanding / EDA
 - **Status:** In progress. Phase 0 remains complete against the acceptance criteria in `docs/ROADMAP.md`. One authorized constant-prediction smoke submission completed successfully, providing submission/scoring-path evidence only; no model-performance claim. Gold-58 candidate identification, the light non-Gold CSV metadata inventory, and the broadened deterministic 50-study DICOM geometry characterization are complete; Phase 1 as a whole is not.
-- **Current objective:** Continue Phase 1 characterization only within separately authorized scope; the 50-study DICOM geometry characterization is complete. Preserve Gold-58 exclusively for final evaluation of the label-generation strategy.
+- **Current objective:** Continue Phase 1 characterization only within separately authorized scope; the 50-study DICOM geometry characterization is complete. Any Gold-58 prompt-strategy comparison must follow the nested study-level cross-validation limits in D004.
 - **Current baseline:** None.
 - **Current label strategy:** Not selected.
 - **Current validation:** Not defined.
-- **Gold-58 policy:** User-directed exclusive reserve for final evaluation (D004). A private Kaggle metadata-only query identified 58 all-targets-present candidate rows and created a private exclusion artifact; candidate IDs are not recorded here. Expert-label provenance/identity is not independently verified from labels because no label values were read. Gold must not be used for training, prompt/threshold tuning, model selection, or strategy selection.
+- **Gold-58 policy:** D004 permits comparison of a short, predeclared report-labeling prompt-strategy set via nested study-level cross-validation. Freeze candidates, selection protocol, and metrics before outer-fold evaluation; outer folds evaluate the inner-selection procedure and do not guide prompt iteration. This is not a separate independent final test. Before a run, inspect per-target prevalence and positive/negative counts and confirm fold feasibility; this has not been checked. No Gold use for model training or downstream classifier model selection without separate authorization. A private metadata-only query identified 58 all-targets-present candidate rows and created a private exclusion artifact; IDs are not recorded here. Expert-label provenance/identity is not independently verified from label values.
 - **Current model:** None.
 - **Current best OOF:** None.
 - **Current best Kaggle submission:** None; one constant-prediction smoke submission received public score 0.500. This is not a model result.

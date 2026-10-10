@@ -29,7 +29,7 @@ This read-only check loaded only the listed metadata columns; it did not materia
 
 For `train_series.csv`, the five loaded columns were `StudyInstanceUID`, `SeriesInstanceUID`, `Fluid_Sensitive`, `Fat_Suppression`, and `Anatomical_Plane`. Reports and target columns were excluded by `usecols`; no report or label values were materialized or analyzed. No identifiers were emitted and no DICOM was opened. These aggregates are local observations, not full data-quality/schema validation.
 
-The user explicitly reserved the 58 expert-labeled Gold-58 studies exclusively for final evaluation; they must not be used for training, prompt optimization, model selection, or tuning. This 2026-10-02 local metadata-only inspection did not inspect target values or identify Gold-58. See [D004](DECISIONS.md#d004--reserve-gold-58-for-final-evaluation).
+At the time of this 2026-10-02 metadata-only inspection, Gold-58 was reserved for final evaluation; the inspection did not inspect target values or identify Gold-58. The current authorized role is limited to the nested prompt-strategy comparison in [D004](DECISIONS.md#d004---gold-58-nested-prompt-strategy-evaluation). This policy update does not claim that per-target counts or fold feasibility have been checked.
 
 ## Private Kaggle Gold-58 candidate identification (2026-10-10)
 
@@ -46,7 +46,7 @@ A private Kaggle notebook, `RSNA Knee | Gold-58 ID Mask (Private)`, ran against 
 
 This is an operational identification of the 58-row all-targets-present candidate set, consistent with the reserved Gold-58 count. Expert-label provenance and identity are not independently verified from labels: no label values were read. Candidate IDs and target values are intentionally absent from repository documentation; the ID artifact remains private on Kaggle. No public notebook, link, dataset, or submission was created, and no data was downloaded locally.
 
-Gold remains reserved exclusively for final evaluation of the label-generation strategy. Do not use these studies for training, prompt/threshold tuning, model selection, or strategy selection. This observation establishes candidate-set counts and a private exclusion artifact only; it does not establish label quality or expert-label provenance.
+Gold-58 may be used to compare a short, predeclared candidate set of report-labeling prompt strategies through nested study-level cross-validation, under D004. Candidate prompts, selection protocol, and metrics must be frozen before outer-fold evaluation. Outer folds evaluate the inner-selection procedure and must not influence prompt iteration; this estimates the selection procedure and is not a separate independent final test. Do not use Gold for model training or downstream classifier model selection without separate authorization. Before any evaluation run, inspect per-target prevalence and positive/negative counts and confirm fold feasibility; this has not been checked. This candidate-set identification establishes counts and a private exclusion artifact only, not label quality or expert-label provenance. Preserve applicable competition licensing, external-service, and data-privacy constraints.
 
 ## Private Kaggle non-Gold metadata inventory (2026-10-10)
 

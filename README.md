@@ -24,7 +24,7 @@ This describes the intended organization of the project; it does not imply that 
 - Report metrics for each target alongside aggregate results; retain negative and inconclusive findings.
 - Treat leaderboard movement as supplementary evidence, not proof of generalization.
 - Record meaningful experiments with their hypothesis, baseline, changed variable, validation protocol, results, and conclusion.
-- Reserve the 58 expert-labeled Gold-58 studies exclusively for final evaluation. Do not use them for training, prompt optimization, model selection, or tuning. Their count, identities, and label mapping remain unverified.
+- Gold-58 may compare a short, predeclared set of report-labeling prompt strategies using nested study-level cross-validation under [D004](docs/DECISIONS.md). Freeze candidates, selection protocol, and metrics before outer-fold evaluation; outer folds evaluate the inner-selection procedure and must not guide prompt iteration. This is not a separate independent final test. Before any run, inspect per-target counts and confirm fold feasibility; neither is claimed as checked. Gold-58 must not be used for model training or downstream classifier model selection without separate authorization. Preserve competition licensing, external-service, and data-privacy constraints.
 
 ## Data, competition, and licensing
 

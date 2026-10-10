@@ -67,7 +67,7 @@ Build a reproducible, leakage-resistant system that generates or evaluates train
 
 **Goal:** Develop a controlled, reproducible approach for deriving useful silver labels from reports while preserving label provenance and evaluation integrity.
 
-**Questions:** What are the clinical definitions of all 12 targets? How should negation, uncertainty, historical findings, multilingual text, and missing evidence be represented? Are hard, soft, or confidence-weighted targets appropriate? How do deterministic extraction, LLM extraction, translation, or hybrid methods compare? What evaluation data can assess label quality without overfitting to the 58 expert-labeled studies?
+**Questions:** What are the clinical definitions of all 12 targets? How should negation, uncertainty, historical findings, multilingual text, and missing evidence be represented? Are hard, soft, or confidence-weighted targets appropriate? How do deterministic extraction, LLM extraction, translation, or hybrid methods compare? How should prompt strategies be compared under D004 without leaking outer-fold evidence into prompt iteration?
 
 **Outputs:** Versioned target definitions, structured output schema, report preprocessing/extraction artifacts, prompt/configuration snapshots where used, adjudication protocol, and per-target label-quality evaluation.
 
@@ -81,11 +81,11 @@ Build a reproducible, leakage-resistant system that generates or evaluates train
 
 **Goal:** Freeze an honest, reproducible validation design that estimates generalization and preserves complete-study grouping.
 
-**Questions:** What split structure best reflects intended generalization? Is scanner/site leakage plausible? Are duplicate studies or reports grouped? Is multi-label stratification useful without undermining grouping? What role should Gold-58 play? How should macro ROC-AUC handle missing/constant targets and match the official metric?
+**Questions:** What split structure best reflects intended generalization? Is scanner/site leakage plausible? Are duplicate studies or reports grouped? Is multi-label stratification useful without undermining grouping? Gold-58's authorized role is a short, predeclared report-labeling prompt-strategy comparison using nested study-level cross-validation under D004; how should the folds and selection protocol be implemented without leakage? How should macro ROC-AUC handle missing/constant targets and match the official metric?
 
 **Outputs:** Versioned split assignments or deterministic split-generation config; leakage/duplicate analysis; metric implementation and tests; explicit decision record for label/evaluation roles.
 
-**Acceptance:** No study crosses a leakage-sensitive fold boundary; grouping rationale and limitations are documented; all 12 per-target AUCs and aggregate score are reproducible; validation changes require a recorded rationale.
+**Acceptance:** No study crosses a leakage-sensitive fold boundary; grouping rationale and limitations are documented; all 12 per-target AUCs and aggregate score are reproducible; validation changes require a recorded rationale. For Gold-58 prompt comparisons, freeze candidates, protocol, and metrics before outer-fold evaluation; outer folds assess the inner-selection procedure and are not an independent final test set. Check per-target prevalence and positive/negative counts and confirm fold feasibility before any evaluation run.
 
 **Dependencies:** Phase 0 metric/schema; informs label evaluation in Phase 2 and model comparison in Phase 5. Do not freeze folds from intuition alone.
 

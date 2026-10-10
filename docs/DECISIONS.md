@@ -32,15 +32,15 @@ This log contains durable project decisions, not untested hypotheses. Source pro
 - **Consequences:** Record hypotheses, baselines, changed variables, validation, results, and conclusions for meaningful experiments.
 - **Revisit when:** Evidence shows the experiment convention is insufficient or wasteful.
 
-## D004 - Reserve Gold-58 for final evaluation
+## D004 - Gold-58 nested prompt-strategy evaluation
 
-- **Date:** 2026-10-01; usage policy clarified 2026-10-02
-- **Status:** Accepted; count and study/label mapping not independently verified
-- **Decision:** Reserve the 58 expert-labeled studies exclusively for final evaluation. Do not use them for training, prompt optimization, model selection, or tuning.
-- **Rationale:** Their scarcity makes evaluation-role leakage and policy drift especially consequential.
-- **Evidence / source:** Explicit user direction on 2026-10-02; the count and expert-label mapping remain bootstrap-context facts, not independently verified dataset findings.
-- **Consequences:** Once the studies and labels are identified under an authorized scope, keep them segregated from development and use them only for final evaluation. No such identification or label access is claimed in this decision update.
-- **Revisit when:** The user changes the policy or verified dataset evidence shows that the assumed count/label mapping is incorrect.
+- **Date:** 2026-10-01; policy revised 2026-10-10
+- **Status:** Accepted; candidate-set identification is recorded in `DATA.md`; expert-label provenance and identity remain unverified from label values.
+- **Decision:** Gold-58 may be used to compare a short, predeclared set of report-labeling prompt strategies using nested study-level cross-validation. Freeze the candidate prompts, selection protocol, and metrics before evaluating outer folds. Use inner folds to select among candidates; outer folds evaluate the complete inner-selection procedure and must not influence prompt iteration. The outer-fold results estimate that selection procedure and are not a separate independent final test set. Do not use Gold-58 for model training or downstream classifier model selection unless separately authorized.
+- **Rationale:** A bounded nested design permits prompt-strategy comparison while keeping outer-fold evidence separate from prompt iteration and stating its limits honestly.
+- **Evidence / source:** Explicit user authorization on 2026-10-10. Candidate IDs and label values were not accessed for this policy update. The candidate-set identification and its limitations are recorded in `DATA.md`.
+- **Consequences:** Before any evaluation run, inspect per-target prevalence and positive/negative counts and confirm that the planned study-level folds are feasible; this prerequisite has not been checked. Preserve study-level grouping and all applicable competition licensing, external-service, and data-privacy constraints. Do not treat nested cross-validation as an untouched final test set.
+- **Revisit when:** The user changes the policy, fold feasibility cannot be established, or verified dataset evidence changes the assumed candidate set or label provenance.
 ## D005 — Hardware-aware development
 
 - **Date:** 2026-10-01
