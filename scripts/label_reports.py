@@ -42,19 +42,22 @@ def main() -> int:
     parser.add_argument("--train-csv", type=Path, required=True)
     parser.add_argument("--gold-exclusions", type=Path, required=True)
     parser.add_argument("--max-records", type=int, required=True,
-                        help="Explicit pilot batch size (1–13); combined skip and batch limit is 13.")
+                        help="Explicit pilot batch size (1–14); combined skip and batch limit is 14.")
     parser.add_argument("--skip-records", type=int, default=0,
-                        help="Skip eligible rows when resuming (skip plus batch must total at most 13).")
+                        help="Skip eligible rows when resuming (skip plus batch must total at most 14).")
     parser.add_argument("--subscription-oauth-confirmed", action="store_true", required=True,
                         help="Assert Codex CLI is authenticated with ChatGPT subscription OAuth.")
     parser.add_argument("--output", type=Path,
                         default=Path("data/outputs/codex-report-labels.jsonl"))
+    parser.add_argument("--diagnostics", type=Path,
+                        default=Path("data/outputs/codex-pilot-diagnostics.jsonl"),
+                        help="Private local JSONL attempt journal under data/outputs.")
     args = parser.parse_args()
     try:
         total = run_pilot(
             _read_rows(args.train_csv), gold_ids=_read_gold_ids(args.gold_exclusions),
             max_records=args.max_records, skip_records=args.skip_records,
-            output_path=args.output,
+            output_path=args.output, diagnostics_path=args.diagnostics,
             subscription_oauth_confirmed=args.subscription_oauth_confirmed,
         )
     except LabelingError as exc:

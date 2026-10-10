@@ -33,6 +33,122 @@ def gold_fixture(*extra_ids):
 
 
 class SubscriptionLabelContractTests(unittest.TestCase):
+    def test_diagnostics_journal_records_safe_cause_progress_and_offset(self):
+        from rsna_knee.labels.subscription import codex_cli_infer
+
+        rows = [{"StudyInstanceUID": f"synthetic-{i}", "Report": f"report-{i}",
+                 **{column: "" for column in LABEL_COLUMNS}} for i in range(14)]
+        valid = {column: {"label": False, "evidence": "synthetic", "uncertainty": 0.1}
+                 for column in LABEL_COLUMNS}
+        calls = 0
+
+        def infer(report):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                error = LabelingError("PRIVATE_REPORT SECRET_TOKEN PRIVATE_CANARY")
+                error.cause_code = "auth_error"
+                error.exit_status = 2
+                raise error
+            return valid
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            journal = root / "data" / "outputs" / "diagnostics.jsonl"
+            output = root / "data" / "outputs" / "labels.jsonl"
+            with self.assertRaises(LabelingError) as raised:
+                run_pilot(rows, gold_ids=gold_fixture(), max_records=9, skip_records=5,
+                          output_path=output, diagnostics_path=journal, project_root=root,
+                          subscription_oauth_confirmed=True, infer=infer)
+            self.assertEqual(calls, 2)
+            self.assertIn("started=2", str(raised.exception))
+            self.assertIn("completed=1", str(raised.exception))
+            self.assertIn("failed=1", str(raised.exception))
+            self.assertNotIn("PRIVATE_REPORT", str(raised.exception))
+            self.assertNotIn("SECRET_TOKEN", str(raised.exception))
+            self.assertNotIn("PRIVATE_CANARY", str(raised.exception))
+            records = [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([record["event"] for record in records],
+                             ["attempt_started", "attempt_completed", "attempt_started", "attempt_failed"])
+            self.assertEqual(records[2]["attempt_offset"], 6)
+            self.assertEqual(records[3]["cause_code"], "auth_error")
+            self.assertEqual(records[3]["stage"], "inference")
+            self.assertGreaterEqual(records[3]["elapsed_ms"], 0)
+            self.assertEqual(records[3]["exit_status"], 2)
+            self.assertEqual(records[3]["progress"], {"started": 2, "completed": 1, "failed": 1})
+            journal_text = journal.read_text(encoding="utf-8")
+            self.assertNotIn("PRIVATE_REPORT", journal_text)
+            self.assertNotIn("SECRET_TOKEN", journal_text)
+            self.assertNotIn("PRIVATE_CANARY", journal_text)
+
+    def test_failure_classifier_uses_fixed_safe_causes_and_unknown_fallback(self):
+        from rsna_knee.labels.subscription import _classify_cli_failure
+
+        self.assertEqual(_classify_cli_failure("Error: 401 Unauthorized", ""), "auth_error")
+        self.assertEqual(_classify_cli_failure("", "Error: rate limit exceeded"), "quota_error")
+        self.assertEqual(_classify_cli_failure("", "Error: connection refused"), "network_error")
+        self.assertEqual(_classify_cli_failure("", "Error: MCP server unavailable"), "mcp_error")
+        self.assertEqual(_classify_cli_failure("", "Error: sandbox denied"), "sandbox_error")
+        self.assertEqual(_classify_cli_failure("", "Error: unrecognized argument"), "arguments_error")
+        self.assertEqual(_classify_cli_failure("", "Error: failed to parse config"), "configuration_error")
+        self.assertEqual(_classify_cli_failure("", "Error: model not found"), "model_error")
+        self.assertEqual(_classify_cli_failure("", "private report says unauthorized"), "unknown")
+        self.assertEqual(_classify_cli_failure("", "PRIVATE_CANARY"), "unknown")
+
+    def test_real_cli_failure_metadata_is_journaled_without_raw_cli_text(self):
+        from rsna_knee.labels.subscription import codex_cli_infer
+
+        rows = [{"StudyInstanceUID": "synthetic-a", "Report": "synthetic report",
+                 **{column: "" for column in LABEL_COLUMNS}}]
+        private_canary = "PRIVATE_REPORT_OR_TOKEN_CANARY"
+        failure = subprocess.CompletedProcess(
+            ["codex"], 1, stdout=private_canary,
+            stderr=f"Error: 401 Unauthorized {private_canary}",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            journal = root / "data" / "outputs" / "diagnostics.jsonl"
+            with patch("rsna_knee.labels.subscription._run_process", return_value=failure):
+                with self.assertRaises(LabelingError) as raised:
+                    run_pilot(rows, gold_ids=gold_fixture(), max_records=1,
+                              output_path=root / "data" / "outputs" / "labels.jsonl",
+                              diagnostics_path=journal, project_root=root,
+                              subscription_oauth_confirmed=True)
+            self.assertIn("authentication problem", str(raised.exception))
+            self.assertEqual(raised.exception.exit_status, 1)
+            journal_text = journal.read_text(encoding="utf-8")
+            self.assertIn('"cause_code":"auth_error"', journal_text)
+            self.assertIn('"exit_status":1', journal_text)
+            self.assertNotIn(private_canary, journal_text)
+            self.assertNotIn(private_canary, str(raised.exception))
+
+    def test_diagnostics_path_must_be_private_outputs_and_not_alias_labels(self):
+        rows = [{"StudyInstanceUID": "synthetic-a", "Report": "synthetic report",
+                 **{column: "" for column in LABEL_COLUMNS}}]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            with self.assertRaises(LabelingError):
+                run_pilot(rows, gold_ids=gold_fixture(), max_records=1,
+                          output_path=output, diagnostics_path=output, project_root=root,
+                          subscription_oauth_confirmed=True,
+                          infer=lambda report: {})
+
+    def test_journal_start_failure_stops_before_inference(self):
+        rows = [{"StudyInstanceUID": "synthetic-a", "Report": "synthetic report",
+                 **{column: "" for column in LABEL_COLUMNS}}]
+        calls = []
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("rsna_knee.labels.subscription._DiagnosticsJournal.append",
+                       side_effect=LabelingError("safe journal failure", stage="journal_persist")):
+                with self.assertRaises(LabelingError):
+                    run_pilot(rows, gold_ids=gold_fixture(), max_records=1,
+                              output_path=root / "data" / "outputs" / "labels.jsonl",
+                              diagnostics_path=root / "data" / "outputs" / "diagnostics.jsonl",
+                              project_root=root, subscription_oauth_confirmed=True,
+                              infer=lambda report: calls.append(report))
+        self.assertEqual(calls, [])
     def test_windows_timeout_cleanup_failure_is_surfaced(self):
         from rsna_knee.labels.subscription import _run_process
 
@@ -261,7 +377,7 @@ class SubscriptionLabelContractTests(unittest.TestCase):
             output.write_text(json.dumps({"StudyInstanceUID": "synthetic-0", "labels": prior}) + "\n",
                               encoding="utf-8")
             with self.assertRaises(LabelingError):
-                run_pilot(rows, gold_ids=gold_fixture(), skip_records=4, max_records=10,
+                run_pilot(rows, gold_ids=gold_fixture(), skip_records=5, max_records=10,
                           output_path=output, project_root=root,
                           subscription_oauth_confirmed=True, infer=fake_infer)
             self.assertEqual(calls, [])
@@ -275,9 +391,9 @@ class SubscriptionLabelContractTests(unittest.TestCase):
                    for line in output.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(ids, ["synthetic-0", "synthetic-1", "synthetic-2"])
 
-    def test_pilot_allows_nine_record_batch_at_cumulative_limit_13(self):
+    def test_pilot_allows_nine_record_batch_at_cumulative_limit_14(self):
         rows = [{"StudyInstanceUID": f"synthetic-{i}", "Report": f"report-{i}",
-                 **{column: "" for column in LABEL_COLUMNS}} for i in range(13)]
+                 **{column: "" for column in LABEL_COLUMNS}} for i in range(14)]
         calls = []
 
         def fake_infer(report):
@@ -293,18 +409,18 @@ class SubscriptionLabelContractTests(unittest.TestCase):
             output.parent.mkdir(parents=True)
             output.write_text("".join(
                 json.dumps({"StudyInstanceUID": f"synthetic-{i}", "labels": prior}) + "\n"
-                for i in range(4)
+                for i in range(5)
             ), encoding="utf-8")
 
             self.assertEqual(run_pilot(
-                rows, gold_ids=gold_fixture(), skip_records=4, max_records=9,
+                rows, gold_ids=gold_fixture(), skip_records=5, max_records=9,
                 output_path=output, project_root=root,
                 subscription_oauth_confirmed=True, infer=fake_infer,
-            ), 13)
-            self.assertEqual(calls, [f"report-{i}" for i in range(4, 13)])
+            ), 14)
+            self.assertEqual(calls, [f"report-{i}" for i in range(5, 14)])
 
             with self.assertRaises(LabelingError):
-                run_pilot(rows, gold_ids=gold_fixture(), skip_records=5, max_records=9,
+                run_pilot(rows, gold_ids=gold_fixture(), skip_records=6, max_records=9,
                           output_path=output, project_root=root,
                           subscription_oauth_confirmed=True, infer=fake_infer)
 
