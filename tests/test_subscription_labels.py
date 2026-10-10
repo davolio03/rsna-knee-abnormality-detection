@@ -142,6 +142,21 @@ class SubscriptionLabelContractTests(unittest.TestCase):
         self.assertTrue(kwargs["capture_output"])
         self.assertNotIn("synthetic report", repr(result))
 
+    def test_inference_prompt_names_all_target_classes(self):
+        from rsna_knee.labels.subscription import codex_cli_infer
+
+        response = {column: {"label": False, "evidence": "", "uncertainty": 0.5}
+                    for column in LABEL_COLUMNS}
+        stdout = json.dumps({"type": "item.completed", "item": {
+            "type": "agent_message", "text": json.dumps(response)}})
+        with patch("rsna_knee.labels.subscription.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = stdout
+            codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
+        prompt = run.call_args.kwargs["input"]
+        expected_targets = "TARGETS:\n" + "\n".join(f"- {name}" for name in LABEL_COLUMNS)
+        self.assertIn(expected_targets, prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

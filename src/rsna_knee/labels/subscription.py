@@ -119,8 +119,10 @@ def codex_cli_infer(report: str, *, executable: str = "codex",
         raise LabelingError("Report input is blank or invalid.")
     if not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 600:
         raise LabelingError("CLI timeout must be between 1 and 600 seconds.")
+    target_list = "\n".join(f"- {column}" for column in LABEL_COLUMNS)
     prompt = (
-        "Extract provisional binary findings for the 12 supplied targets. "
+        "Extract provisional binary findings for these targets:\n"
+        f"TARGETS:\n{target_list}\n\n"
         "Return only one JSON object with each target mapped to {label:boolean, "
         "evidence:string, uncertainty:number from 0 to 1}. Evidence must be a "
         "short exact report excerpt (maximum 200 characters); use an empty "
