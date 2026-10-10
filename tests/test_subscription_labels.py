@@ -1,11 +1,14 @@
 import json
 import csv
+import ctypes
 import os
+import subprocess
+import time
 import tempfile
 import unittest
 from pathlib import Path
 import sys
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -30,6 +33,67 @@ def gold_fixture(*extra_ids):
 
 
 class SubscriptionLabelContractTests(unittest.TestCase):
+    def test_windows_timeout_cleanup_failure_is_surfaced(self):
+        from rsna_knee.labels.subscription import _run_process
+
+        process = Mock()
+        process.pid = 1234
+        process.communicate.side_effect = [
+            subprocess.TimeoutExpired("synthetic", 0.01), ("", "")
+        ]
+        with patch("rsna_knee.labels.subscription.subprocess.Popen", return_value=process):
+            with patch("rsna_knee.labels.subscription.os.name", "nt"):
+                with patch("rsna_knee.labels.subscription.subprocess.run") as cleanup:
+                    cleanup.return_value.returncode = 1
+                    with self.assertRaisesRegex(LabelingError, "process tree cleanup failed"):
+                        _run_process(["cmd.exe", "/c", "synthetic"], "synthetic report", 0.01)
+        cleanup.assert_called_once()
+        self.assertIn("/T", cleanup.call_args.args[0])
+        self.assertNotIn("synthetic report", " ".join(cleanup.call_args.args[0]))
+        process.kill.assert_called_once()
+
+    @unittest.skipUnless(os.name == "nt", "Windows process-tree integration test")
+    def test_windows_timeout_kills_synthetic_child_process(self):
+        from rsna_knee.labels.subscription import _run_process
+
+        with tempfile.TemporaryDirectory() as directory:
+            child_pid_path = Path(directory) / "child.pid"
+            child_code = (
+                "import time; time.sleep(30)"
+            )
+            parent_code = (
+                "import subprocess,sys,time; "
+                "child=subprocess.Popen([sys.executable,'-c',sys.argv[1]]); "
+                "open(sys.argv[2],'w').write(str(child.pid)); time.sleep(30)"
+            )
+            command = [sys.executable, "-c", parent_code, child_code, str(child_pid_path)]
+            with self.assertRaisesRegex(LabelingError, "timed out"):
+                _run_process(command, "synthetic input", 2)
+
+            deadline = time.monotonic() + 5
+            while not child_pid_path.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(child_pid_path.exists(), "synthetic child did not start")
+            child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+            kernel32 = ctypes.windll.kernel32
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                handle = kernel32.OpenProcess(0x00100000, False, child_pid)
+                if not handle:
+                    break
+                try:
+                    state = kernel32.WaitForSingleObject(handle, 0)
+                finally:
+                    kernel32.CloseHandle(handle)
+                if state == 0:
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail("synthetic child survived timeout cleanup")
+
     def test_csv_reader_rejects_rows_with_missing_cells(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "synthetic.csv"
@@ -131,15 +195,15 @@ class SubscriptionLabelContractTests(unittest.TestCase):
                     for column in LABEL_COLUMNS}
         stdout = json.dumps({"type": "item.completed", "item": {
             "type": "agent_message", "text": json.dumps(response)}})
-        with patch("rsna_knee.labels.subscription.subprocess.run") as run:
-            run.return_value.returncode = 0
-            run.return_value.stdout = stdout
+        process = Mock(returncode=0)
+        process.communicate.return_value = (stdout, "")
+        with patch("rsna_knee.labels.subscription.subprocess.Popen", return_value=process) as popen:
             result = codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
         self.assertEqual(result[LABEL_COLUMNS[0]]["label"], False)
-        args, kwargs = run.call_args
+        args, kwargs = popen.call_args
         self.assertEqual(args[0], _codex_command())
-        self.assertIn("synthetic report", kwargs["input"])
-        self.assertTrue(kwargs["capture_output"])
+        self.assertEqual(process.communicate.call_args.kwargs["timeout"], 180)
+        self.assertIn("synthetic report", process.communicate.call_args.kwargs["input"])
         self.assertNotIn("synthetic report", repr(result))
 
     def test_cli_adapter_uses_windows_cmd_shim_without_passing_prompt_in_arguments(self):
@@ -150,15 +214,15 @@ class SubscriptionLabelContractTests(unittest.TestCase):
         stdout = json.dumps({"type": "item.completed", "item": {
             "type": "agent_message", "text": json.dumps(response)}})
         with patch("rsna_knee.labels.subscription.os.name", "nt"):
-            with patch("rsna_knee.labels.subscription.subprocess.run") as run:
-                run.return_value.returncode = 0
-                run.return_value.stdout = stdout
+            process = Mock(returncode=0)
+            process.communicate.return_value = (stdout, "")
+            with patch("rsna_knee.labels.subscription.subprocess.Popen", return_value=process) as popen:
                 codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
-        args, kwargs = run.call_args
+        args, kwargs = popen.call_args
         self.assertEqual(args[0], ["cmd.exe", "/d", "/s", "/c",
                                    "codex.cmd exec --json --sandbox read-only -"])
         self.assertNotIn("synthetic report", " ".join(args[0]))
-        self.assertIn("synthetic report", kwargs["input"])
+        self.assertIn("synthetic report", process.communicate.call_args.kwargs["input"])
         self.assertFalse(kwargs.get("shell", False))
 
     def test_pilot_skip_offset_selects_only_following_records_and_enforces_total_cap(self):
@@ -201,11 +265,11 @@ class SubscriptionLabelContractTests(unittest.TestCase):
                     for column in LABEL_COLUMNS}
         stdout = json.dumps({"type": "item.completed", "item": {
             "type": "agent_message", "text": json.dumps(response)}})
-        with patch("rsna_knee.labels.subscription.subprocess.run") as run:
-            run.return_value.returncode = 0
-            run.return_value.stdout = stdout
+        process = Mock(returncode=0)
+        process.communicate.return_value = (stdout, "")
+        with patch("rsna_knee.labels.subscription.subprocess.Popen", return_value=process):
             codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
-        prompt = run.call_args.kwargs["input"]
+        prompt = process.communicate.call_args.kwargs["input"]
         expected_targets = "TARGETS:\n" + "\n".join(f"- {name}" for name in LABEL_COLUMNS)
         self.assertIn(expected_targets, prompt)
 

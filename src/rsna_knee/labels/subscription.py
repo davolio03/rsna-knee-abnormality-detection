@@ -129,12 +129,8 @@ def codex_cli_infer(report: str, *, executable: str = "codex",
         "excerpt when unsupported. Do not add keys.\n\nREPORT:\n" + report
     )
     try:
-        process = subprocess.run(
-            _codex_command(),
-            input=prompt, text=True, capture_output=True, timeout=timeout_seconds,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+        process = _run_process(_codex_command(), prompt, timeout_seconds)
+    except OSError:
         raise LabelingError("Codex CLI invocation failed or timed out.") from None
     if process.returncode != 0:
         raise LabelingError("Codex CLI returned a non-zero exit status.")
@@ -151,6 +147,45 @@ def _codex_command() -> list[str]:
         return ["cmd.exe", "/d", "/s", "/c",
                 "codex.cmd exec --json --sandbox read-only -"]
     return ["codex", "exec", "--json", "--sandbox", "read-only", "-"]
+
+
+def _run_process(command: list[str], input_text: str,
+                 timeout_seconds: int) -> subprocess.CompletedProcess[str]:
+    """Run one CLI process and reap it; on Windows, terminate its process tree."""
+    process = subprocess.Popen(
+        command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        stdout, stderr = process.communicate(input=input_text, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            try:
+                cleanup = subprocess.run(
+                    ["taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
+                    capture_output=True, text=True, timeout=10, check=False,
+                )
+                if cleanup.returncode != 0:
+                    raise OSError
+                stdout, stderr = process.communicate(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                _kill_and_reap(process)
+                raise LabelingError(
+                    "Codex CLI timed out and process tree cleanup failed."
+                ) from None
+        else:
+            _kill_and_reap(process)
+        raise LabelingError("Codex CLI invocation timed out.") from None
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def _kill_and_reap(process: subprocess.Popen[str]) -> None:
+    """Best-effort direct-child cleanup after process-tree cleanup is unavailable."""
+    try:
+        process.kill()
+        process.communicate(timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def _final_agent_message(stdout: str) -> str:
