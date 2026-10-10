@@ -64,26 +64,26 @@ The project has an accepted nested study-level prompt-strategy evaluation design
 - [x] Exploration handoff reviewed: empty validation package; standard-library unittest; no dependency manifest; no strict-TDD setting found.
 - [x] Strict TDD enabled for this feature by explicit user choice; exact runner recorded above.
 - [x] T1 technically complete; commit `dc7cfdf`; independent audit passed.
-- [ ] T2 complete; record commit and RED/GREEN evidence.
-- [ ] T3 complete; record commit and final checks.
-- **Authored changed-line estimate:** at least 505 lines including T1 and T2 source/tests; task/project documentation adds further lines. Delivery chain choice is pending before the next commit. No code or tests were reduced to meet a budget.
+- [x] T2 complete; commit `65ae48f`; RED/GREEN evidence recorded below.
+- [x] T3 complete; API docs, independent checks, safety readback and closure records accompany the local documentation work-unit commit.
+- **Authored changed-line estimate:** at least 505 lines including T1 and T2 source/tests; task/project documentation adds further lines. Direct-main delivery was explicitly selected; no PR is being created. No code or tests were reduced to meet a budget.
 - **T1 strict-TDD evidence:** `python -m unittest discover -s tests -v` first failed before implementation with `ModuleNotFoundError` for `rsna_knee.validation.multilabel`; after implementation, the same command passed all 36 tests. An intermediate test run exposed malformed two-study fixtures using the three-fold default; tests were corrected to request two folds for those validation cases.
 - **Current verification:** T1 uses synthetic fixtures only; no private Gold data was accessed. T1 commit: `dc7cfdf`. Independent read-only audit reran all 36 tests successfully and 2,800 synthetic coverage/nonempty-partition probes.
-- **T2 behavior implemented; commit pending:** `nested_multilabel_splits` returns immutable `NestedSplit(train, test, inner_splits)` and `InnerSplit(train, validation)` records. Defaults are 3x3; outer seed is the supplied seed and inner seed is `seed + 1 + outer_index`. Rows are aligned by original keys and all complements preserve input order. Insufficient allocated outer-training populations reject clearly; no exact-size or class-coverage promise is made.
+- **T2 implemented and committed as `65ae48f`:** `nested_multilabel_splits` returns immutable `NestedSplit(train, test, inner_splits)` and `InnerSplit(train, validation)` records. Defaults are 3x3; outer seed is the supplied seed and inner seed is `seed + 1 + outer_index`. Rows are aligned by original keys and all complements preserve input order. Insufficient allocated outer-training populations reject clearly; no exact-size or class-coverage promise is made.
 - **T2 strict-TDD evidence:** Before source implementation, `python -m unittest discover -s tests -v` ran 37 tests and failed with one import error because `nested_multilabel_splits` did not exist. After implementation, all 44 tests passed. After a test-only cleanup, all 44 passed again (2.353 seconds). `python -m doctest src/rsna_knee/validation/multilabel.py` passed; `git diff --check` passed (only Git line-ending conversion warnings).
 - **T2 runtime/safety:** Synthetic fixtures exercise the public API directly; external runtime harness is N/A because there is no external execution boundary. No private data or remote operations were accessed. Rollback boundary: remove the nested API/dataclasses and `tests/test_validation_nested.py`, retaining the T1 allocator. Source/test T2 changes total 200 authored lines (90 additions/1 deletion in the module and 109 new test lines), excluding task-record updates.
 
 ## Next step
 
-Independent T2 verification passed. Resolve the ask-on-risk delivery-chain choice before its work-unit commit: T1's 305 authored lines plus T2's 200 source/test lines exceed the 400-line accumulated delivery budget. Complete T3 final structural/safety readback and reconcile the Engram mirror. Clone-local RDD is off by explicit user decision; the old native T1 review remains inconclusive, not approved or closed. Do not invoke native review or access private Gold contents.
+Local implementation and technical checks are complete on main. No push or PR has been performed or authorized. Further evaluation requires separately authorized data scope and a frozen protocol; synthetic tests do not establish real-data feasibility. Old native T1 review remains inconclusive; clone-local RDD stays disabled/unmanaged.
 
 ## Workflow update
 
 - User explicitly disabled clone-local RDD; global preference unchanged. Native status: disabled/unmanaged for subsequent work; old T1 review remains inconclusive.
 - T1 independent audit: 36 unittest tests and 2,800 bounded synthetic probes passed; no blockers. Fold capacity is a tie-break preference, not a rigid size or per-class-coverage guarantee.
-- Delivery estimate must be refreshed before the T2 commit. If cumulative authored changes exceed the delivery budget, resolve the ask-on-risk chain choice before committing; no push or PR is authorized.
+- User superseded the prior PR-chain proposal with direct local main commits; no push or PR is authorized.
 
-- **Independent T2 audit:** 44 tests, doctest and diff whitespace check passed; 300 synthetic cases verified (299 valid partitions, one correctly rejected for insufficient inner population). No blockers. Parent spot-check also passed all 44 tests. T3 API usage criterion is satisfied by the executable docstring; source/test changes contain synthetic fixtures only. Final commit/publication review remains pending.
+- **Independent T2 audit:** 44 tests, doctest and diff whitespace check passed; 300 synthetic cases verified (299 valid partitions, one correctly rejected for insufficient inner population). No blockers. Parent spot-check also passed all 44 tests. T3 API usage criterion is satisfied by the executable docstring; source/test changes contain synthetic fixtures only. T2 code is committed as `65ae48f`; closure documentation is recorded in a separate local work-unit commit. Publication remains unauthorized.
 
 ## Direct-main delivery decision
 
