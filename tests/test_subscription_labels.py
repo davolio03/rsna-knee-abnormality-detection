@@ -1,4 +1,5 @@
 import json
+import csv
 import os
 import tempfile
 import unittest
@@ -7,6 +8,8 @@ import sys
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from label_reports import _read_rows
 
 from rsna_knee.labels.subscription import (
     LABEL_COLUMNS,
@@ -27,6 +30,16 @@ def gold_fixture(*extra_ids):
 
 
 class SubscriptionLabelContractTests(unittest.TestCase):
+    def test_csv_reader_rejects_rows_with_missing_cells(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic.csv"
+            with path.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.writer(stream)
+                writer.writerow(["StudyInstanceUID", "Report", *LABEL_COLUMNS])
+                writer.writerow(["synthetic-study", "synthetic report", *([""] * (len(LABEL_COLUMNS) - 1))])
+            with self.assertRaises(LabelingError):
+                _read_rows(path)
+
     def test_target_schema_is_the_competition_target_order(self):
         self.assertEqual(
             LABEL_COLUMNS,

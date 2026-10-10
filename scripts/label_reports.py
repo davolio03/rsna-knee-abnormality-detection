@@ -15,7 +15,10 @@ def _read_rows(path: Path):
             reader = csv.DictReader(stream)
             if not reader.fieldnames:
                 raise LabelingError("Training CSV has no header.")
-            return list(reader)
+            rows = list(reader)
+            if any(None in row or any(value is None for value in row.values()) for row in rows):
+                raise LabelingError("Training CSV contains rows with missing or extra fields.")
+            return rows
     except (OSError, UnicodeError, csv.Error):
         raise LabelingError("Training CSV could not be read.") from None
 
