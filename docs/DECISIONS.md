@@ -60,3 +60,13 @@ This log contains durable project decisions, not untested hypotheses. Source pro
 - **Evidence / source:** Competition-host-authored discussion with a visible Competition Host badge, [Use of Commercially Hosted LLMs](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/discussion/733965), dated 2026-08-09; explicit host reply dated 2026-08-27. The host allows API report reading/label generation subject to the competition rules, reasonable access/cost, and provider terms. The rules have a winner-license wording conflict recorded in `COMPETITION.md`.
 - **Consequences:** This is conditional competition permission, not project authorization to transmit reports. Do not process reports externally until a provider/workflow is selected and rule, provider-term, data-handling, and project authorization constraints are resolved. The rule page's conflicting license language does not change D006 into blanket permission.
 - **Revisit when:** The MIRA license and winner-license inconsistency are clarified, provider terms and access/cost are assessed, and a concrete workflow is proposed for explicit authorization.
+
+## D007 — Use Codex CLI for a bounded subscription-label pilot
+
+- **Date:** 2026-10-10
+- **Status:** Pilot route selected and locally implemented; no report transmission or feasibility result claimed.
+- **Decision:** Evaluate report-label extraction through Codex CLI using the user's ChatGPT subscription OAuth entitlement, rather than a separately billed OpenAI API key. The pilot is limited to explicitly capped training rows whose 12 target fields are all blank and whose study keys are absent from the verified Gold exclusion list.
+- **Rationale:** The user authorized a small non-Gold subscription-backed pilot; local CPU/GPU LLM inference is infeasible.
+- **Evidence / source:** Explicit user authorization and CP-01 local contract tests. No real report was sent during implementation. The CLI adapter invokes only `codex exec`; subscription authentication and actual inference remain unverified and are CP-02 prerequisites.
+- **Consequences:** Keep generated labels and study keys in ignored local `data/outputs/` only. Never log report content or CLI payloads. Generated labels remain provisional and unvalidated against independent ground truth. This decision does not resolve provider terms, MIRA licensing, or the winner-license wording conflict recorded in `COMPETITION.md`; do not distribute outputs.
+- **Revisit when:** CP-02 operational evidence is recorded, subscription auth is verified, or applicable competition/provider terms change.
