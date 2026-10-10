@@ -63,7 +63,7 @@ The local nested 3x3 splitter and aggregate feasibility screen are complete. D00
 - [x] Reconciled E007, D004, DATA, D006/COMPETITION, and PROJECT_STATE; aggregate fold feasibility is recorded without IDs or membership.
 - [x] Verification: `python -m unittest discover -s tests -p test_subscription_labels.py` — 22 tests passed; `git diff --check` — passed; structural checks confirmed 4 common-sentence occurrences, selected metric/config details, and no stale fold-feasibility claim.
 - [x] No Gold reports, labels, IDs, or memberships were accessed; no prompt/model/API invocation or report transfer occurred. Subscription entitlement, usage telemetry, and report-transfer authorization remain unresolved prerequisites.
-- [ ] Work-unit commit identity: pending.
+- [x] Work-unit commit recorded: `3b409db840303e1cfa119fecacfa2616d68bb304` (`feat(labels): pin Luna prompt comparison protocol`).
 
 ## Next step
-After recording the local work-unit commit identity, ask the user to review the exact candidate text. Keep it unapproved, unfrozen, and unrun until explicit review and unresolved runtime/transfer prerequisites are satisfied.
+Ask the user to review the exact candidate text. Keep it unapproved, unfrozen, and unrun until explicit review and unresolved runtime/transfer prerequisites are satisfied.
