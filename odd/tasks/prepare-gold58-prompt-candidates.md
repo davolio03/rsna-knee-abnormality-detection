@@ -40,7 +40,7 @@ The local nested 3x3 splitter and aggregate feasibility screen are complete. D00
 ## Progress
 - [x] Draft artifact created and read back.
 - [x] Structural/safety checks passed (`git diff --check`; placeholder/schema consistency checked; no private Gold content included).
-- [x] Work-unit commit recorded: pending.
+- [x] Work-unit commit recorded: `689a67a052d63862a21ddc09af94fe1d2680d9b8` (`docs(labels): draft Gold-58 prompt candidates`).
 
 ## Next step
 Present `experiments/E007_gold58_prompt_candidates.md` for user review. Candidate set remains unapproved/unfrozen. Only after acceptance, freeze the candidate set plus selection and metrics protocol before any nested Gold evaluation.
