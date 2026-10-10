@@ -42,9 +42,9 @@ Every target must map to exactly this object and no other keys:
 }
 ```
 
-The example values illustrate types only; they are not target labels or a calibration guide. `label` remains a JSON boolean, `evidence` an exact report excerpt of at most 200 characters (or empty when unsupported), and `uncertainty` a number in [0,1]. Every candidate uses this exact shared instruction:
+The example values illustrate types only; they are not target labels or a calibration guide. `label` remains a JSON boolean, `evidence` an exact report excerpt of at most 200 characters (or empty when unsupported), and `uncertainty` is the model's estimated probability that its binary label is incorrect. This is an estimated error probability, not a generic epistemic-uncertainty scale or a calibration guarantee. Every candidate uses this exact shared instruction:
 
-> For each target, set uncertainty to your estimated probability that its binary label is incorrect: 0 means certain, 1 means maximally uncertain.
+> For each target, set uncertainty to your estimated probability that its binary label is incorrect: 0 means you estimate the label is correct, and 1 means you estimate the label is incorrect.
 
 The sentence defines the requested meaning, not a calibration guarantee.
 
@@ -59,7 +59,7 @@ ${TARGET_LIST}
 
 Return only one JSON object with each target mapped to {label:boolean, evidence:string, uncertainty:number from 0 to 1}. Evidence must be a short exact report excerpt (maximum 200 characters); use an empty excerpt when unsupported. Do not add keys.
 
-For each target, set uncertainty to your estimated probability that its binary label is incorrect: 0 means certain, 1 means maximally uncertain.
+For each target, set uncertainty to your estimated probability that its binary label is incorrect: 0 means you estimate the label is correct, and 1 means you estimate the label is incorrect.
 
 REPORT:
 ${REPORT}
@@ -76,7 +76,7 @@ ${TARGET_LIST}
 
 Return only one JSON object with each target mapped to {label:boolean, evidence:string, uncertainty:number from 0 to 1}. Evidence must be a short exact report excerpt (maximum 200 characters); use an empty excerpt when unsupported. Do not add keys.
 
-For each target, set uncertainty to your estimated probability that its binary label is incorrect: 0 means certain, 1 means maximally uncertain.
+For each target, set uncertainty to your estimated probability that its binary label is incorrect: 0 means you estimate the label is correct, and 1 means you estimate the label is incorrect.
 
 Evidence workflow:
 For each target, first locate the exact report passage that may support or contradict that target, then decide the binary label from the report. Do not infer a finding from unrelated text. If no supporting or contradicting passage is present, use an empty evidence string and do not invent evidence. Keep the required output schema unchanged.
@@ -96,10 +96,10 @@ ${TARGET_LIST}
 
 Return only one JSON object with each target mapped to {label:boolean, evidence:string, uncertainty:number from 0 to 1}. Evidence must be a short exact report excerpt (maximum 200 characters); use an empty excerpt when unsupported. Do not add keys.
 
-For each target, set uncertainty to your estimated probability that its binary label is incorrect: 0 means certain, 1 means maximally uncertain.
+For each target, set uncertainty to your estimated probability that its binary label is incorrect: 0 means you estimate the label is correct, and 1 means you estimate the label is incorrect.
 
 Report interpretation policy (illustrative hypothesis; requires approval):
-Interpret statements in context. Distinguish explicit negation from a positive finding; do not treat a negated finding as present. Preserve the report's uncertainty rather than converting tentative wording into a certain positive. Do not treat a historical or resolved finding as a current finding unless the report explicitly establishes that it remains current. When the report contains no relevant evidence, return the required binary label as false and use empty evidence; the schema has no abstention value. Use the uncertainty field to indicate ambiguity only after its meaning and scale have been approved; do not invent clinical criteria or target definitions. Keep the required output schema unchanged.
+Interpret statements in context. Distinguish explicit negation from a positive finding; do not treat a negated finding as present. Do not convert tentative wording into a positive finding without explicit support. Do not treat a historical or resolved finding as a current finding unless the report explicitly establishes that it remains current. When the report contains no relevant evidence, return the required binary label as false and use empty evidence; the schema has no abstention value. Use the shared probability-of-error definition for the uncertainty field. Do not invent clinical criteria or target definitions. Keep the required output schema unchanged.
 
 REPORT:
 ${REPORT}

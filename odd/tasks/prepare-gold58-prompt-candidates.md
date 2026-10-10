@@ -17,7 +17,7 @@ The local nested 3x3 splitter and aggregate feasibility screen are complete. D00
 
 ## Constraints
 - Preserve the current JSON fields: `label`, exact quoted `evidence`, and `uncertainty` in [0,1].
-- Define `uncertainty` as the estimated probability that the binary label is incorrect (0 = certain, 1 = maximally uncertain); use this identically in all candidates.
+- Define `uncertainty` as the estimated probability that the binary label is incorrect; use this identically in all candidates. Do not equate probability of error 1 with maximum epistemic uncertainty.
 - Primary metric: macro balanced accuracy across the 12 targets; select by mean inner-validation macro balanced accuracy. Tie-break deterministically in favor of the simpler prompt (baseline, then evidence workflow, then interpretation policy).
 - Secondary descriptive metric: macro Brier score for uncertainty against the label-error indicator; lower is better, but it does not select the prompt.
 - Outer-fold results evaluate the complete inner-selection procedure only; do not tune candidates or metrics from outer results.
@@ -37,6 +37,7 @@ The local nested 3x3 splitter and aggregate feasibility screen are complete. D00
 - [x] Document the fixed Luna/high configuration, macro balanced accuracy selection, descriptive macro Brier score, inner-fold tie-break, and usage reporting limits; retain explicit no-run/no-Gold-access status.
 - [x] Reconcile D004 and PROJECT_STATE with the approved protocol and local CLI capability evidence; do not claim subscription availability without proof.
 - [x] Read back artifacts and run structural/privacy checks; record results and commit the completed work unit locally on main.
+- [x] Correct independent-review finding: state 0 = the model estimates zero probability that the label is incorrect; state 1 = it estimates probability one that the label is incorrect; remove Candidate 3's obsolete uncertainty-policy conditional.
 
 ## Acceptance criteria
 - Three identifiable prompt templates, with their shared uncertainty clause and the baseline's small departure from the exact current runner prompt clearly called out.
@@ -45,6 +46,7 @@ The local nested 3x3 splitter and aggregate feasibility screen are complete. D00
 - Model target is fixed to Luna/high for this comparison, with local Codex subscription compatibility clearly verified or explicitly left as a prerequisite.
 - Primary metric, secondary metric, fold selection, and deterministic tie-break are explicit and consistent with D004.
 - Artifact states not run; exact candidate text remains pending final user approval, and no evaluation can start before that approval and runtime compatibility checks.
+- Uncertainty prompt wording and Brier target use the same probability-of-error interpretation; probability 1 is not described as maximum epistemic uncertainty.
 - No private Gold content or identifiers included.
 
 ## Route and verification
@@ -64,6 +66,7 @@ The local nested 3x3 splitter and aggregate feasibility screen are complete. D00
 - [x] Verification: `python -m unittest discover -s tests -p test_subscription_labels.py` — 22 tests passed; `git diff --check` — passed; structural checks confirmed 4 common-sentence occurrences, selected metric/config details, and no stale fold-feasibility claim.
 - [x] No Gold reports, labels, IDs, or memberships were accessed; no prompt/model/API invocation or report transfer occurred. Subscription entitlement, usage telemetry, and report-transfer authorization remain unresolved prerequisites.
 - [x] Work-unit commit recorded: `3b409db840303e1cfa119fecacfa2616d68bb304` (`feat(labels): pin Luna prompt comparison protocol`).
+- [x] Independent review found inconsistent wording between probability of error and “maximally uncertain,” plus a stale Candidate 3 conditional; user confirmed the intended probability-of-error interpretation on 2026-10-11 and E007/D004 now use that meaning.
 
 ## Next step
-Ask the user to review the exact candidate text. Keep it unapproved, unfrozen, and unrun until explicit review and unresolved runtime/transfer prerequisites are satisfied.
+Ask the user to review the corrected exact candidate text. Keep it unapproved, unfrozen, and unrun until explicit review and unresolved runtime/transfer prerequisites are satisfied.
