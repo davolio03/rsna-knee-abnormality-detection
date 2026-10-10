@@ -29,7 +29,24 @@ This read-only check loaded only the listed metadata columns; it did not materia
 
 For `train_series.csv`, the five loaded columns were `StudyInstanceUID`, `SeriesInstanceUID`, `Fluid_Sensitive`, `Fat_Suppression`, and `Anatomical_Plane`. Reports and target columns were excluded by `usecols`; no report or label values were materialized or analyzed. No identifiers were emitted and no DICOM was opened. These aggregates are local observations, not full data-quality/schema validation.
 
-The user explicitly reserved the 58 expert-labeled Gold-58 studies exclusively for final evaluation; they must not be used for training, prompt optimization, model selection, or tuning. The count, study identities, and expert-label mapping remain unverified; this metadata-only inspection did not inspect target values or identify Gold-58. See [D004](DECISIONS.md#d004--reserve-gold-58-for-final-evaluation).
+The user explicitly reserved the 58 expert-labeled Gold-58 studies exclusively for final evaluation; they must not be used for training, prompt optimization, model selection, or tuning. This 2026-10-02 local metadata-only inspection did not inspect target values or identify Gold-58. See [D004](DECISIONS.md#d004--reserve-gold-58-for-final-evaluation).
+
+## Private Kaggle Gold-58 candidate identification (2026-10-10)
+
+A private Kaggle notebook, `RSNA Knee | Gold-58 ID Mask (Private)`, ran against the official competition input. It read only `StudyInstanceUID` and the presence/absence of each of the 12 target columns in `train.csv`, using per-field converters; it did not materialize target values. It did not read `Report` or image/DICOM data. The successful private Save & Run All produced these aggregates:
+
+| Observation | Count / result |
+|---|---:|
+| Training rows | 4,407 |
+| Rows with all 12 target fields present | 58 |
+| Rows with some, but not all, target fields present | 0 |
+| Rows with no target fields present | 4,349 |
+| Candidate ID uniqueness | Unique |
+| Private candidate-ID artifact | Created in `/kaggle/working/gold58_study_ids.csv`; row count 58 |
+
+This is an operational identification of the 58-row all-targets-present candidate set, consistent with the reserved Gold-58 count. Expert-label provenance and identity are not independently verified from labels: no label values were read. Candidate IDs and target values are intentionally absent from repository documentation; the ID artifact remains private on Kaggle. No public notebook, link, dataset, or submission was created, and no data was downloaded locally.
+
+Gold remains reserved exclusively for final evaluation of the label-generation strategy. Do not use these studies for training, prompt/threshold tuning, model selection, or strategy selection. This observation establishes candidate-set counts and a private exclusion artifact only; it does not establish label quality or expert-label provenance.
 
 ## Submission-path evidence
 
