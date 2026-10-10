@@ -261,7 +261,7 @@ class SubscriptionLabelContractTests(unittest.TestCase):
             output.write_text(json.dumps({"StudyInstanceUID": "synthetic-0", "labels": prior}) + "\n",
                               encoding="utf-8")
             with self.assertRaises(LabelingError):
-                run_pilot(rows, gold_ids=gold_fixture(), skip_records=1, max_records=10,
+                run_pilot(rows, gold_ids=gold_fixture(), skip_records=4, max_records=10,
                           output_path=output, project_root=root,
                           subscription_oauth_confirmed=True, infer=fake_infer)
             self.assertEqual(calls, [])
@@ -274,6 +274,39 @@ class SubscriptionLabelContractTests(unittest.TestCase):
             ids = [json.loads(line)["StudyInstanceUID"]
                    for line in output.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(ids, ["synthetic-0", "synthetic-1", "synthetic-2"])
+
+    def test_pilot_allows_nine_record_batch_at_cumulative_limit_13(self):
+        rows = [{"StudyInstanceUID": f"synthetic-{i}", "Report": f"report-{i}",
+                 **{column: "" for column in LABEL_COLUMNS}} for i in range(13)]
+        calls = []
+
+        def fake_infer(report):
+            calls.append(report)
+            return {column: {"label": False, "evidence": "synthetic", "uncertainty": 0.1}
+                    for column in LABEL_COLUMNS}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            prior = {column: {"label": False, "evidence": "synthetic", "uncertainty": 0.1}
+                     for column in LABEL_COLUMNS}
+            output.parent.mkdir(parents=True)
+            output.write_text("".join(
+                json.dumps({"StudyInstanceUID": f"synthetic-{i}", "labels": prior}) + "\n"
+                for i in range(4)
+            ), encoding="utf-8")
+
+            self.assertEqual(run_pilot(
+                rows, gold_ids=gold_fixture(), skip_records=4, max_records=9,
+                output_path=output, project_root=root,
+                subscription_oauth_confirmed=True, infer=fake_infer,
+            ), 13)
+            self.assertEqual(calls, [f"report-{i}" for i in range(4, 13)])
+
+            with self.assertRaises(LabelingError):
+                run_pilot(rows, gold_ids=gold_fixture(), skip_records=5, max_records=9,
+                          output_path=output, project_root=root,
+                          subscription_oauth_confirmed=True, infer=fake_infer)
 
     def test_inference_prompt_names_all_target_classes(self):
         from rsna_knee.labels.subscription import codex_cli_infer

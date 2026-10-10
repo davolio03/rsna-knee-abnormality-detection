@@ -42,9 +42,9 @@ def main() -> int:
     parser.add_argument("--train-csv", type=Path, required=True)
     parser.add_argument("--gold-exclusions", type=Path, required=True)
     parser.add_argument("--max-records", type=int, required=True,
-                        help="Explicit pilot limit (1–10).")
+                        help="Explicit pilot batch size (1–13); combined skip and batch limit is 13.")
     parser.add_argument("--skip-records", type=int, default=0,
-                        help="Skip this many eligible rows when resuming (combined limit at most 10).")
+                        help="Skip eligible rows when resuming (skip plus batch must total at most 13).")
     parser.add_argument("--subscription-oauth-confirmed", action="store_true", required=True,
                         help="Assert Codex CLI is authenticated with ChatGPT subscription OAuth.")
     parser.add_argument("--output", type=Path,

@@ -21,7 +21,7 @@ LABEL_COLUMNS = (
 )
 STUDY_COLUMN = "StudyInstanceUID"
 REPORT_COLUMN = "Report"
-MAX_PILOT_RECORDS = 10
+MAX_PILOT_RECORDS = 13
 EXPECTED_GOLD_STUDIES = 58
 _MAX_EVIDENCE_CHARS = 200
 
@@ -216,10 +216,10 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
               infer: Callable[[str], object] = codex_cli_infer) -> int:
     """Run/resume a small local pilot; outputs must stay under ignored data/outputs."""
     if isinstance(max_records, bool) or not isinstance(max_records, int) or not 1 <= max_records <= MAX_PILOT_RECORDS:
-        raise LabelingError("max_records must be explicitly between 1 and 10.")
+        raise LabelingError("max_records must be explicitly between 1 and 13.")
     if (isinstance(skip_records, bool) or not isinstance(skip_records, int)
             or skip_records < 0 or skip_records + max_records > MAX_PILOT_RECORDS):
-        raise LabelingError("skip_records and max_records must total no more than 10.")
+        raise LabelingError("skip_records and max_records must total no more than 13.")
     if subscription_oauth_confirmed is not True:
         raise LabelingError("Confirm ChatGPT subscription OAuth before running a pilot.")
     root = Path(project_root or Path(__file__).resolve().parents[3]).resolve()
