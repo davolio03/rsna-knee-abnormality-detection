@@ -1,19 +1,19 @@
 # Competition Contract
 
-Phase 0 is still in progress. Official overview, evaluation, and data descriptions were previously checked through indexed content; the full rules, host clarification, and submissions page were directly read in an authenticated Chrome session on 2026-10-02 under explicit read-only authorization. This confirmed web access and the accepted-rules UI, not Kaggle API/CLI access. No personal account identifiers are recorded.
+Phase 0 is complete against the acceptance criteria in `docs/ROADMAP.md`: the official contract, metric, schema, access limits, and structural submission contract are documented. This does not claim that the full local schema, full-size inference runtime, hardware feasibility, or Kaggle API/CLI access has been verified. The official public overview and data page were checked on 2026-10-10. The full rules, host clarification, and submissions page were directly read in an authenticated Chrome session on 2026-10-02 under explicit read-only authorization; that confirmed web access and accepted-rules UI, not Kaggle API/CLI access. No personal account identifiers are recorded.
 
 ## Published contract
 
 | Area | Published description | Source |
 |---|---|---|
-| Schedule | Start: 2026-07-30. Entry and team-merger deadline: 2026-10-15 23:59 UTC. Final deadline: 2026-10-22 23:59 UTC. Winners' requirements: 2026-11-05 23:59 UTC. Organizers may update the timeline. | [Overview](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/overview) |
-| Notebook | CPU/GPU notebook runtime is limited to 9 hours; internet is disabled. The overview permits freely/publicly available external data and pretrained models. Required output filename: `submission.csv`. | [Overview](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/overview) |
-| Evaluation | Mean ROC-AUC across 12 targets at study level. Published sample prediction is 0.5 for each target; this is not a project result. | [Evaluation](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/overview/evaluation) |
+| Schedule | Start: 2026-07-30. Entry and team-merger deadline: 2026-10-15 23:59 UTC. Final deadline: 2026-10-22 23:59 UTC. Winners' requirements: 2026-11-05 23:59 UTC. Organizers may update the timeline. Checked 2026-10-10. | [Overview](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/) |
+| Notebook | CPU/GPU notebook runtime is limited to 9 hours; internet is disabled. The overview permits freely/publicly available external data and pretrained models. Required output filename: `submission.csv`. Checked 2026-10-10. | [Overview](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/) |
+| Evaluation | Mean ROC-AUC across 12 targets at study level. Published sample prediction is 0.5 for each target; this is not a project result. Checked 2026-10-10. | [Evaluation](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/) |
 | Submissions | Up to 5 submissions per day and up to 2 final submissions. If fewer than 2 are selected, Kaggle may auto-select from the highest-scoring submissions; the fallback does not establish what will be selected in a particular case. | [Rules](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/rules), [Submissions](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/submissions) |
 | Team and sharing | Teams may have up to 5 members. Private code/data sharing is limited to registered team members; public code is to be shared on the competition forum or notebooks and must satisfy applicable licenses. | [Rules](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/rules) |
 | Winning obligations | Winners must provide training/inference code, weights, documentation, and runtime-environment details; the page describes public distribution of model weights through a Kaggle dataset. | [Rules](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/rules) |
 
-The scoring columns are `StudyInstanceUID,ACL,MCL,Medial Meniscus,Lateral Meniscus,Medial OA,Lateral OA,PF OA,Effusion,Synovitis,Baker's,Contusion,Fracture`.
+The scoring columns are `StudyInstanceUID,ACL,MCL,Medial Meniscus,Lateral Meniscus,Medial OA,Lateral OA,PF OA,Effusion,Synovitis,Baker's,Contusion,Fracture`. The official data description says the training CSV has one row per study with `StudyInstanceUID`, report, and the 12 targets; test reports are unavailable at test time. It also describes series CSV schemas and the sample submission. Checked 2026-10-10; this is a published description, not local-file validation. See the [official data page](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/data).
 
 ## External data, tools, and report processing
 
@@ -25,7 +25,7 @@ The [host discussion, “Use of Commercially Hosted LLMs”](https://www.kaggle.
 
 The rules page names CC-BY-NC 4.0 in the winner-license area and rule 2.5, while nearby text calls the license OSI-approved and says it must not restrict commercial use. Those statements conflict on their face. The MIRA license also has a broad no-derivative-work restriction whose application to labels, features, or weights remains unclear. Seek organizer clarification before distributing competition-derived artifacts or commercial deployment; do not resolve legal precedence here or select a project license. This ambiguity is not recorded as a blanket ban on private competition research, including research intended to inform a saleable product. It does not grant any additional permission to access or download competition data.
 
-The rules do not resolve practical GPU/VRAM/RAM availability or establish a representative inference runtime, and no local metadata/sample-file schema has been verified. Kaggle web acceptance/access is confirmed by the authenticated UI; API/CLI access is not. Do not substitute generic platform defaults for these unknowns.
+The rules do not resolve practical GPU/VRAM/RAM availability or establish a representative full-size inference runtime, and local full-schema/data-quality validation remains undone. Kaggle web acceptance/access is confirmed by the authenticated UI; API/CLI access is not established by that fact. Treat these as prerequisites for later inference/deployment planning, not as a claim of completed verification. Do not substitute generic platform defaults for these unknowns.
 
 ## Local evidence and smoke-test path
 

@@ -9,7 +9,7 @@ Build a reproducible, leakage-resistant system that generates or evaluates train
 | Phase | Status | Depends on |
 |---|---|---|
 | -1 — Project / Agent Infrastructure | Complete | None |
-| 0 — Competition Setup & Submission Contract | In progress | Phase -1 |
+| 0 — Competition Setup & Submission Contract | Complete (2026-10-10) | Phase -1 |
 | 1 — Dataset Understanding / EDA | Planned | Phase 0 |
 | 2 — Report-to-Label System | Planned | Phase 0; coordinate with Phase 3 evaluation policy |
 | 3 — Validation Design | Planned; critical | Phase 0; inform Phases 2 and 5 |
@@ -37,7 +37,7 @@ Build a reproducible, leakage-resistant system that generates or evaluates train
 
 **Dependencies:** None. Phase -1 bootstrap is complete as of 2026-10-01.
 
-## Phase 0 — Competition Setup & Submission Contract (in progress)
+## Phase 0 — Competition Setup & Submission Contract (complete, 2026-10-10)
 
 **Goal:** Understand the official rules, data contract, metric, and inference/submission requirements before serious modeling.
 
@@ -45,9 +45,9 @@ Build a reproducible, leakage-resistant system that generates or evaluates train
 
 **Outputs:** Source-linked verified facts in `docs/COMPETITION.md`; schema/column confirmation in `docs/DATA.md`; verified environment/setup notes; a minimal structural submission path and corresponding check only after the contract is understood.
 
-**Acceptance:** Official current constraints and schema are documented with sources and dates; metric interpretation is confirmed; access and environment limitations are recorded; a structurally valid submission contract is understood. No serious modeling is required.
+**Acceptance:** Official current constraints and schema are documented with sources and dates; metric interpretation is confirmed; access and environment limitations are recorded; a structurally valid submission contract is understood. No serious modeling is required. This acceptance is met by the source-linked contract, explicit unknowns, local synthetic validator, and one successful constant-prediction smoke submission (submission/scoring-path evidence only; no model-performance claim).
 
-**Dependencies:** Phase -1. Completion gates data-dependent EDA and informed pipeline work. Do not infer verification from this roadmap.
+**Dependencies:** Phase -1. Completion gates data-dependent EDA and informed pipeline work, but is not data-access authorization. Explicitly unresolved prerequisites for later inference/deployment include full local schema/data-quality inspection, representative full-size runtime and hardware feasibility, and Kaggle API/CLI access. Phase 1 remains gated on separately authorized data access. The MIRA/winner-license ambiguity remains a blocker to distribution or commercial deployment of competition-derived artifacts, not private research. Do not infer additional verification from this status.
 
 ## Phase 1 — Dataset Understanding / EDA
 
