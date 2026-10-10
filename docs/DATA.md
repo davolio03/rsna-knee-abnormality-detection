@@ -63,19 +63,19 @@ A final corrected run in the private Kaggle notebook completed the light CSV met
 
 This is a light CSV metadata inventory, not a full corpus, scanner, or site audit. With only three test studies, these data cannot support reliable distribution-alignment or representativeness conclusions. The inventory does not characterize slices, image resolution, reports, label prevalence, image quality, or model performance. See the [Phase 1 ODD tracker](../odd/tasks/phase1-non-gold-metadata-inventory.md) for task evidence and scope.
 
-## Private Kaggle DICOM slice geometry pilot (2026-10-10)
+## Private Kaggle DICOM geometry characterization (2026-10-10)
 
-A bounded header-only scan examined the same deterministic five-study non-Gold training sample used for the earlier header pilot: 26 series and 662 counted `.dcm` files. Each header was read with `pydicom.dcmread(..., stop_before_pixels=True, specific_tags=...)`, selecting only geometry and header attributes. `PixelData`, reports, target values, and Gold-58 studies were not accessed; identifiers and raw content are not included here.
+A bounded header-only characterization covered 50 deterministically selected non-Gold studies, including the original five-study pilot sample. The Gold-58 exclusion set was applied before selection; the hash seed was `rsna-knee-dicom-pilot-2026-10-10`. The scan read only `Rows`, `Columns`, `PixelSpacing`, `ImageOrientationPatient` (IOP), `ImagePositionPatient` (IPP), `SliceThickness`, `SpacingBetweenSlices`, `NumberOfFrames`, and `Modality`, using `pydicom.dcmread(..., stop_before_pixels=True, specific_tags=...)`. It did not read `PixelData`, reports, or target labels, and wrote no generated output files. Identifiers and raw content are intentionally omitted.
 
-| Check | Pilot observation |
+| Check | Aggregate observation |
 |---|---|
-| Header reads | 662/662 readable; zero missing series directories, read failures, or multiframe instances. |
-| Present in every header | `Rows`, `Columns`, `PixelSpacing`, `ImageOrientationPatient`, `ImagePositionPatient`, `SliceThickness`, and `Modality` (662/662 each). |
-| Other spacing metadata | `SpacingBetweenSlices` present in 415/662 headers, with seven distinct observed values; `SliceThickness` had four distinct observed values. |
-| Within-series geometry | All 26 series had positions for every readable header, no orientation variation, and no duplicate slice positions at a 0.001 mm tolerance. |
-| Position-derived adjacent distances | All 26 series had calculable, approximately regular adjacent distances under the pilot criterion. Across series, min / p25 / median / p75 / p95 / max: 3.2991 / 3.3 / 3.9 / 4.4 / 6.2783 / 7.7436 mm. |
+| Scope and header reads | 273 series; 8,605 counted DICOM headers, all read; zero missing study directories or read failures. |
+| Present in every header | `Rows`, `Columns`, `PixelSpacing`, IOP, IPP, `SliceThickness`, and `Modality` (8,605/8,605 each). |
+| Other spacing metadata | `SpacingBetweenSlices` present in 7,802/8,605 headers, with 37 distinct values; `SliceThickness` had 11 distinct values. |
+| Frame and series geometry | Zero multi-frame instances; IPP present for all 273 series; one series showed varying orientation; zero series had duplicate slice positions. |
+| Position-derived adjacent distances | For each series, IPP differences were projected onto the first valid IOP-derived reference normal. Across series, min / p25 / median / p75 / p95 / max: 0.59995 / 3.3 / 3.5 / 3.9 / 5 / 7.7436 mm. All 273 series passed the same approximate regularity tolerance used in the pilot. |
 
-For each series, the scan projected `ImagePositionPatient` onto the slice normal derived from `ImageOrientationPatient`, sorted slices by that coordinate, and computed adjacent center distances. The `.dcm` count is an observed file count, not a certified image or series total. This is a tiny, deterministic five-study pilot; its distributions and regularity checks are not full-corpus estimates or evidence of population-level generalization. See the [Phase 1 geometry tracker](../odd/tasks/phase1-dicom-slice-geometry.md) for bounded task evidence.
+Slice-center spacing can be derived from IPP even when `SpacingBetweenSlices` is absent; that tag's absence alone does not make a study unusable. This is a bounded deterministic sample, not a full-corpus characterization or population estimate. These descriptive header-availability and geometry findings do not prove complete 3D reconstruction, acquisition protocol, pathology signal, or model suitability. The single orientation-variant series merits later targeted inspection without disclosing its identifier. See the [Phase 1 geometry tracker](../odd/tasks/phase1-dicom-slice-geometry.md) for bounded task evidence.
 
 ## Submission-path evidence
 
