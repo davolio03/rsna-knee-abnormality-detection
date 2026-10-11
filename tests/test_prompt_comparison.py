@@ -4,9 +4,14 @@ import unittest
 
 from rsna_knee.labels.prompt_comparison import (
     CANDIDATE_IDS,
+    COMPARISON_MODEL,
+    COMPARISON_REASONING_EFFORT,
+    PROMPT_REGISTRY,
+    build_candidate_prompt,
     run_nested_prompt_comparison,
     select_candidate,
 )
+from rsna_knee.labels.subscription import LABEL_COLUMNS
 from rsna_knee.validation.multilabel import nested_multilabel_splits
 
 
@@ -236,6 +241,64 @@ class PromptComparisonTests(unittest.TestCase):
         self.assertEqual(first.selected_candidate_id, "candidate_3")
         self.assertEqual(second.selected_candidate_id, first.selected_candidate_id)
         self.assertNotEqual(first.outer_score, second.outer_score)
+
+    def test_prompt_builder_matches_the_fixed_candidate_text_and_schema(self):
+        report = "Synthetic report body."
+        target_list = "\n".join(f"- {target}" for target in LABEL_COLUMNS)
+        shared = (
+            "Extract provisional binary findings for these targets:\n"
+            f"TARGETS:\n{target_list}\n\n"
+            "Return only one JSON object with each target mapped to {label:boolean, "
+            "evidence:string, uncertainty:number from 0 to 1}. Evidence must be a "
+            "short exact report excerpt (maximum 200 characters); use an empty "
+            "excerpt when unsupported. Do not add keys.\n\n"
+            "For each target, set uncertainty to your estimated probability that its "
+            "binary label is incorrect: 0 means you estimate the label is correct, "
+            "and 1 means you estimate the label is incorrect."
+        )
+        blocks = {
+            "candidate_1": "",
+            "candidate_2": (
+                "\n\nEvidence workflow:\n"
+                "For each target, first locate the exact report passage that may "
+                "support or contradict that target, then decide the binary label "
+                "from the report. Do not infer a finding from unrelated text. If no "
+                "supporting or contradicting passage is present, use an empty "
+                "evidence string and do not invent evidence. Keep the required output "
+                "schema unchanged."
+            ),
+            "candidate_3": (
+                "\n\nReport interpretation policy (illustrative hypothesis; requires "
+                "approval):\n"
+                "Interpret statements in context. Distinguish explicit negation "
+                "from a positive finding; do not treat a negated finding as present. "
+                "Do not convert tentative wording into a positive finding without "
+                "explicit support. Do not treat a historical or resolved finding "
+                "as a current finding unless the report explicitly establishes that "
+                "it remains current. When the report contains no relevant evidence, "
+                "return the required binary label as false and use empty evidence; "
+                "the schema has no abstention value. Use the shared probability-of-"
+                "error definition for the uncertainty field. Do not invent clinical "
+                "criteria or target definitions. Keep the required output schema "
+                "unchanged."
+            ),
+        }
+
+        self.assertEqual(tuple(PROMPT_REGISTRY), CANDIDATE_IDS)
+        for candidate_id, strategy_block in blocks.items():
+            with self.subTest(candidate_id=candidate_id):
+                expected = f"{shared}{strategy_block}\n\nREPORT:\n{report}"
+                self.assertEqual(build_candidate_prompt(candidate_id, report), expected)
+        self.assertEqual(COMPARISON_MODEL, "gpt-6-luna")
+        self.assertEqual(COMPARISON_REASONING_EFFORT, "high")
+
+    def test_prompt_builder_rejects_unknown_candidate_and_empty_report(self):
+        with self.assertRaisesRegex(ValueError, "candidate"):
+            build_candidate_prompt("candidate_4", "Synthetic report body.")
+        with self.assertRaisesRegex(ValueError, "report"):
+            build_candidate_prompt("candidate_1", "  ")
+        with self.assertRaises(TypeError):
+            PROMPT_REGISTRY["candidate_4"] = "unexpected"
 
 
 if __name__ == "__main__":

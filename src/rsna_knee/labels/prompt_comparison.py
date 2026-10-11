@@ -6,12 +6,85 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Real
+from types import MappingProxyType
 from typing import Any
 
+from rsna_knee.labels.subscription import LABEL_COLUMNS
 from rsna_knee.validation.multilabel import NestedSplit
 
 
 CANDIDATE_IDS = ("candidate_1", "candidate_2", "candidate_3")
+COMPARISON_MODEL = "gpt-6-luna"
+COMPARISON_REASONING_EFFORT = "high"
+
+
+@dataclass(frozen=True)
+class PromptCandidateDefinition:
+    """Immutable candidate-specific strategy text appended to shared instructions."""
+
+    candidate_id: str
+    strategy_block: str
+
+
+PROMPT_REGISTRY: Mapping[str, PromptCandidateDefinition] = MappingProxyType(
+    {
+        "candidate_1": PromptCandidateDefinition("candidate_1", ""),
+        "candidate_2": PromptCandidateDefinition(
+            "candidate_2",
+            "\n\nEvidence workflow:\n"
+            "For each target, first locate the exact report passage that may support "
+            "or contradict that target, then decide the binary label from the report. "
+            "Do not infer a finding from unrelated text. If no supporting or "
+            "contradicting passage is present, use an empty evidence string and do not "
+            "invent evidence. Keep the required output schema unchanged.",
+        ),
+        "candidate_3": PromptCandidateDefinition(
+            "candidate_3",
+            "\n\nReport interpretation policy (illustrative hypothesis; requires "
+            "approval):\n"
+            "Interpret statements in context. Distinguish explicit negation from a "
+            "positive finding; do not treat a negated finding as present. Do not "
+            "convert tentative wording into a positive finding without explicit "
+            "support. Do not treat a historical or resolved finding as a current "
+            "finding unless the report explicitly establishes that it remains current. "
+            "When the report contains no relevant evidence, return the required "
+            "binary label as false and use empty evidence; the schema has no abstention "
+            "value. Use the shared probability-of-error definition for the uncertainty "
+            "field. Do not invent clinical criteria or target definitions. Keep the "
+            "required output schema unchanged.",
+        ),
+    }
+)
+if tuple(PROMPT_REGISTRY) != CANDIDATE_IDS:
+    raise RuntimeError("prompt registry order must match fixed candidate selection order")
+
+_SHARED_PROMPT_TEMPLATE = (
+    "Extract provisional binary findings for these targets:\n"
+    "TARGETS:\n{target_list}\n\n"
+    "Return only one JSON object with each target mapped to {label:boolean, "
+    "evidence:string, uncertainty:number from 0 to 1}. Evidence must be a short "
+    "exact report excerpt (maximum 200 characters); use an empty excerpt when "
+    "unsupported. Do not add keys.\n\n"
+    "For each target, set uncertainty to your estimated probability that its binary "
+    "label is incorrect: 0 means you estimate the label is correct, and 1 means you "
+    "estimate the label is incorrect."
+)
+
+
+def build_candidate_prompt(candidate_id: str, report: str) -> str:
+    """Build one fixed E007 prompt without exposing report text in errors or logs."""
+    if not isinstance(candidate_id, str) or candidate_id not in PROMPT_REGISTRY:
+        raise ValueError("unknown prompt candidate")
+    if not isinstance(report, str) or not report.strip():
+        raise ValueError("report must be a non-empty string")
+    definition = PROMPT_REGISTRY[candidate_id]
+    target_list = "\n".join(f"- {target}" for target in LABEL_COLUMNS)
+    return (
+        _SHARED_PROMPT_TEMPLATE.replace("{target_list}", target_list)
+        + definition.strategy_block
+        + "\n\nREPORT:\n"
+        + report
+    )
 
 
 @dataclass(frozen=True)
