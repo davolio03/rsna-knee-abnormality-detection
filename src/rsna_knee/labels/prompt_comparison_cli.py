@@ -24,7 +24,14 @@ from rsna_knee.labels.prompt_comparison import (
     make_private_fingerprint,
     run_nested_prompt_comparison,
 )
-from rsna_knee.labels.subscription import LABEL_COLUMNS, REPORT_COLUMN, STUDY_COLUMN, codex_cli_infer
+from rsna_knee.labels.subscription import (
+    CODEX_EXEC_TRANSPORT_VERSION,
+    CODEX_OUTPUT_SCHEMA_VERSION,
+    LABEL_COLUMNS,
+    REPORT_COLUMN,
+    STUDY_COLUMN,
+    codex_cli_infer,
+)
 from rsna_knee.validation.multilabel import nested_multilabel_splits
 
 
@@ -191,6 +198,8 @@ def run_prompt_comparison(
             "metric": "mean_inner_macro_balanced_accuracy",
             "tie_break": list(CANDIDATE_IDS), "model": COMPARISON_MODEL,
             "reasoning_effort": COMPARISON_REASONING_EFFORT,
+            "codex_exec_transport_version": CODEX_EXEC_TRANSPORT_VERSION,
+            "codex_output_schema_version": CODEX_OUTPUT_SCHEMA_VERSION,
             "schema": ["label:boolean", "uncertainty:number"],
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
     ).encode("utf-8")

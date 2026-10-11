@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "ACL": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "MCL": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "Medial Meniscus": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "Lateral Meniscus": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "Medial OA": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "Lateral OA": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "PF OA": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "Effusion": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "Synovitis": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "Baker's": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "Contusion": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false},
+    "Fracture": {"type": "object", "properties": {"label": {"type": "boolean"}, "evidence": {"type": "string"}, "uncertainty": {"type": "number"}}, "required": ["label", "evidence", "uncertainty"], "additionalProperties": false}
+  },
+  "required": ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Lateral OA", "PF OA", "Effusion", "Synovitis", "Baker's", "Contusion", "Fracture"],
+  "additionalProperties": false
+}

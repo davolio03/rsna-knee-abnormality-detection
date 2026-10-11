@@ -7,6 +7,7 @@ operator must verify subscription-backed ChatGPT OAuth before any real run.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -26,6 +27,9 @@ REPORT_COLUMN = "Report"
 MAX_PILOT_RECORDS = 14
 EXPECTED_GOLD_STUDIES = 58
 _MAX_EVIDENCE_CHARS = 200
+CODEX_OUTPUT_SCHEMA_VERSION = "codex-label-output-v1"
+CODEX_EXEC_TRANSPORT_VERSION = "codex-exec-json-schema-v1"
+_OUTPUT_SCHEMA_PATH = Path(__file__).with_name("codex_label_output.schema.json").resolve()
 _DEFAULT_DIAGNOSTICS = Path("data/outputs/codex-pilot-diagnostics.jsonl")
 _CAUSE_EXPLANATIONS = {
     "configuration_error": "The Codex CLI reported a configuration problem.",
@@ -39,6 +43,14 @@ _CAUSE_EXPLANATIONS = {
     "timeout": "The Codex CLI invocation exceeded its time limit.",
     "spawn_error": "The Codex CLI process could not be started.",
     "invalid_response": "The Codex CLI response was not valid structured label output.",
+    "malformed_json": "The Codex CLI response was not valid JSON.",
+    "target_set_invalid": "The Codex CLI response did not contain the required target set.",
+    "item_shape_invalid": "The Codex CLI response contained an invalid target object.",
+    "label_type_invalid": "The Codex CLI response contained an invalid label type.",
+    "evidence_type_invalid": "The Codex CLI response contained an invalid evidence type.",
+    "evidence_length_invalid": "The Codex CLI response contained evidence over the allowed length.",
+    "uncertainty_type_invalid": "The Codex CLI response contained an invalid uncertainty type.",
+    "uncertainty_range_invalid": "The Codex CLI response contained uncertainty outside the allowed range.",
     "unknown": "The failure cause could not be safely classified.",
 }
 
@@ -200,21 +212,31 @@ def _present(value: object) -> bool:
 def validate_label_result(value: object) -> dict[str, dict[str, object]]:
     """Validate exact 12-target structured output without coercing labels."""
     if not isinstance(value, dict) or set(value) != set(LABEL_COLUMNS):
-        raise LabelingError("Model result must contain exactly the 12 target fields.")
+        raise LabelingError("Model result must contain exactly the 12 target fields.",
+                            cause_code="target_set_invalid")
     clean: dict[str, dict[str, object]] = {}
     for column in LABEL_COLUMNS:
         target = value[column]
         if not isinstance(target, dict) or set(target) != {"label", "evidence", "uncertainty"}:
-            raise LabelingError("Model target has an invalid structure.")
+            raise LabelingError("Model target has an invalid structure.",
+                                cause_code="item_shape_invalid")
         label, evidence, uncertainty = (target["label"], target["evidence"], target["uncertainty"])
         if type(label) is not bool:
-            raise LabelingError("Model target label must be a JSON boolean.")
-        if not isinstance(evidence, str) or len(evidence) > _MAX_EVIDENCE_CHARS:
-            raise LabelingError("Model target evidence is invalid or too long.")
+            raise LabelingError("Model target label must be a JSON boolean.",
+                                cause_code="label_type_invalid")
+        if not isinstance(evidence, str):
+            raise LabelingError("Model target evidence must be a string.",
+                                cause_code="evidence_type_invalid")
+        if len(evidence) > _MAX_EVIDENCE_CHARS:
+            raise LabelingError("Model target evidence is too long.",
+                                cause_code="evidence_length_invalid")
         if isinstance(uncertainty, bool) or not isinstance(uncertainty, (int, float)):
-            raise LabelingError("Model target uncertainty must be numeric.")
-        if not 0 <= uncertainty <= 1:
-            raise LabelingError("Model target uncertainty must be between 0 and 1.")
+            raise LabelingError("Model target uncertainty must be numeric.",
+                                cause_code="uncertainty_type_invalid")
+        if (not 0 <= uncertainty <= 1
+                or (isinstance(uncertainty, float) and not math.isfinite(uncertainty))):
+            raise LabelingError("Model target uncertainty must be between 0 and 1.",
+                                cause_code="uncertainty_range_invalid")
         clean[column] = {"label": label, "evidence": evidence,
                          "uncertainty": float(uncertainty)}
     return clean
@@ -273,19 +295,26 @@ def codex_cli_infer(report: str, *, executable: str = "codex",
         raise LabelingError("Codex CLI response was not valid structured label output.",
                             stage="response_parse", cause_code="invalid_response") from None
     try:
-        return validate_label_result(json.loads(answer))
+        parsed = json.loads(answer)
     except (ValueError, TypeError, json.JSONDecodeError):
         raise LabelingError("Codex CLI response was not valid structured label output.",
-                            stage="response_validation", cause_code="invalid_response") from None
+                            stage="response_validation", cause_code="malformed_json") from None
+    try:
+        return validate_label_result(parsed)
+    except LabelingError as exc:
+        raise LabelingError("Codex CLI response failed local output validation.",
+                            stage="response_validation", cause_code=exc.cause_code) from None
 
 
 def _codex_command() -> list[str]:
+    schema = str(_OUTPUT_SCHEMA_PATH)
     if os.name == "nt":
         # Keep report text on stdin; only this fixed command string reaches cmd.exe.
         return ["cmd.exe", "/d", "/s", "/c",
                 "codex.cmd exec --json --sandbox read-only --model gpt-6-luna "
-                "--config model_reasoning_effort=high -"]
+                f'--output-schema "{schema}" --config model_reasoning_effort=high -']
     return ["codex", "exec", "--json", "--sandbox", "read-only",
+            "--output-schema", schema,
             "--model", "gpt-6-luna", "--config",
             "model_reasoning_effort=high", "-"]
 

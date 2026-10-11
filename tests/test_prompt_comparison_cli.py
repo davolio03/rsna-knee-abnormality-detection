@@ -2,9 +2,12 @@
 
 import json
 import os
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
+from unittest.mock import patch
 
 from rsna_knee.labels.prompt_comparison_cli import (
     _read_comparison_csv,
@@ -166,10 +169,11 @@ class PromptComparisonCliTests(unittest.TestCase):
             def infer(_report, **_kwargs):
                 calls.append(1)
                 if len(calls) == 2:
-                    raise LabelingError(sensitive, stage="process_exit", cause_code="auth_error", exit_status=9)
+                    raise LabelingError(sensitive, stage="response_validation",
+                                        cause_code="uncertainty_range_invalid", exit_status=9)
                 return {target: {"label": False, "uncertainty": 0.5} for target in LABEL_COLUMNS}
 
-            with self.assertRaisesRegex(ValueError, "candidate evaluation failed"):
+            with self.assertRaisesRegex(ValueError, "candidate evaluation failed") as raised:
                 run_prompt_comparison(
                     self.rows, infer=infer, project_root=temp_dir,
                     transfer_prerequisites_confirmed=True,
@@ -185,8 +189,9 @@ class PromptComparisonCliTests(unittest.TestCase):
             self.assertEqual(len(saved["failures"]), 1)
             self.assertEqual(len(saved["completed"]), 1)
             self.assertEqual(next(iter(saved["failures"].values())), {
-                "stage": "process_exit", "cause_code": "auth_error", "exit_status": 9,
+                "stage": "response_validation", "cause_code": "uncertainty_range_invalid", "exit_status": 9,
             })
+            self.assertIn("reason_code=uncertainty_range_invalid", str(raised.exception))
             retry_calls = []
 
             def retry_infer(_report, **_kwargs):
@@ -200,6 +205,62 @@ class PromptComparisonCliTests(unittest.TestCase):
                 study_manifest_keys=[row[STUDY_COLUMN] for row in self.rows],
             )
             self.assertEqual(len(retry_calls), 405)
+
+    def test_checkpoint_rejects_legacy_fingerprint_after_schema_version_change(self):
+        import rsna_knee.labels.prompt_comparison_cli as cli
+        with tempfile.TemporaryDirectory() as temp_dir:
+            calls = []
+
+            def infer(_report, **_kwargs):
+                calls.append(1)
+                return {target: {"label": False, "uncertainty": 0.5} for target in LABEL_COLUMNS}
+
+            kwargs = {
+                "infer": infer,
+                "project_root": temp_dir,
+                "transfer_prerequisites_confirmed": True,
+                "subscription_oauth_confirmed": True,
+                "study_manifest_keys": [row[STUDY_COLUMN] for row in self.rows],
+            }
+            run_prompt_comparison(self.rows, **kwargs)
+            self.assertTrue(calls)
+            calls.clear()
+            with patch.object(cli, "CODEX_OUTPUT_SCHEMA_VERSION", "codex-label-output-v2"):
+                with self.assertRaisesRegex(ValueError, "checkpoint is corrupt or incompatible"):
+                    run_prompt_comparison(self.rows, **kwargs)
+            self.assertEqual(calls, [])
+
+    def test_unknown_reason_codes_are_redacted_before_checkpoint_and_cli(self):
+        from rsna_knee.labels.prompt_comparison import CheckpointStore, ComparisonEvaluationError
+        sensitive = "PRIVATE_PAYLOAD_CANARY"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            coordinate = "a" * 64
+            store = CheckpointStore(Path(temp_dir) / "checkpoint.json", "b" * 64,
+                                    expected_coordinates=[coordinate])
+            error = LabelingError(sensitive, stage="PRIVATE_STAGE", cause_code=sensitive)
+            store.save_failure(coordinate, error)
+            saved = json.loads((Path(temp_dir) / "checkpoint.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["failures"][coordinate], {"cause_code": "unknown"})
+            exception = ComparisonEvaluationError({"cause_code": sensitive, "payload": sensitive})
+            self.assertIn("reason_code=unknown", str(exception))
+            self.assertNotIn(sensitive, str(exception))
+            self.assertEqual(exception.safe_metadata, {"cause_code": "unknown"})
+
+    def test_cli_failure_message_exposes_only_allowlisted_reason_code(self):
+        from rsna_knee.labels.prompt_comparison import ComparisonEvaluationError
+        import rsna_knee.labels.prompt_comparison_cli as cli
+        sensitive = "PRIVATE_PROVIDER_PAYLOAD_CANARY"
+        error = ComparisonEvaluationError({"cause_code": "target_set_invalid", "payload": sensitive})
+        stderr = io.StringIO()
+        with patch.object(cli, "_read_comparison_csv", return_value=self.rows):
+            with patch.object(cli, "_read_study_manifest_csv",
+                              return_value=[row[STUDY_COLUMN] for row in self.rows]):
+                with patch.object(cli, "run_prompt_comparison", side_effect=error):
+                    with redirect_stderr(stderr), self.assertRaises(SystemExit):
+                        cli.main(["--input", "synthetic.csv", "--study-manifest", "synthetic.csv",
+                                  "--confirm-transfer-prerequisites", "--subscription-oauth-confirmed"])
+        self.assertIn("reason_code=target_set_invalid", stderr.getvalue())
+        self.assertNotIn(sensitive, stderr.getvalue())
 
     def test_manifest_reader_rejects_noncanonical_manifest_path(self):
         import tempfile

@@ -15,8 +15,12 @@ from types import MappingProxyType
 from typing import Any
 from pathlib import Path
 
-from rsna_knee.labels.subscription import LABEL_COLUMNS
-from rsna_knee.labels.subscription import LabelingError
+from rsna_knee.labels.subscription import (
+    CODEX_EXEC_TRANSPORT_VERSION,
+    CODEX_OUTPUT_SCHEMA_VERSION,
+    LABEL_COLUMNS,
+    LabelingError,
+)
 from rsna_knee.validation.multilabel import NestedSplit
 
 
@@ -32,15 +36,33 @@ _SAFE_FAILURE_CAUSES = {
     "configuration_error", "arguments_error", "auth_error", "quota_error",
     "network_error", "model_error", "mcp_error", "sandbox_error", "timeout",
     "spawn_error", "invalid_response", "unknown",
+    "malformed_json", "target_set_invalid", "item_shape_invalid",
+    "label_type_invalid", "evidence_type_invalid", "evidence_length_invalid",
+    "uncertainty_type_invalid", "uncertainty_range_invalid",
 }
+_SAFE_FAILURE_INTEGER_RANGE = (-65535, 65535)
 
 
 class ComparisonEvaluationError(ValueError):
     """Fixed-text failure carrying only validated, allowlisted metadata."""
 
     def __init__(self, safe_metadata: Mapping[str, Any] | None = None):
-        super().__init__("candidate evaluation failed; details suppressed")
-        self.safe_metadata = dict(safe_metadata or {})
+        candidate = safe_metadata if isinstance(safe_metadata, Mapping) else {}
+        reason = candidate.get("cause_code")
+        metadata: dict[str, Any] = {
+            "cause_code": reason if isinstance(reason, str) and reason in _SAFE_FAILURE_CAUSES else "unknown"
+        }
+        stage = candidate.get("stage")
+        if isinstance(stage, str) and stage in _SAFE_FAILURE_STAGES:
+            metadata["stage"] = stage
+        for key in ("exit_status", "errno"):
+            value = candidate.get(key)
+            if type(value) is int and _SAFE_FAILURE_INTEGER_RANGE[0] <= value <= _SAFE_FAILURE_INTEGER_RANGE[1]:
+                metadata[key] = value
+        if metadata["cause_code"] == "unknown":
+            metadata.pop("stage", None)
+        super().__init__(f"candidate evaluation failed; reason_code={metadata['cause_code']}; details suppressed")
+        self.safe_metadata = metadata
 
 
 def _safe_failure_metadata(exc: Exception) -> dict[str, Any]:

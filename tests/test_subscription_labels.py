@@ -282,6 +282,75 @@ class SubscriptionLabelContractTests(unittest.TestCase):
         with self.assertRaises(LabelingError):
             validate_label_result(invalid)
 
+    def test_output_schema_is_closed_and_contains_all_twelve_target_contracts(self):
+        from pathlib import Path
+        schema_path = Path(__file__).parents[1] / "src" / "rsna_knee" / "labels" / "codex_label_output.schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        self.assertEqual(schema["type"], "object")
+        self.assertIs(schema["additionalProperties"], False)
+        self.assertEqual(set(schema["required"]), set(LABEL_COLUMNS))
+        self.assertEqual(set(schema["properties"]), set(LABEL_COLUMNS))
+        for target in LABEL_COLUMNS:
+            with self.subTest(target=target):
+                item = schema["properties"][target]
+                self.assertEqual(item["type"], "object")
+                self.assertIs(item["additionalProperties"], False)
+                self.assertEqual(set(item["required"]), {"label", "evidence", "uncertainty"})
+                self.assertEqual(item["properties"]["label"]["type"], "boolean")
+                self.assertEqual(item["properties"]["evidence"]["type"], "string")
+                self.assertEqual(item["properties"]["uncertainty"]["type"], "number")
+
+    def test_validation_failures_have_granular_allowlisted_reason_codes(self):
+        base = {column: {"label": False, "evidence": "synthetic", "uncertainty": 0.2}
+                for column in LABEL_COLUMNS}
+        cases = (
+            (dict(list(base.items())[1:]), "target_set_invalid"),
+            ({**base, LABEL_COLUMNS[0]: {"label": False, "evidence": "x", "uncertainty": 0.2,
+                                         "extra": "PRIVATE_TARGET_CANARY"}}, "item_shape_invalid"),
+            ({**base, LABEL_COLUMNS[0]: {"label": 1, "evidence": "x", "uncertainty": 0.2}}, "label_type_invalid"),
+            ({**base, LABEL_COLUMNS[0]: {"label": False, "evidence": 7, "uncertainty": 0.2}}, "evidence_type_invalid"),
+            ({**base, LABEL_COLUMNS[0]: {"label": False, "evidence": "x" * 201, "uncertainty": 0.2}}, "evidence_length_invalid"),
+            ({**base, LABEL_COLUMNS[0]: {"label": False, "evidence": "x", "uncertainty": True}}, "uncertainty_type_invalid"),
+            ({**base, LABEL_COLUMNS[0]: {"label": False, "evidence": "x", "uncertainty": 1.1}}, "uncertainty_range_invalid"),
+        )
+        for response, expected_reason in cases:
+            with self.subTest(reason=expected_reason), self.assertRaises(LabelingError) as raised:
+                validate_label_result(response)
+            self.assertEqual(raised.exception.cause_code, expected_reason)
+            self.assertNotIn("PRIVATE_TARGET_CANARY", str(raised.exception))
+
+    def test_malformed_final_json_has_safe_parse_reason(self):
+        from rsna_knee.labels.subscription import codex_cli_infer
+        canary = "PRIVATE_REPORT_CANARY"
+        output = json.dumps({"type": "item.completed", "item": {
+            "type": "agent_message", "text": "{" + f"not-json {canary}"}})
+        process = Mock(returncode=0)
+        process.communicate.return_value = (output, "")
+        with patch("rsna_knee.labels.subscription.subprocess.Popen", return_value=process):
+            with self.assertRaises(LabelingError) as raised:
+                codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
+        self.assertEqual(raised.exception.cause_code, "malformed_json")
+        self.assertNotIn(canary, str(raised.exception))
+
+    def test_codex_command_passes_output_schema_path_without_report_arguments(self):
+        from rsna_knee.labels.subscription import _codex_command
+        command = _codex_command()
+        self.assertIn("--output-schema", " ".join(command))
+        joined = " ".join(command)
+        self.assertIn("codex_label_output.schema.json", joined)
+        self.assertNotIn("synthetic report", joined)
+
+    def test_windows_output_schema_argument_quotes_a_path_with_spaces(self):
+        from pathlib import Path
+        from rsna_knee.labels.subscription import _codex_command
+        from rsna_knee.labels import subscription
+        schema_path = Path("C:/synthetic project/schema with spaces.json")
+        with patch("rsna_knee.labels.subscription.os.name", "nt"):
+            with patch.object(subscription, "_OUTPUT_SCHEMA_PATH", schema_path):
+                command = _codex_command()
+        self.assertIn(f'--output-schema "{schema_path}"', command[-1])
+        self.assertNotIn("synthetic report", command[-1])
+
     def test_pilot_is_bounded_resumable_and_uses_only_codex_cli(self):
         rows = [{"StudyInstanceUID": f"synthetic-{i}", "Report": "synthetic report",
                  **{column: "" for column in LABEL_COLUMNS}} for i in range(3)]
@@ -362,32 +431,25 @@ class SubscriptionLabelContractTests(unittest.TestCase):
         stdout = json.dumps({"type": "item.completed", "item": {
             "type": "agent_message", "text": json.dumps(response)}})
         with patch("rsna_knee.labels.subscription.os.name", "nt"):
+            expected_command = _codex_command()
             process = Mock(returncode=0)
             process.communicate.return_value = (stdout, "")
             with patch("rsna_knee.labels.subscription.subprocess.Popen", return_value=process) as popen:
                 codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
         args, kwargs = popen.call_args
-        self.assertEqual(args[0], ["cmd.exe", "/d", "/s", "/c",
-                                   "codex.cmd exec --json --sandbox read-only "
-                                   "--model gpt-6-luna --config "
-                                   "model_reasoning_effort=high -"])
-        self.assertEqual(
-            _codex_command(),
-            ["cmd.exe", "/d", "/s", "/c",
-             "codex.cmd exec --json --sandbox read-only --model gpt-6-luna "
-             "--config model_reasoning_effort=high -"],
-        )
+        self.assertEqual(args[0], expected_command)
         self.assertNotIn("synthetic report", " ".join(args[0]))
         self.assertIn("synthetic report", process.communicate.call_args.kwargs["input"])
         self.assertFalse(kwargs.get("shell", False))
 
     @patch("rsna_knee.labels.subscription.os.name", "posix")
     def test_cli_command_pins_luna_and_high_effort_without_invoking_codex(self):
-        from rsna_knee.labels.subscription import _codex_command
+        from rsna_knee.labels.subscription import _OUTPUT_SCHEMA_PATH, _codex_command
 
         self.assertEqual(
             _codex_command(),
             ["codex", "exec", "--json", "--sandbox", "read-only",
+             "--output-schema", str(_OUTPUT_SCHEMA_PATH),
              "--model", "gpt-6-luna", "--config",
              "model_reasoning_effort=high", "-"],
         )
