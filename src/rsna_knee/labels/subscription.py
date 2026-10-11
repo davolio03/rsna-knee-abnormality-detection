@@ -13,6 +13,7 @@ import re
 import subprocess
 import tempfile
 import time
+import warnings
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
@@ -27,6 +28,9 @@ REPORT_COLUMN = "Report"
 MAX_PILOT_RECORDS = 14
 EXPECTED_GOLD_STUDIES = 58
 _MAX_EVIDENCE_CHARS = 200
+_OVERLONG_EVIDENCE_WARNING = (
+    "Evidence exceeded the 200-character preference; full evidence was preserved."
+)
 CODEX_OUTPUT_SCHEMA_VERSION = "codex-label-output-v1"
 CODEX_EXEC_TRANSPORT_VERSION = "codex-exec-json-schema-v1"
 _OUTPUT_SCHEMA_PATH = Path(__file__).with_name("codex_label_output.schema.json").resolve()
@@ -215,6 +219,7 @@ def validate_label_result(value: object) -> dict[str, dict[str, object]]:
         raise LabelingError("Model result must contain exactly the 12 target fields.",
                             cause_code="target_set_invalid")
     clean: dict[str, dict[str, object]] = {}
+    has_overlong_evidence = False
     for column in LABEL_COLUMNS:
         target = value[column]
         if not isinstance(target, dict) or set(target) != {"label", "evidence", "uncertainty"}:
@@ -228,8 +233,7 @@ def validate_label_result(value: object) -> dict[str, dict[str, object]]:
             raise LabelingError("Model target evidence must be a string.",
                                 cause_code="evidence_type_invalid")
         if len(evidence) > _MAX_EVIDENCE_CHARS:
-            raise LabelingError("Model target evidence is too long.",
-                                cause_code="evidence_length_invalid")
+            has_overlong_evidence = True
         if isinstance(uncertainty, bool) or not isinstance(uncertainty, (int, float)):
             raise LabelingError("Model target uncertainty must be numeric.",
                                 cause_code="uncertainty_type_invalid")
@@ -239,6 +243,8 @@ def validate_label_result(value: object) -> dict[str, dict[str, object]]:
                                 cause_code="uncertainty_range_invalid")
         clean[column] = {"label": label, "evidence": evidence,
                          "uncertainty": float(uncertainty)}
+    if has_overlong_evidence:
+        warnings.warn(_OVERLONG_EVIDENCE_WARNING, UserWarning, stacklevel=2)
     return clean
 
 

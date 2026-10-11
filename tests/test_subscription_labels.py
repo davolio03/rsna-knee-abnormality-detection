@@ -309,7 +309,6 @@ class SubscriptionLabelContractTests(unittest.TestCase):
                                          "extra": "PRIVATE_TARGET_CANARY"}}, "item_shape_invalid"),
             ({**base, LABEL_COLUMNS[0]: {"label": 1, "evidence": "x", "uncertainty": 0.2}}, "label_type_invalid"),
             ({**base, LABEL_COLUMNS[0]: {"label": False, "evidence": 7, "uncertainty": 0.2}}, "evidence_type_invalid"),
-            ({**base, LABEL_COLUMNS[0]: {"label": False, "evidence": "x" * 201, "uncertainty": 0.2}}, "evidence_length_invalid"),
             ({**base, LABEL_COLUMNS[0]: {"label": False, "evidence": "x", "uncertainty": True}}, "uncertainty_type_invalid"),
             ({**base, LABEL_COLUMNS[0]: {"label": False, "evidence": "x", "uncertainty": 1.1}}, "uncertainty_range_invalid"),
         )
@@ -318,6 +317,36 @@ class SubscriptionLabelContractTests(unittest.TestCase):
                 validate_label_result(response)
             self.assertEqual(raised.exception.cause_code, expected_reason)
             self.assertNotIn("PRIVATE_TARGET_CANARY", str(raised.exception))
+
+    def test_overlong_evidence_warns_without_truncation_at_201_characters(self):
+        import warnings
+
+        valid = {column: {"label": False, "evidence": "x", "uncertainty": 0.2}
+                 for column in LABEL_COLUMNS}
+        exact_limit = dict(valid)
+        exact_limit[LABEL_COLUMNS[0]] = {
+            "label": False, "evidence": "x" * 200, "uncertainty": 0.2,
+        }
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            accepted_at_limit = validate_label_result(exact_limit)
+        self.assertEqual(captured, [])
+        self.assertEqual(accepted_at_limit[LABEL_COLUMNS[0]]["evidence"], "x" * 200)
+
+        evidence = "SYNTHETIC_EVIDENCE_CANARY" + "x" * (201 - len("SYNTHETIC_EVIDENCE_CANARY"))
+        over_limit = dict(valid)
+        over_limit[LABEL_COLUMNS[0]] = {
+            "label": False, "evidence": evidence, "uncertainty": 0.2,
+        }
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            accepted_over_limit = validate_label_result(over_limit)
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(accepted_over_limit[LABEL_COLUMNS[0]]["evidence"], evidence)
+        warning_text = str(captured[0].message)
+        self.assertNotIn(evidence, warning_text)
+        self.assertNotIn("CANARY", warning_text)
+        self.assertNotIn(LABEL_COLUMNS[0], warning_text)
 
     def test_malformed_final_json_has_safe_parse_reason(self):
         from rsna_knee.labels.subscription import codex_cli_infer

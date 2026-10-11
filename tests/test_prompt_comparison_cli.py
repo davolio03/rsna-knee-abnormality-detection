@@ -161,6 +161,61 @@ class PromptComparisonCliTests(unittest.TestCase):
             self.assertNotIn("synthetic-study-", contents)
             self.assertNotIn("synthetic report", contents)
 
+    def test_resume_after_86_synthetic_successes_reuses_checkpointed_predictions(self):
+        import warnings
+        from rsna_knee.labels.subscription import validate_label_result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first_calls = []
+            resume_calls = []
+            evidence = "SYNTHETIC_LONG_EVIDENCE" + "x" * (201 - len("SYNTHETIC_LONG_EVIDENCE"))
+
+            def synthetic_result():
+                raw = {
+                    target: {"label": False, "evidence": "synthetic phrase", "uncertainty": 0.5}
+                    for target in LABEL_COLUMNS
+                }
+                raw[LABEL_COLUMNS[0]]["evidence"] = evidence
+                return validate_label_result(raw)
+
+            def first_infer(_report, **_kwargs):
+                first_calls.append(1)
+                if len(first_calls) == 87:
+                    raise LabelingError("synthetic failure", stage="model_error", cause_code="model_error")
+                return synthetic_result()
+
+            common = {
+                "project_root": temp_dir,
+                "transfer_prerequisites_confirmed": True,
+                "subscription_oauth_confirmed": True,
+                "study_manifest_keys": [row[STUDY_COLUMN] for row in self.rows],
+            }
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                with self.assertRaisesRegex(ValueError, "candidate evaluation failed"):
+                    run_prompt_comparison(self.rows, infer=first_infer, **common)
+            self.assertEqual(len(first_calls), 87)
+
+            checkpoint_path = (
+                Path(temp_dir) / "data" / "outputs" / ".gold58-prompt-comparison-checkpoint.json"
+            )
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(checkpoint["completed"]), 86)
+            self.assertEqual(len(checkpoint["failures"]), 1)
+
+            def resume_infer(_report, **_kwargs):
+                resume_calls.append(1)
+                return synthetic_result()
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                summary = run_prompt_comparison(self.rows, infer=resume_infer, **common)
+            self.assertEqual(len(resume_calls), 320)
+            self.assertEqual(len(summary["outer_folds"]), 3)
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(checkpoint["completed"]), 406)
+            self.assertEqual(checkpoint["failures"], {})
+
     def test_failure_aborts_once_and_persists_only_safe_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             calls = []
