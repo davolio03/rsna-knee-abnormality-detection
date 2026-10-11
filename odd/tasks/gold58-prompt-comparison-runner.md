@@ -31,7 +31,7 @@ Local code, tests, and project records only. No network, Kaggle, model/provider 
 2. Nested evaluation cannot expose outer-fold results to prompt selection; synthetic tests prove the isolation and locked selection/tie-break behavior.
 3. Output and telemetry handling do not leak reports, study identifiers, or raw model payloads.
 4. Documentation accurately separates prompt approval from unresolved report-transfer clearance.
-5. All applicable tests pass under strict TDD; no actual inference or Gold data access occurs.
+5. All applicable tests pass under strict TDD; G58-05 uses synthetic fixtures only and performs no additional Gold-data reads or inference.
 6. A failed call exposes only allowlisted typed metadata (never exception text, stderr, reports, IDs, prompts, or provider payloads). Completed call results are checkpointed atomically and reusable only for an identical input/config fingerprint; failures are recorded without automatic retry, and a subsequent explicit invocation resumes safely.
 
 ## Tasks
