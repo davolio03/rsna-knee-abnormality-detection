@@ -306,20 +306,25 @@ def codex_cli_infer(report: str, *, executable: str = "codex",
                             stage="response_validation", cause_code=exc.cause_code) from None
 
 
-def _codex_command() -> list[str]:
+def _codex_command() -> list[str] | str:
     schema = str(_OUTPUT_SCHEMA_PATH)
     if os.name == "nt":
-        # Keep report text on stdin; only this fixed command string reaches cmd.exe.
-        return ["cmd.exe", "/d", "/s", "/c",
-                "codex.cmd exec --json --sandbox read-only --model gpt-6-luna "
-                f'--output-schema "{schema}" --config model_reasoning_effort=high -']
+        # Pass cmd.exe a raw command line: Popen(list) escapes embedded quotes
+        # for CreateProcess, but cmd.exe does not treat those escapes as quoting.
+        # The only dynamic token is this fixed local path, quoted for cmd.exe;
+        # report content remains on stdin.
+        return (
+            "cmd.exe /d /s /c codex.cmd exec --json --sandbox read-only "
+            "--model gpt-6-luna "
+            f'--output-schema "{schema}" --config model_reasoning_effort=high -'
+        )
     return ["codex", "exec", "--json", "--sandbox", "read-only",
             "--output-schema", schema,
             "--model", "gpt-6-luna", "--config",
             "model_reasoning_effort=high", "-"]
 
 
-def _run_process(command: list[str], input_text: str,
+def _run_process(command: list[str] | str, input_text: str,
                  timeout_seconds: int) -> subprocess.CompletedProcess[str]:
     """Run one CLI process and reap it; on Windows, terminate its process tree."""
     try:

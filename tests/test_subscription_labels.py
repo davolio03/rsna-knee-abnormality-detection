@@ -335,8 +335,8 @@ class SubscriptionLabelContractTests(unittest.TestCase):
     def test_codex_command_passes_output_schema_path_without_report_arguments(self):
         from rsna_knee.labels.subscription import _codex_command
         command = _codex_command()
-        self.assertIn("--output-schema", " ".join(command))
-        joined = " ".join(command)
+        joined = command if isinstance(command, str) else " ".join(command)
+        self.assertIn("--output-schema", joined)
         self.assertIn("codex_label_output.schema.json", joined)
         self.assertNotIn("synthetic report", joined)
 
@@ -348,8 +348,49 @@ class SubscriptionLabelContractTests(unittest.TestCase):
         with patch("rsna_knee.labels.subscription.os.name", "nt"):
             with patch.object(subscription, "_OUTPUT_SCHEMA_PATH", schema_path):
                 command = _codex_command()
-        self.assertIn(f'--output-schema "{schema_path}"', command[-1])
-        self.assertNotIn("synthetic report", command[-1])
+        command_text = command if isinstance(command, str) else command[-1]
+        self.assertIn(f'--output-schema "{schema_path}"', command_text)
+        self.assertNotIn("synthetic report", command_text)
+
+    @unittest.skipUnless(os.name == "nt", "Windows command-line regression test")
+    def test_windows_launch_preserves_schema_path_as_one_child_argument(self):
+        from rsna_knee.labels import subscription
+        from rsna_knee.labels.subscription import _codex_command, _run_process
+
+        payload = "SYNTHETIC_STDIN_CANARY"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "synthetic project"
+            tools = root / "tools"
+            tools.mkdir(parents=True)
+            schema = root / "schema & (spaces)" / "label schema.json"
+            schema.parent.mkdir()
+            schema.write_text("{}", encoding="utf-8")
+            capture = root / "capture argv.py"
+            capture.write_text(
+                "import json, sys\n"
+                "print(json.dumps({'argv': sys.argv[1:], 'stdin': sys.stdin.read()}))\n",
+                encoding="utf-8",
+            )
+            (tools / "codex.cmd").write_text(
+                '@echo off\r\n"%PYTHON_EXE%" "%ARGV_CAPTURE_SCRIPT%" %*\r\n',
+                encoding="ascii",
+            )
+            environment = {
+                "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+                "PYTHON_EXE": sys.executable,
+                "ARGV_CAPTURE_SCRIPT": str(capture),
+            }
+            with patch.object(subscription, "_OUTPUT_SCHEMA_PATH", schema):
+                with patch.dict(os.environ, environment):
+                    completed = _run_process(_codex_command(), payload, 20)
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        captured = json.loads(completed.stdout)
+        self.assertEqual(captured["argv"], [
+            "exec", "--json", "--sandbox", "read-only", "--model", "gpt-6-luna",
+            "--output-schema", str(schema), "--config", "model_reasoning_effort=high", "-",
+        ])
+        self.assertEqual(captured["stdin"], payload)
 
     def test_pilot_is_bounded_resumable_and_uses_only_codex_cli(self):
         rows = [{"StudyInstanceUID": f"synthetic-{i}", "Report": "synthetic report",
@@ -438,7 +479,7 @@ class SubscriptionLabelContractTests(unittest.TestCase):
                 codex_cli_infer("synthetic report", subscription_oauth_confirmed=True)
         args, kwargs = popen.call_args
         self.assertEqual(args[0], expected_command)
-        self.assertNotIn("synthetic report", " ".join(args[0]))
+        self.assertNotIn("synthetic report", str(args[0]))
         self.assertIn("synthetic report", process.communicate.call_args.kwargs["input"])
         self.assertFalse(kwargs.get("shell", False))
 
