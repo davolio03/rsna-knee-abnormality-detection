@@ -1,12 +1,12 @@
 # E007 — Gold-58 prompt-strategy candidates
 
-> **PROMPT TEXT APPROVED — FIXED IN LOCAL REGISTRY — NOT RUN.** The user approved the exact candidate prompt text documented here. This approval is not authorization to transfer reports or run inference. The three candidate definitions are fixed in the local prompt registry; no Gold-58 report, label, identifier, or fold membership was accessed for the local runner work.
+> **PROMPT TEXT APPROVED — FIXED IN LOCAL REGISTRY — ONE AUTHORIZED RUN FAILED.** The user approved the exact candidate prompt text documented here and later explicitly authorized one execution of this fixed comparison. That invocation used the existing ChatGPT OAuth route through Codex CLI and terminated before a valid aggregate summary; no comparison metrics are available. This status records the user authorization and observed run only, not a legal or competition-permissibility conclusion.
 
 ## Purpose and boundary
 
 Prepare a small, controlled set of report-labeling prompt strategies for possible comparison under D004. Candidate 1 is the current runner prompt plus the same shared uncertainty sentence used by Candidates 2 and 3; this is a small, explicit baseline delta. Candidate 2 adds only an evidence-workflow block; Candidate 3 adds only a report-interpretation block. Input placeholders, target list, model/runtime settings, and output schema are held constant.
 
-The planned Codex CLI target is `gpt-6-luna` with `model_reasoning_effort=high`, set explicitly by the local runner. This does not establish that the user's ChatGPT subscription currently entitles this model or effort, or authorize report transfer to the service. Before any run, verify entitlement and confirm that applicable competition rules, provider terms, and project data-handling constraints permit the proposed transfer. No API key or separately billed API path is part of this plan.
+The fixed Codex CLI target is `gpt-6-luna` with `model_reasoning_effort=high`, set explicitly by the local runner. The user authorized one execution through the existing ChatGPT OAuth session, not an API key or separately billed API path. Official Codex documentation describes non-interactive `exec` and ChatGPT authentication (`https://learn.chatgpt.com/docs/non-interactive-mode`, `https://learn.chatgpt.com/docs/auth`). These sources and the local `codex login status` method check establish the selected workflow/authentication method, not an independent provider-terms, competition-rule, licensing, or clinical-validity determination.
 
 ## Current implementation baseline
 
@@ -50,7 +50,7 @@ The sentence defines the requested meaning, not a calibration guarantee.
 
 ## Candidate 1 — Current baseline
 
-**Changed factor:** only the common uncertainty sentence relative to the current runner prompt; no additional strategy block. **Status:** exact prompt text approved and held fixed in the local registry; not run.
+**Changed factor:** only the common uncertainty sentence relative to the current runner prompt; no additional strategy block. **Status:** exact prompt text approved and held fixed in the local registry; the comparison invocation failed before any candidate-specific result was available.
 
 ```text
 Extract provisional binary findings for these targets:
@@ -67,7 +67,7 @@ ${REPORT}
 
 ## Candidate 2 — Evidence-first workflow
 
-**Changed factor:** one added evidence-workflow block; the shared instructions, inputs, targets, and output schema are otherwise unchanged. The user approved it as a fixed comparison candidate, not as an established improvement.
+**Changed factor:** one added evidence-workflow block; the shared instructions, inputs, targets, and output schema are otherwise unchanged. The user approved it as a fixed comparison candidate, not as an established improvement. The comparison invocation failed; candidate-specific execution and results are unknown.
 
 ```text
 Extract provisional binary findings for these targets:
@@ -87,7 +87,7 @@ ${REPORT}
 
 ## Candidate 3 — Report-interpretation policy
 
-**Changed factor:** one added interpretation-policy block; the shared instructions, inputs, targets, and output schema are otherwise unchanged. The user approved this exact text as a comparison candidate, not as a clinical definition or validated labeling policy. The words “requires approval” inside the candidate block are preserved verbatim as part of that approved prompt text; they are not evidence that the candidate remains unapproved.
+**Changed factor:** one added interpretation-policy block; the shared instructions, inputs, targets, and output schema are otherwise unchanged. The user approved this exact text as a comparison candidate, not as a clinical definition or validated labeling policy. The words “requires approval” inside the candidate block are preserved verbatim as part of that approved prompt text; they are not evidence that the candidate remains unapproved. The comparison invocation failed; candidate-specific execution and results are unknown.
 
 ```text
 Extract provisional binary findings for these targets:
@@ -122,7 +122,14 @@ ${REPORT}
 
 ## Approval and execution gate
 
-The exact prompt text is user-approved and is held fixed by the local candidate registry; no prompt has been executed and no labels were generated or inspected. The local comparison implementation does not itself verify or grant authorization. Do not run these candidates until ChatGPT subscription entitlement for Luna/high, project authorization, applicable provider terms, competition-rule permissibility for report transfer, and all D004 constraints are independently confirmed. Keep those prerequisites distinct; no API/Codex prompt invocation was made for this change.
+The exact prompt text is user-approved and held fixed by the local candidate registry. The user explicitly authorized one comparison invocation using the existing ChatGPT OAuth workflow; the local confirmation flags record that assertion but do not verify or grant it. The invocation failed before producing a valid summary, and a second invocation is not authorized by the one-run approval. Keep legal/provider/competition constraints distinct from the observed workflow and execution; no conclusion about them is made here.
+
+## Authorized execution attempt
+
+- **Preflight:** `PYTHONPATH=src python -m unittest discover -s tests -v` passed (76 tests); all approved input, manifest, checkpoint, key, output, and failure paths were confirmed ignored. `codex login status` reported ChatGPT authentication; no account identifier or token was inspected. Aggregate-only local validation confirmed 58 input rows, 12 binary targets, 58 unique manifest-matched keys, and both classes in every 3 outer and 9 inner evaluation fold (144 target-fold checks; minimum positive count 2, minimum negative count 3). No report, study key, or row-level label was printed by the preflight.
+- **Invocation:** one execution of `python scripts/run_gold58_prompt_comparison.py` with the authorized private input, canonical private manifest, `--confirm-transfer-prerequisites`, and `--subscription-oauth-confirmed`; fixed runner settings remained the documented candidates, nested 3x3 split, `gpt-6-luna`/high, and up to 406 planned requests. No source, prompt, split, or model changes occurred.
+- **Outcome:** runner exited 1 after approximately 40.6 seconds with its fixed message `candidate evaluation failed; details suppressed`. Safe checkpoint metadata contains 2 completed coordinates and 1 failed coordinate, with only `stage=response_validation` and `cause_code=invalid_response` recorded for the failure. No raw stderr, provider payload, report, ID, or checkpoint coordinate was inspected. No valid aggregate summary or comparison metrics were produced; later coordinates were not issued by this invocation. Preserve the checkpoint/key and do not retry without fresh explicit authorization.
+- **Interpretation boundary:** this was one failed nested-CV comparison attempt, not a successful experiment result, independent test, or clinical validation. Do not use any outer-fold result to revise the frozen candidates.
 
 ## Provenance
 
