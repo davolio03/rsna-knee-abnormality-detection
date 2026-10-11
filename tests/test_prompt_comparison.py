@@ -1,6 +1,9 @@
 """Synthetic tests for the fail-closed prompt comparison boundary."""
 
 import unittest
+import json
+import tempfile
+from pathlib import Path
 
 from rsna_knee.labels.prompt_comparison import (
     CANDIDATE_IDS,
@@ -10,6 +13,9 @@ from rsna_knee.labels.prompt_comparison import (
     build_candidate_prompt,
     run_nested_prompt_comparison,
     select_candidate,
+    CheckpointStore,
+    ComparisonEvaluationError,
+    make_private_fingerprint,
 )
 from rsna_knee.labels.subscription import LABEL_COLUMNS
 from rsna_knee.validation.multilabel import nested_multilabel_splits
@@ -119,6 +125,83 @@ class PromptComparisonTests(unittest.TestCase):
                 output_schema=self.schema,
             )
         self.assertNotIn("synthetic provider payload", str(raised.exception))
+
+    def test_typed_failure_exposes_only_allowlisted_metadata(self):
+        from rsna_knee.labels.subscription import LabelingError
+        secret = "SYNTHETIC_REPORT_ID_PROMPT_AND_STDERR"
+        with self.assertRaises(ComparisonEvaluationError) as raised:
+            run_nested_prompt_comparison(
+                self.outer,
+                payload_factory=lambda *_: {"synthetic": True},
+                evaluator=lambda *_: (_ for _ in ()).throw(
+                    LabelingError(secret, stage="process_exit", cause_code="auth_error",
+                                  exit_status=17, errno_value=5)
+                ),
+                scorer=lambda *_: 0.0,
+                output_schema=self.schema,
+            )
+        self.assertEqual(raised.exception.safe_metadata, {
+            "stage": "process_exit", "cause_code": "auth_error",
+            "exit_status": 17, "errno": 5,
+        })
+        self.assertNotIn(secret, str(raised.exception))
+
+    def test_checkpoint_is_atomic_and_resumes_successful_coordinate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkpoint.json"
+            fingerprint = make_private_fingerprint(b"synthetic exact input", b"k" * 32)
+            coordinate = "a" * 64
+            prediction = {target: {"label": True, "uncertainty": 0.25} for target in LABEL_COLUMNS}
+            store = CheckpointStore(path, fingerprint, expected_coordinates=(coordinate,))
+            store.save_success(coordinate, prediction)
+            resumed = CheckpointStore(path, fingerprint, expected_coordinates=(coordinate,))
+            self.assertEqual(resumed.success(coordinate), prediction)
+            self.assertEqual(len(coordinate), 64)
+            self.assertTrue(all(char in "0123456789abcdef" for char in coordinate))
+            calls = []
+            if resumed.success(coordinate) is None:
+                calls.append("inference")
+            self.assertEqual(calls, [])
+            self.assertEqual(list(Path(directory).glob("*.tmp")), [])
+            with self.assertRaisesRegex(ValueError, "checkpoint"):
+                CheckpointStore(path, make_private_fingerprint(b"different input", b"k" * 32),
+                                expected_coordinates=(coordinate,))
+
+    def test_checkpoint_records_failure_without_retry_and_redacts_sensitive_values(self):
+        from rsna_knee.labels.subscription import LabelingError
+        secret = "SYNTHETIC_REPORT_ID_PROMPT_PAYLOAD"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkpoint.json"
+            fp = make_private_fingerprint(b"synthetic", b"k" * 32)
+            coordinate = "b" * 64
+            store = CheckpointStore(path, fp, expected_coordinates=(coordinate,))
+            attempts = []
+            try:
+                attempts.append(1)
+                try:
+                    raise LabelingError(secret, stage="response_parse", cause_code="invalid_response")
+                except LabelingError as exc:
+                    store.save_failure(coordinate, exc)
+                    raise
+            except LabelingError:
+                pass
+            serialized = path.read_text(encoding="utf-8")
+            self.assertEqual(attempts, [1])
+            for token in (secret, "synthetic", "SYNTHETIC_REPORT_ID", "report", "prompt", "payload"):
+                self.assertNotIn(token, serialized)
+            self.assertEqual(store.failure(coordinate)["cause_code"], "invalid_response")
+
+    def test_checkpoint_rejects_corrupt_or_incompatible_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkpoint.json"
+            fp = make_private_fingerprint(b"synthetic", b"k" * 32)
+            coordinate = "c" * 64
+            path.write_text("{broken", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "checkpoint"):
+                CheckpointStore(path, fp, expected_coordinates=(coordinate,))
+            path.write_text(json.dumps({"schema_version": 99}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "checkpoint"):
+                CheckpointStore(path, fp, expected_coordinates=(coordinate,))
 
     def test_invalid_candidate_output_schema_and_outer_fold_overlap_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "schema"):

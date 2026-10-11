@@ -3,19 +3,166 @@
 from __future__ import annotations
 
 import math
+import hashlib
+import hmac
+import json
+import os
+import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Real
 from types import MappingProxyType
 from typing import Any
+from pathlib import Path
 
 from rsna_knee.labels.subscription import LABEL_COLUMNS
+from rsna_knee.labels.subscription import LabelingError
 from rsna_knee.validation.multilabel import NestedSplit
 
 
 CANDIDATE_IDS = ("candidate_1", "candidate_2", "candidate_3")
 COMPARISON_MODEL = "gpt-6-luna"
 COMPARISON_REASONING_EFFORT = "high"
+
+_SAFE_FAILURE_STAGES = {
+    "process_spawn", "process_wait", "process_cleanup", "process_exit",
+    "response_parse", "response_validation", "inference", "output_persist",
+}
+_SAFE_FAILURE_CAUSES = {
+    "configuration_error", "arguments_error", "auth_error", "quota_error",
+    "network_error", "model_error", "mcp_error", "sandbox_error", "timeout",
+    "spawn_error", "invalid_response", "unknown",
+}
+
+
+class ComparisonEvaluationError(ValueError):
+    """Fixed-text failure carrying only validated, allowlisted metadata."""
+
+    def __init__(self, safe_metadata: Mapping[str, Any] | None = None):
+        super().__init__("candidate evaluation failed; details suppressed")
+        self.safe_metadata = dict(safe_metadata or {})
+
+
+def _safe_failure_metadata(exc: Exception) -> dict[str, Any]:
+    if type(exc) is not LabelingError:
+        return {}
+    stage = getattr(exc, "stage", None)
+    cause = getattr(exc, "cause_code", None)
+    result: dict[str, Any] = {}
+    if isinstance(stage, str) and stage in _SAFE_FAILURE_STAGES:
+        result["stage"] = stage
+    if isinstance(cause, str) and cause in _SAFE_FAILURE_CAUSES:
+        result["cause_code"] = cause
+    for attr, key in (("exit_status", "exit_status"), ("errno_value", "errno")):
+        value = getattr(exc, attr, None)
+        if type(value) is int and -65535 <= value <= 65535:
+            result[key] = value
+    return result
+
+
+def make_private_fingerprint(source: bytes, secret: bytes) -> str:
+    """Return an HMAC fingerprint for private checkpoint binding."""
+    if not isinstance(source, bytes) or not isinstance(secret, bytes) or len(secret) < 32:
+        raise ValueError("checkpoint fingerprint inputs are invalid")
+    return hmac.new(secret, source, hashlib.sha256).hexdigest()
+
+
+class CheckpointStore:
+    """Atomic private checkpoint containing only validated predictions and safe errors."""
+
+    def __init__(self, path: str | Path, fingerprint: str, *, expected_coordinates: Sequence[str]):
+        self.path = Path(path)
+        self.fingerprint = fingerprint
+        self.expected = set(expected_coordinates)
+        if not self.expected or any(not _opaque_coordinate(x) for x in self.expected):
+            raise ValueError("checkpoint coordinates are invalid")
+        self.data = {"schema_version": 1, "fingerprint": fingerprint,
+                     "completed": {}, "failures": {}}
+        if self.path.exists():
+            try:
+                loaded = json.loads(self.path.read_text(encoding="utf-8"))
+                if (not isinstance(loaded, dict) or set(loaded) != set(self.data)
+                        or type(loaded["schema_version"]) is not int or loaded["schema_version"] != 1
+                        or not isinstance(loaded["fingerprint"], str)
+                        or loaded["fingerprint"] != fingerprint
+                        or not isinstance(loaded["completed"], dict)
+                        or not isinstance(loaded["failures"], dict)):
+                    raise ValueError
+                completed, failures = loaded["completed"], loaded["failures"]
+                if (set(completed) - self.expected or set(failures) - self.expected
+                        or set(completed) & set(failures)):
+                    raise ValueError
+                for coordinate, prediction in completed.items():
+                    if not _valid_prediction_record(prediction):
+                        raise ValueError
+                    if not _opaque_coordinate(coordinate):
+                        raise ValueError
+                for coordinate, failure in failures.items():
+                    if not _opaque_coordinate(coordinate) or not _valid_safe_failure(failure):
+                        raise ValueError
+                self.data = loaded
+            except (OSError, UnicodeError, ValueError, TypeError):
+                raise ValueError("comparison checkpoint is corrupt or incompatible") from None
+
+    def success(self, coordinate: str) -> Mapping[str, Any] | None:
+        return self.data["completed"].get(coordinate)
+
+    def failure(self, coordinate: str) -> Mapping[str, Any] | None:
+        return self.data["failures"].get(coordinate)
+
+    def save_success(self, coordinate: str, prediction: Mapping[str, Any]) -> None:
+        self._check_coordinate(coordinate)
+        if not _valid_prediction_record(prediction):
+            raise ValueError("checkpoint prediction is invalid")
+        self.data["failures"].pop(coordinate, None)
+        self.data["completed"][coordinate] = prediction
+        self._write()
+
+    def save_failure(self, coordinate: str, exc: Exception) -> None:
+        self._check_coordinate(coordinate)
+        metadata = _safe_failure_metadata(exc)
+        self.data["failures"][coordinate] = metadata
+        self._write()
+
+    def _check_coordinate(self, coordinate: str) -> None:
+        if coordinate not in self.expected or not _opaque_coordinate(coordinate):
+            raise ValueError("checkpoint coordinate is invalid")
+
+    def _write(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        serialized = json.dumps(self.data, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        fd, temp_name = tempfile.mkstemp(prefix=".comparison-checkpoint-", suffix=".tmp", dir=self.path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+                stream.write(serialized)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_name, self.path)
+        finally:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
+
+
+def _opaque_coordinate(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
+
+def _valid_prediction_record(value: Any) -> bool:
+    if not isinstance(value, Mapping) or set(value) != set(LABEL_COLUMNS):
+        return False
+    return all(isinstance(item, Mapping) and set(item) == {"label", "uncertainty"}
+               and type(item["label"]) is bool and type(item["uncertainty"]) in {int, float}
+               and math.isfinite(item["uncertainty"]) and 0 <= item["uncertainty"] <= 1
+               for item in value.values())
+
+
+def _valid_safe_failure(value: Any) -> bool:
+    return (isinstance(value, Mapping) and set(value).issubset(
+        {"stage", "cause_code", "exit_status", "errno"})
+        and ("stage" not in value or value["stage"] in _SAFE_FAILURE_STAGES)
+        and ("cause_code" not in value or value["cause_code"] in _SAFE_FAILURE_CAUSES)
+        and all(type(value[k]) is int and -65535 <= value[k] <= 65535
+                for k in ("exit_status", "errno") if k in value))
 
 
 @dataclass(frozen=True)
@@ -242,8 +389,8 @@ def _evaluate(
 ) -> Mapping[str, Any]:
     try:
         output = evaluator(candidate_id, payload, schema)
-    except Exception:
-        raise ValueError("candidate evaluation failed; details suppressed") from None
+    except Exception as exc:
+        raise ComparisonEvaluationError(_safe_failure_metadata(exc)) from None
     if not isinstance(output, Mapping) or set(output) != set(schema):
         raise ValueError("candidate output does not match the required schema")
     if any(type(output[key]) is not expected for key, expected in schema.items()):

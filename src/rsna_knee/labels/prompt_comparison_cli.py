@@ -7,6 +7,8 @@ import os
 import tempfile
 import argparse
 import csv
+import hashlib
+import hmac
 from pathlib import Path
 from collections.abc import Callable, Mapping, Sequence
 from numbers import Real
@@ -16,6 +18,10 @@ from rsna_knee.labels.prompt_comparison import (
     CANDIDATE_IDS,
     COMPARISON_MODEL,
     COMPARISON_REASONING_EFFORT,
+    PROMPT_REGISTRY,
+    _SHARED_PROMPT_TEMPLATE,
+    CheckpointStore,
+    make_private_fingerprint,
     run_nested_prompt_comparison,
 )
 from rsna_knee.labels.subscription import LABEL_COLUMNS, REPORT_COLUMN, STUDY_COLUMN, codex_cli_infer
@@ -134,6 +140,8 @@ def run_prompt_comparison(
     transfer_prerequisites_confirmed: bool = False,
     subscription_oauth_confirmed: bool = False,
     study_manifest_keys: Sequence[str] | None = None,
+    checkpoint_path: str | Path | None = None,
+    checkpoint_key_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run fixed nested evaluation only after explicit operator confirmations.
 
@@ -156,9 +164,58 @@ def run_prompt_comparison(
     }
     splits = nested_multilabel_splits(keys, targets, outer_n_splits=3, inner_n_splits=3, seed=42)
     _validate_fold_feasibility(splits, labels)
+    root = Path(project_root or REPOSITORY_ROOT).resolve()
+    outputs = root / "data" / "outputs"
+    private = root / "data" / "private"
+    checkpoint_destination = Path(checkpoint_path or outputs / ".gold58-prompt-comparison-checkpoint.json")
+    if not checkpoint_destination.is_absolute():
+        checkpoint_destination = root / checkpoint_destination
+    key_destination = Path(checkpoint_key_path or private / ".gold58-prompt-comparison.key")
+    if not key_destination.is_absolute():
+        key_destination = root / key_destination
+    _validate_private_checkpoint_paths(checkpoint_destination, key_destination, root)
+    fingerprint_source = json.dumps(
+        {
+            "rows": [[row[STUDY_COLUMN], row[REPORT_COLUMN],
+                      [row[target] for target in LABEL_COLUMNS]] for row in validated],
+            "manifest": list(study_manifest_keys or ()),
+            "protocol": "nested_study_level_3x3", "seed": 42,
+            "outer_n_splits": 3, "inner_n_splits": 3,
+            "candidate_ids": list(CANDIDATE_IDS),
+            "prompts": {
+                "shared": _SHARED_PROMPT_TEMPLATE,
+                "candidates": [[candidate, PROMPT_REGISTRY[candidate].strategy_block]
+                               for candidate in CANDIDATE_IDS],
+                "targets": list(LABEL_COLUMNS),
+            },
+            "metric": "mean_inner_macro_balanced_accuracy",
+            "tie_break": list(CANDIDATE_IDS), "model": COMPARISON_MODEL,
+            "reasoning_effort": COMPARISON_REASONING_EFFORT,
+            "schema": ["label:boolean", "uncertainty:number"],
+        }, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")
+    checkpoint_key = _load_or_create_checkpoint_key(key_destination)
+    fingerprint = make_private_fingerprint(fingerprint_source, checkpoint_key)
+    coordinate_specs = []
+    coordinate_by_context = {}
+    for outer_index, outer_split in enumerate(splits):
+        for inner_index, inner_split in enumerate(outer_split.inner_splits):
+            for candidate_id in CANDIDATE_IDS:
+                for position, study_key in enumerate(inner_split.validation):
+                    descriptor = f"{outer_index}:inner:{inner_index}:{candidate_id}:{position}"
+                    coordinate = hmac.new(bytes.fromhex(fingerprint), descriptor.encode(), hashlib.sha256).hexdigest()
+                    coordinate_specs.append(coordinate)
+                    coordinate_by_context[(outer_index, "inner", inner_index, candidate_id, study_key)] = coordinate
+        for position, study_key in enumerate(outer_split.test):
+            descriptor = f"{outer_index}:outer:{position}"
+            coordinate = hmac.new(bytes.fromhex(fingerprint), descriptor.encode(), hashlib.sha256).hexdigest()
+            coordinate_specs.append(coordinate)
+            coordinate_by_context[(outer_index, "outer", 0, None, study_key)] = coordinate
+    checkpoint = CheckpointStore(checkpoint_destination, fingerprint,
+                                 expected_coordinates=coordinate_specs)
     folds = []
 
-    for outer_split in splits:
+    for outer_index, outer_split in enumerate(splits):
         outer_metrics: dict[str, Any] = {}
         inner_metrics: dict[int, dict[str, Any]] = {}
         validation_fold_index = {
@@ -166,21 +223,39 @@ def run_prompt_comparison(
             for index, split in enumerate(outer_split.inner_splits)
         }
         active_candidate: dict[str, str | None] = {"candidate_id": None}
+        active_coordinate: dict[str, Any] = {"phase": None, "inner_index": 0}
 
         def payload_factory(_train_keys: Sequence[str], evaluation_keys: Sequence[str]) -> Mapping[str, Any]:
             return {"reports": {key: reports[key] for key in evaluation_keys}}
 
         def evaluator(candidate_id: str, payload: Mapping[str, Any], _schema: Mapping[str, type]) -> Mapping[str, Any]:
             active_candidate["candidate_id"] = candidate_id
+            evaluation_keys = tuple(payload["reports"])
+            is_outer = set(evaluation_keys) == set(outer_split.test)
+            active_coordinate["phase"] = "outer" if is_outer else "inner"
+            if is_outer:
+                active_coordinate["inner_index"] = 0
+            else:
+                active_coordinate["inner_index"] = validation_fold_index[frozenset(evaluation_keys)]
             predictions = {}
             for key, report in payload["reports"].items():
-                result = infer(
-                    report,
-                    candidate_id=candidate_id,
-                    transfer_prerequisites_confirmed=True,
-                    subscription_oauth_confirmed=True,
-                )
-                predictions[key] = _validate_prediction(result)
+                coordinate = coordinate_by_context[(
+                    outer_index, active_coordinate["phase"], active_coordinate["inner_index"],
+                    candidate_id if active_coordinate["phase"] == "inner" else None, key,
+                )]
+                result = checkpoint.success(coordinate)
+                if result is None:
+                    try:
+                        result = _validate_prediction(infer(
+                            report, candidate_id=candidate_id,
+                            transfer_prerequisites_confirmed=True,
+                            subscription_oauth_confirmed=True,
+                        ))
+                    except Exception as exc:
+                        checkpoint.save_failure(coordinate, exc)
+                        raise
+                    checkpoint.save_success(coordinate, result)
+                predictions[key] = result
             return {"predictions": predictions}
 
         def scorer(output: Mapping[str, Any], evaluation_keys: Sequence[str]) -> float:
@@ -407,6 +482,46 @@ def _validate_prediction(result: Mapping[str, Any]) -> dict[str, dict[str, Any]]
             raise ValueError("candidate output does not match the required label schema")
         clean[target] = {"label": value["label"], "uncertainty": uncertainty}
     return clean
+
+
+def _validate_private_checkpoint_paths(checkpoint: Path, key: Path, root: Path) -> None:
+    outputs = root / "data" / "outputs"
+    private = root / "data" / "private"
+    expected_checkpoint = outputs / ".gold58-prompt-comparison-checkpoint.json"
+    expected_key = private / ".gold58-prompt-comparison.key"
+    if checkpoint.resolve(strict=False) != expected_checkpoint.resolve(strict=False):
+        raise ValueError("comparison checkpoint path is unsafe")
+    if key.resolve(strict=False) != expected_key.resolve(strict=False):
+        raise ValueError("comparison checkpoint key path is unsafe")
+    for directory in (root / "data", outputs, private):
+        if directory.exists() and directory.is_symlink():
+            raise ValueError("comparison checkpoint path is unsafe")
+    if checkpoint.is_symlink() or key.is_symlink():
+        raise ValueError("comparison checkpoint path is unsafe")
+
+
+def _load_or_create_checkpoint_key(path: Path) -> bytes:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        try:
+            value = path.read_bytes()
+        except OSError:
+            raise ValueError("comparison checkpoint key is unavailable") from None
+        if len(value) != 32:
+            raise ValueError("comparison checkpoint key is incompatible")
+        return value
+    value = os.urandom(32)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except FileExistsError:
+        return _load_or_create_checkpoint_key(path)
+    except OSError:
+        raise ValueError("comparison checkpoint key could not be safely created") from None
+    return value
 
 
 def _fold_metrics(

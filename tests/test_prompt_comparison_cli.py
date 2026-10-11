@@ -15,6 +15,7 @@ from rsna_knee.labels.prompt_comparison_cli import (
     write_comparison_summary,
 )
 from rsna_knee.labels.subscription import LABEL_COLUMNS, STUDY_COLUMN, REPORT_COLUMN
+from rsna_knee.labels.subscription import LabelingError
 
 
 class PromptComparisonCliTests(unittest.TestCase):
@@ -129,6 +130,76 @@ class PromptComparisonCliTests(unittest.TestCase):
     def test_manifest_exact_match_is_accepted_without_inference(self):
         keys = [row[STUDY_COLUMN] for row in self.rows]
         self.assertIsNone(_validate_manifest_membership(keys, list(keys)))
+
+    def test_checkpoint_resumes_exact_run_without_repeating_inference(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            calls = []
+
+            def infer(_report, **_kwargs):
+                calls.append(1)
+                return {target: {"label": False, "uncertainty": 0.5} for target in LABEL_COLUMNS}
+
+            kwargs = {
+                "infer": infer,
+                "output_path": Path(temp_dir) / "data" / "outputs" / "gold58-prompt-comparison.json",
+                "project_root": temp_dir,
+                "transfer_prerequisites_confirmed": True,
+                "subscription_oauth_confirmed": True,
+                "study_manifest_keys": [row[STUDY_COLUMN] for row in self.rows],
+            }
+            first = run_prompt_comparison(self.rows, **kwargs)
+            first_call_count = len(calls)
+            second = run_prompt_comparison(self.rows, **kwargs)
+            self.assertGreater(first_call_count, 0)
+            self.assertEqual(len(calls), first_call_count)
+            self.assertEqual(first, second)
+            checkpoint = Path(temp_dir) / "data" / "outputs" / ".gold58-prompt-comparison-checkpoint.json"
+            contents = checkpoint.read_text(encoding="utf-8")
+            self.assertNotIn("synthetic-study-", contents)
+            self.assertNotIn("synthetic report", contents)
+
+    def test_failure_aborts_once_and_persists_only_safe_metadata(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            calls = []
+            sensitive = "SYNTHETIC_STUDY_REPORT_PROMPT_PAYLOAD"
+
+            def infer(_report, **_kwargs):
+                calls.append(1)
+                if len(calls) == 2:
+                    raise LabelingError(sensitive, stage="process_exit", cause_code="auth_error", exit_status=9)
+                return {target: {"label": False, "uncertainty": 0.5} for target in LABEL_COLUMNS}
+
+            with self.assertRaisesRegex(ValueError, "candidate evaluation failed"):
+                run_prompt_comparison(
+                    self.rows, infer=infer, project_root=temp_dir,
+                    transfer_prerequisites_confirmed=True,
+                    subscription_oauth_confirmed=True,
+                    study_manifest_keys=[row[STUDY_COLUMN] for row in self.rows],
+                )
+            self.assertEqual(calls, [1, 1])
+            checkpoint = Path(temp_dir) / "data" / "outputs" / ".gold58-prompt-comparison-checkpoint.json"
+            serialized = checkpoint.read_text(encoding="utf-8")
+            for token in (sensitive, "synthetic-study-", "synthetic report", "SYNTHETIC"):
+                self.assertNotIn(token, serialized)
+            saved = json.loads(serialized)
+            self.assertEqual(len(saved["failures"]), 1)
+            self.assertEqual(len(saved["completed"]), 1)
+            self.assertEqual(next(iter(saved["failures"].values())), {
+                "stage": "process_exit", "cause_code": "auth_error", "exit_status": 9,
+            })
+            retry_calls = []
+
+            def retry_infer(_report, **_kwargs):
+                retry_calls.append(1)
+                return {target: {"label": False, "uncertainty": 0.5} for target in LABEL_COLUMNS}
+
+            run_prompt_comparison(
+                self.rows, infer=retry_infer, project_root=temp_dir,
+                transfer_prerequisites_confirmed=True,
+                subscription_oauth_confirmed=True,
+                study_manifest_keys=[row[STUDY_COLUMN] for row in self.rows],
+            )
+            self.assertEqual(len(retry_calls), 405)
 
     def test_manifest_reader_rejects_noncanonical_manifest_path(self):
         import tempfile
