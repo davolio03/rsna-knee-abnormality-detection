@@ -222,7 +222,9 @@ def validate_label_result(value: object) -> dict[str, dict[str, object]]:
 
 def codex_cli_infer(report: str, *, executable: str = "codex",
                     timeout_seconds: int = 180,
-                    subscription_oauth_confirmed: bool = False) -> dict[str, dict[str, object]]:
+                    subscription_oauth_confirmed: bool = False,
+                    candidate_id: str | None = None,
+                    transfer_prerequisites_confirmed: bool = False) -> dict[str, dict[str, object]]:
     """Invoke Codex CLI via stdin and read only its final agent message.
 
     No API endpoint or API-key argument is accepted. Do not call this until the
@@ -232,19 +234,31 @@ def codex_cli_infer(report: str, *, executable: str = "codex",
         raise LabelingError("Only the Codex CLI executable is supported.")
     if subscription_oauth_confirmed is not True:
         raise LabelingError("Confirm ChatGPT subscription OAuth before invoking Codex.")
+    if candidate_id is not None and transfer_prerequisites_confirmed is not True:
+        raise LabelingError(
+            "Confirm report-transfer prerequisites before invoking a comparison candidate."
+        )
     if not isinstance(report, str) or not report.strip():
         raise LabelingError("Report input is blank or invalid.")
     if not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 600:
         raise LabelingError("CLI timeout must be between 1 and 600 seconds.")
-    target_list = "\n".join(f"- {column}" for column in LABEL_COLUMNS)
-    prompt = (
-        "Extract provisional binary findings for these targets:\n"
-        f"TARGETS:\n{target_list}\n\n"
-        "Return only one JSON object with each target mapped to {label:boolean, "
-        "evidence:string, uncertainty:number from 0 to 1}. Evidence must be a "
-        "short exact report excerpt (maximum 200 characters); use an empty "
-        "excerpt when unsupported. Do not add keys.\n\nREPORT:\n" + report
-    )
+    if candidate_id is not None:
+        from rsna_knee.labels.prompt_comparison import build_candidate_prompt
+
+        try:
+            prompt = build_candidate_prompt(candidate_id, report)
+        except ValueError as exc:
+            raise LabelingError(str(exc)) from None
+    else:
+        target_list = "\n".join(f"- {column}" for column in LABEL_COLUMNS)
+        prompt = (
+            "Extract provisional binary findings for these targets:\n"
+            f"TARGETS:\n{target_list}\n\n"
+            "Return only one JSON object with each target mapped to {label:boolean, "
+            "evidence:string, uncertainty:number from 0 to 1}. Evidence must be a "
+            "short exact report excerpt (maximum 200 characters); use an empty "
+            "excerpt when unsupported. Do not add keys.\n\nREPORT:\n" + report
+        )
     process = _run_process(_codex_command(), prompt, timeout_seconds)
     if process.returncode != 0:
         cause = _classify_cli_failure(process.stdout, process.stderr)

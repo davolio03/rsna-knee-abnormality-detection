@@ -1,6 +1,6 @@
-# E007 — Gold-58 prompt-strategy candidate drafts
+# E007 — Gold-58 prompt-strategy candidates
 
-> **DRAFT — UNFROZEN — NOT APPROVED — NOT RUN.** These are candidates for human review only. They do not authorize any inference or evaluation. No Gold-58 report, label, identifier, or fold membership was accessed to prepare this document.
+> **PROMPT TEXT APPROVED — FIXED IN LOCAL REGISTRY — NOT RUN.** The user approved the exact candidate prompt text documented here. This approval is not authorization to transfer reports or run inference. The three candidate definitions are fixed in the local prompt registry; no Gold-58 report, label, identifier, or fold membership was accessed for the local runner work.
 
 ## Purpose and boundary
 
@@ -50,7 +50,7 @@ The sentence defines the requested meaning, not a calibration guarantee.
 
 ## Candidate 1 — Current baseline
 
-**Changed factor:** only the common uncertainty sentence relative to the current runner prompt; no additional strategy block. **Status:** baseline draft, not approved or frozen.
+**Changed factor:** only the common uncertainty sentence relative to the current runner prompt; no additional strategy block. **Status:** exact prompt text approved and held fixed in the local registry; not run.
 
 ```text
 Extract provisional binary findings for these targets:
@@ -67,7 +67,7 @@ ${REPORT}
 
 ## Candidate 2 — Evidence-first workflow
 
-**Changed factor:** one added evidence-workflow block; the shared instructions, inputs, targets, and output schema are otherwise unchanged. This is a hypothesis to test, not an approved improvement.
+**Changed factor:** one added evidence-workflow block; the shared instructions, inputs, targets, and output schema are otherwise unchanged. The user approved it as a fixed comparison candidate, not as an established improvement.
 
 ```text
 Extract provisional binary findings for these targets:
@@ -87,7 +87,7 @@ ${REPORT}
 
 ## Candidate 3 — Report-interpretation policy
 
-**Changed factor:** one added interpretation-policy block; the shared instructions, inputs, targets, and output schema are otherwise unchanged. This is an illustrative candidate hypothesis requiring approval, not a clinical definition or approved labeling policy.
+**Changed factor:** one added interpretation-policy block; the shared instructions, inputs, targets, and output schema are otherwise unchanged. The user approved this exact text as a comparison candidate, not as a clinical definition or validated labeling policy. The words “requires approval” inside the candidate block are preserved verbatim as part of that approved prompt text; they are not evidence that the candidate remains unapproved.
 
 ```text
 Extract provisional binary findings for these targets:
@@ -122,7 +122,7 @@ ${REPORT}
 
 ## Approval and execution gate
 
-This document remains **DRAFT / UNFROZEN / NOT APPROVED / NOT RUN** until the user reviews the exact text. No prompt has been executed and no labels were generated or inspected. Do not run these candidates until exact candidate text and protocol are approved/frozen, GPT-6 Luna/high subscription entitlement is verified, report-transfer authorization and applicable terms are confirmed, and all D004 and competition constraints are satisfied. No API/Codex prompt invocation was made for this change.
+The exact prompt text is user-approved and is held fixed by the local candidate registry; no prompt has been executed and no labels were generated or inspected. The local comparison implementation does not itself verify or grant authorization. Do not run these candidates until ChatGPT subscription entitlement for Luna/high, project authorization, applicable provider terms, competition-rule permissibility for report transfer, and all D004 constraints are independently confirmed. Keep those prerequisites distinct; no API/Codex prompt invocation was made for this change.
 
 ## Provenance
 

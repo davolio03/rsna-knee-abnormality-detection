@@ -473,6 +473,38 @@ class SubscriptionLabelContractTests(unittest.TestCase):
         expected_targets = "TARGETS:\n" + "\n".join(f"- {name}" for name in LABEL_COLUMNS)
         self.assertIn(expected_targets, prompt)
 
+    def test_candidate_inference_requires_transfer_prerequisite_confirmation(self):
+        from rsna_knee.labels.subscription import codex_cli_infer
+
+        with patch("rsna_knee.labels.subscription.subprocess.Popen") as popen:
+            with self.assertRaisesRegex(LabelingError, "transfer"):
+                codex_cli_infer(
+                    "synthetic report", candidate_id="candidate_2",
+                    subscription_oauth_confirmed=True,
+                )
+        popen.assert_not_called()
+
+    def test_candidate_inference_uses_fixed_candidate_prompt(self):
+        from rsna_knee.labels.prompt_comparison import build_candidate_prompt
+        from rsna_knee.labels.subscription import codex_cli_infer
+
+        response = {column: {"label": False, "evidence": "", "uncertainty": 0.5}
+                    for column in LABEL_COLUMNS}
+        stdout = json.dumps({"type": "item.completed", "item": {
+            "type": "agent_message", "text": json.dumps(response)}})
+        process = Mock(returncode=0)
+        process.communicate.return_value = (stdout, "")
+        with patch("rsna_knee.labels.subscription.subprocess.Popen", return_value=process):
+            codex_cli_infer(
+                "synthetic report", candidate_id="candidate_2",
+                transfer_prerequisites_confirmed=True,
+                subscription_oauth_confirmed=True,
+            )
+        self.assertEqual(
+            process.communicate.call_args.kwargs["input"],
+            build_candidate_prompt("candidate_2", "synthetic report"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
