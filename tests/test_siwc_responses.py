@@ -114,6 +114,33 @@ class SIWCResponsesTests(unittest.TestCase):
         self.client.get.assert_called_once_with("/models", cast_to=dict)
         self.assertTrue(self.client.close.called)
 
+    def test_list_available_models_preserves_allowlisted_provider_diagnostics_only(self):
+        provider_exception = RuntimeError("PRIVATE_CATALOG_CANARY raw response body")
+        provider_exception.status_code = 429
+        provider_exception.request_id = "req_catalog-123"
+        provider_exception.body = {"error": {
+            "code": "subscription_sharing_usage_limit_exceeded",
+            "param": "model",
+            "message": "PRIVATE_CATALOG_CANARY",
+        }}
+        provider_exception.response = SimpleNamespace(
+            headers={"x-request-id": "PRIVATE_HEADER_CANARY"},
+        )
+        self.client.get.side_effect = provider_exception
+
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer().list_available_models()
+
+        error = raised.exception
+        self.assertEqual(error.http_status, 429)
+        self.assertEqual(error.provider_error_code,
+                         "subscription_sharing_usage_limit_exceeded")
+        self.assertEqual(error.provider_error_param, "model")
+        self.assertEqual(error.provider_body_shape, "nested_error")
+        self.assertEqual(error.request_id, "req_catalog-123")
+        for canary in ("PRIVATE_CATALOG_CANARY", "PRIVATE_HEADER_CANARY", "raw response body"):
+            self.assertNotIn(canary, str(error))
+
     def test_only_response_completed_returns_validated_labels(self):
         self.client.responses.create.return_value = FakeStream([
             SimpleNamespace(type="response.output_text.delta", delta=self.result_text),

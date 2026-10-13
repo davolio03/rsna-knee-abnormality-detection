@@ -19,7 +19,11 @@ from rsna_knee.labels.siwc_auth import (  # noqa: E402
     SIWCAuthenticator,
     load_or_create_host_id,
 )
-from rsna_knee.labels.siwc_responses import DEFAULT_SIWC_MODEL, SIWCResponsesInfer  # noqa: E402
+from rsna_knee.labels.siwc_responses import (  # noqa: E402
+    DEFAULT_SIWC_MODEL,
+    SIWCResponsesInfer,
+    safe_provider_diagnostics,
+)
 from rsna_knee.labels.subscription import (  # noqa: E402
     MAX_PILOT_RECORDS,
     LabelingError,
@@ -235,7 +239,12 @@ def main(argv: Sequence[str] | None = None, *, output: TextIO | None = None) -> 
         )
     except (AuthError, LabelingError, OSError) as exc:
         # Auth and runner exceptions contain only fixed/sanitized diagnostics.
-        parser.error(str(exc))
+        message = str(exc)
+        if isinstance(exc, LabelingError):
+            diagnostics = safe_provider_diagnostics(exc)
+            if diagnostics:
+                message = f"{message} Provider diagnostics: {diagnostics}."
+        parser.error(message)
 
 
 if __name__ == "__main__":

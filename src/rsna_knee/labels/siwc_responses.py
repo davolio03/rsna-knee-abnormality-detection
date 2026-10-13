@@ -22,6 +22,23 @@ RESPONSES_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_SIWC_MODEL = "gpt-6-luna"
 
 
+def safe_provider_diagnostics(error: object) -> str:
+    """Format only metadata already covered by the SIWC provider allowlists."""
+    values = (
+        ("http_status", getattr(error, "http_status", None),
+         lambda value: type(value) is int and 100 <= value <= 599),
+        ("provider_error_code", getattr(error, "provider_error_code", None),
+         lambda value: type(value) is str and value in _SAFE_SIWC_ERROR_CODES),
+        ("provider_error_param", getattr(error, "provider_error_param", None),
+         lambda value: type(value) is str and value in _SAFE_SIWC_ERROR_PARAMS),
+        ("provider_body_shape", getattr(error, "provider_body_shape", None),
+         lambda value: type(value) is str and value in _SAFE_SIWC_BODY_SHAPES),
+        ("request_id", getattr(error, "request_id", None),
+         lambda value: type(value) is str and _SAFE_REQUEST_ID.fullmatch(value)),
+    )
+    return " ".join(f"{name}={value}" for name, value, is_safe in values if is_safe(value))
+
+
 class SIWCResponsesInfer:
     """Callable `run_pilot` adapter using an authorized account profile.
 

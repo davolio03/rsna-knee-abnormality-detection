@@ -136,6 +136,75 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
         self.assertIn("Default model gpt-6-luna is not listed", output.getvalue())
         self.assertNotIn("Luna (gpt-6-luna)", output.getvalue())
 
+    def test_models_command_displays_allowlisted_catalog_diagnostics(self):
+        error = cli.LabelingError(
+            "The account model catalog could not be loaded.",
+            stage="inference",
+            cause_code="quota_error",
+            http_status=429,
+            provider_error_code="subscription_sharing_usage_limit_exceeded",
+            provider_error_param="model",
+            provider_body_shape="nested_error",
+            request_id="req_catalog-123",
+        )
+        error.raw_error_text = "PRIVATE_EXCEPTION_CANARY"
+        error.raw_response_body = "PRIVATE_BODY_CANARY"
+        error.raw_headers = "PRIVATE_HEADER_CANARY"
+        error.access_token = "PRIVATE_TOKEN_CANARY"
+        adapter = Mock()
+        adapter.list_available_models.side_effect = error
+        error_output = io.StringIO()
+
+        with patch.object(cli, "_create_authenticator", return_value=object()), \
+                patch.object(cli, "SIWCResponsesInfer", return_value=adapter), \
+                patch("sys.stderr", error_output):
+            with self.assertRaises(SystemExit):
+                cli.main(["models", "--profile-id", "issued-client"])
+
+        rendered = error_output.getvalue()
+        for safe_value in (
+            "http_status=429",
+            "provider_error_code=subscription_sharing_usage_limit_exceeded",
+            "provider_error_param=model",
+            "provider_body_shape=nested_error",
+            "request_id=req_catalog-123",
+        ):
+            self.assertIn(safe_value, rendered)
+        for canary in (
+            "PRIVATE_EXCEPTION_CANARY", "PRIVATE_BODY_CANARY",
+            "PRIVATE_HEADER_CANARY", "PRIVATE_TOKEN_CANARY",
+        ):
+            self.assertNotIn(canary, rendered)
+
+    def test_models_command_revalidates_mutated_provider_diagnostics(self):
+        error = cli.LabelingError(
+            "The account model catalog could not be loaded.",
+            http_status=429,
+            provider_error_code="subscription_sharing_usage_limit_exceeded",
+            provider_error_param="model",
+            provider_body_shape="nested_error",
+            request_id="req_catalog-123",
+        )
+        # Exception attributes are mutable; the final CLI boundary must still validate them.
+        error.provider_error_param = "PRIVATE_PARAM_CANARY"
+        error.provider_body_shape = "PRIVATE_SHAPE_CANARY"
+        error.request_id = "PRIVATE_REQUEST_CANARY"
+        adapter = Mock()
+        adapter.list_available_models.side_effect = error
+        error_output = io.StringIO()
+
+        with patch.object(cli, "_create_authenticator", return_value=object()), \
+                patch.object(cli, "SIWCResponsesInfer", return_value=adapter), \
+                patch("sys.stderr", error_output):
+            with self.assertRaises(SystemExit):
+                cli.main(["models", "--profile-id", "issued-client"])
+
+        rendered = error_output.getvalue()
+        self.assertIn("http_status=429", rendered)
+        self.assertIn("provider_error_code=subscription_sharing_usage_limit_exceeded", rendered)
+        for canary in ("PRIVATE_PARAM_CANARY", "PRIVATE_SHAPE_CANARY", "PRIVATE_REQUEST_CANARY"):
+            self.assertNotIn(canary, rendered)
+
     def test_label_requires_both_explicit_confirmation_flags(self):
         args = [
             "label", "--train-csv", "synthetic.csv", "--gold-exclusions", "synthetic.csv",
