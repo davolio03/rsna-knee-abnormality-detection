@@ -1,6 +1,8 @@
 import json
 import hashlib
+import threading
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import Mock
@@ -108,6 +110,69 @@ class SIWCTest(unittest.TestCase):
             second = load_or_create_host_id(path)
             self.assertEqual(first, second)
             self.assertTrue(first.startswith("urn:uuid:"))
+
+    def test_auth_module_compiles_without_literal_escape_regression(self):
+        from pathlib import Path
+        source = Path(__file__).parents[1] / "src" / "rsna_knee" / "labels" / "siwc_auth.py"
+        compile(source.read_text(encoding="utf-8"), str(source), "exec")
+
+    def test_concurrent_expired_profile_refresh_rotates_once(self):
+        profile = self.complete(self.auth.begin_sign_in())
+        record = self.store.load(profile.profile_id)
+        record["expires_at"] = self.now() - 1
+        self.store.save(profile.profile_id, record)
+
+        class SlowOAuth(FakeOAuth):
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def refresh(self, *, client_id, refresh_token):
+                self.calls += 1
+                self.refresh_args = (client_id, refresh_token)
+                self.started.set()
+                if not self.release.wait(2):
+                    raise AssertionError("synthetic refresh release timed out")
+                return {
+                    "access_token": "one-new-access", "refresh_token": "one-new-refresh",
+                    "expires_in": 3600,
+                }
+
+        slow_oauth = SlowOAuth()
+        self.auth._oauth = slow_oauth
+        results = []
+        errors = []
+        second_started = threading.Event()
+
+        def refresh(second=False):
+            try:
+                if second:
+                    second_started.set()
+                results.append(self.auth.refresh_if_needed(profile.profile_id))
+            except Exception as exc:  # surfaced in the parent test thread
+                errors.append(exc)
+
+        first = threading.Thread(target=refresh)
+        second = threading.Thread(target=lambda: refresh(second=True))
+        first.start()
+        self.assertTrue(slow_oauth.started.wait(1))
+        second.start()
+        self.assertTrue(second_started.wait(1))
+        time.sleep(0.05)
+        calls_before_release = slow_oauth.calls
+        slow_oauth.release.set()
+        first.join(2)
+        second.join(2)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(calls_before_release, 1)
+        self.assertEqual(slow_oauth.calls, 1)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(self.store.load(profile.profile_id)["refresh_token"], "one-new-refresh")
 
     def test_callback_state_tampering_and_wrong_loopback_target_are_rejected(self):
         request = self.auth.begin_sign_in()

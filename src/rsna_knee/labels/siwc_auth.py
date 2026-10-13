@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import secrets
+import threading
 import uuid
 import time
 from dataclasses import dataclass
@@ -228,6 +229,8 @@ class SIWCAuthenticator:
         self._random = random_value
         self._agent_name = agent_name
         self._pending: dict[str, _PendingAuthorization] = {}
+        self._refresh_lock_guard = threading.Lock()
+        self._refresh_locks: dict[str, threading.Lock] = {}
 
     def begin_sign_in(self, profile_id: str | None = None) -> AuthorizationRequest:
         record = self._store.load(profile_id) if profile_id is not None else None
@@ -299,6 +302,12 @@ class SIWCAuthenticator:
         return profile
 
     def refresh_if_needed(self, profile_id: str) -> Profile:
+        with self._refresh_lock_guard:
+            profile_lock = self._refresh_locks.setdefault(profile_id, threading.Lock())
+        with profile_lock:
+            return self._refresh_if_needed_locked(profile_id)
+
+    def _refresh_if_needed_locked(self, profile_id: str) -> Profile:
         record = self._store.load(profile_id)
         if record is None:
             raise AuthError("The selected account profile is unavailable.")
@@ -457,5 +466,3 @@ def _one(query: Mapping[str, list[str]], key: str) -> str | None:
 
 def _b64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
-
-\n
