@@ -157,6 +157,7 @@ class SIWCTest(unittest.TestCase):
         self.assertEqual(error._diagnostics, {
             "failure_category": "unknown_exchange_error",
             "exception_family": "other",
+            "exception_type": "SyntheticOAuthFailure",
             "http_status": 400,
             "provider_error_code": "invalid_grant",
             "request_id": "req_safe123",
@@ -205,6 +206,7 @@ class SIWCTest(unittest.TestCase):
         self.assertEqual(raised.exception._diagnostics, {
             "failure_category": "unknown_exchange_error",
             "exception_family": "other",
+            "exception_type": "SyntheticOAuthFailure",
             "http_status": 400,
             "response_body_shape": "json_object",
         })
@@ -246,6 +248,7 @@ class SIWCTest(unittest.TestCase):
         self.assertEqual(error._diagnostics, {
             "failure_category": "unknown_exchange_error",
             "exception_family": "authlib",
+            "exception_type": "AuthlibOAuthErrorShape",
             "provider_error_code": "invalid_grant",
         })
         rendered = str(error)
@@ -265,13 +268,17 @@ class SIWCTest(unittest.TestCase):
             (RequestsJSONDecodeError("PRIVATE_JSON_DETAIL", "PRIVATE_DOC", 0),
              "exchange_invalid_json_response"),
             (RequestsException("PRIVATE_REQUEST_ERROR"), "unknown_exchange_error",
-             "requests"),
+             "requests", "RequestException"),
             (RuntimeError("PRIVATE_PROVIDER_DETAIL"), "unknown_exchange_error",
-             "stdlib"),
+             "stdlib", "RuntimeError"),
+            (type("Bad Name;PRIVATE_CLASS_CANARY", (Exception,), {
+                "__module__": "private.provider.module",
+            })("PRIVATE_ERROR_TEXT"), "unknown_exchange_error", "other", None),
         )
         for case in cases:
             failure, expected_category = case[:2]
-            expected_family = case[2] if len(case) == 3 else None
+            expected_family = case[2] if len(case) > 2 else None
+            expected_exception_type = case[3] if len(case) == 4 else None
             with self.subTest(category=expected_category):
                 class SyntheticSession:
                     def __init__(self, **kwargs):
@@ -303,17 +310,23 @@ class SIWCTest(unittest.TestCase):
                 }
                 if expected_family is not None:
                     expected_diagnostics["exception_family"] = expected_family
+                if expected_exception_type is not None:
+                    expected_diagnostics["exception_type"] = expected_exception_type
                 self.assertEqual(error._diagnostics, expected_diagnostics)
                 self.assertIn(f"failure category: {expected_category}", str(error))
                 if expected_family is not None:
                     self.assertIn(f"exception family: {expected_family}", str(error))
+                if expected_exception_type is not None:
+                    self.assertIn(f"exception type: {expected_exception_type}", str(error))
                 for sensitive in ("PRIVATE_TIMEOUT_DETAIL", "PRIVATE_CONNECTION_DETAIL",
                                   "PRIVATE_PROVIDER_DETAIL", "PRIVATE_REQUEST_TIMEOUT",
                                   "PRIVATE_REQUEST_CONNECTION", "PRIVATE_REQUEST_TLS",
                                   "PRIVATE_JSON_DETAIL", "PRIVATE_DOC",
                                   "PRIVATE_REQUEST_ERROR", "PRIVATE_CODE",
                                   "PRIVATE_VERIFIER", "JSONDecodeError",
-                                  "RequestException"):
+                                  "Bad Name;PRIVATE_CLASS_CANARY",
+                                  "private.provider.module",
+                                  "PRIVATE_ERROR_TEXT"):
                     self.assertNotIn(sensitive, str(error))
 
     def test_host_id_is_persisted_as_non_secret_metadata(self):

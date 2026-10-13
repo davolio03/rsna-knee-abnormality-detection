@@ -47,6 +47,7 @@ _SAFE_OAUTH_ERROR_CODES = {
     "unsupported_grant_type",
 }
 _SAFE_REQUEST_ID = re.compile(r"req_[A-Za-z0-9_-]{1,64}\Z")
+_SAFE_EXCEPTION_TYPE_NAME = re.compile(r"\A[A-Za-z][A-Za-z0-9_]{0,63}\Z", re.ASCII)
 _SAFE_OAUTH_FAILURE_CATEGORIES = {
     "exchange_timeout", "exchange_connection_error", "exchange_tls_error",
     "exchange_invalid_json_response", "unknown_exchange_error",
@@ -219,6 +220,9 @@ def _safe_oauth_failure_diagnostics(error: Exception) -> dict[str, object]:
     diagnostics: dict[str, object] = {"failure_category": failure_category}
     if failure_category == "unknown_exchange_error":
         diagnostics["exception_family"] = _safe_oauth_exception_family(error)
+        exception_type = _safe_oauth_exception_type_name(error)
+        if exception_type is not None:
+            diagnostics["exception_type"] = exception_type
     if response is not None:
         status = getattr(response, "status_code", None)
         if isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599:
@@ -312,6 +316,13 @@ def _safe_oauth_exception_family(error: Exception) -> str:
     return "other"
 
 
+def _safe_oauth_exception_type_name(error: Exception) -> str | None:
+    """Return an exception class name only when it is a bounded ASCII identifier."""
+    name = type(error).__name__
+    return (name if isinstance(name, str)
+            and _SAFE_EXCEPTION_TYPE_NAME.fullmatch(name) else None)
+
+
 def _format_safe_auth_diagnostics(diagnostics: Mapping[str, object]) -> str:
     """Render only known diagnostic fields that pass their strict validators."""
     fields: list[str] = []
@@ -323,6 +334,11 @@ def _format_safe_auth_diagnostics(diagnostics: Mapping[str, object]) -> str:
             and isinstance(exception_family, str)
             and exception_family in _SAFE_OAUTH_EXCEPTION_FAMILIES):
         fields.append(f"exception family: {exception_family}")
+    exception_type = diagnostics.get("exception_type")
+    if (category == "unknown_exchange_error"
+            and isinstance(exception_type, str)
+            and _SAFE_EXCEPTION_TYPE_NAME.fullmatch(exception_type)):
+        fields.append(f"exception type: {exception_type}")
 
     status = diagnostics.get("http_status")
     if type(status) is int and 100 <= status <= 599:
