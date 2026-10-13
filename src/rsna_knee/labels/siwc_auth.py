@@ -260,12 +260,30 @@ def _safe_oauth_failure_diagnostics(error: Exception) -> dict[str, object]:
 
 
 def _safe_oauth_failure_category(error: Exception) -> str:
-    """Classify only stable built-in exception categories; never expose type names."""
-    if isinstance(error, TimeoutError):
+    """Classify stable transport categories without exposing type names."""
+    request_timeout_types: tuple[type[BaseException], ...] = ()
+    request_tls_types: tuple[type[BaseException], ...] = ()
+    request_connection_types: tuple[type[BaseException], ...] = ()
+    try:
+        from requests.exceptions import (
+            ConnectionError as RequestsConnectionError,
+            SSLError as RequestsSSLError,
+            Timeout as RequestsTimeout,
+        )
+        request_timeout_types = (RequestsTimeout,)
+        request_tls_types = (RequestsSSLError,)
+        request_connection_types = (RequestsConnectionError,)
+    except ImportError:
+        pass
+
+    if (isinstance(error, TimeoutError)
+            or isinstance(error, request_timeout_types)):
         return "exchange_timeout"
-    if isinstance(error, ssl.SSLError):
+    if (isinstance(error, ssl.SSLError)
+            or isinstance(error, request_tls_types)):
         return "exchange_tls_error"
-    if isinstance(error, ConnectionError):
+    if (isinstance(error, ConnectionError)
+            or isinstance(error, request_connection_types)):
         return "exchange_connection_error"
     return "unknown_exchange_error"
 

@@ -9,6 +9,11 @@ from datetime import datetime, timezone
 from types import ModuleType
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    SSLError as RequestsSSLError,
+    Timeout as RequestsTimeout,
+)
 
 from rsna_knee.labels.siwc_auth import (
     PLAN_SCOPE,
@@ -247,6 +252,10 @@ class SIWCTest(unittest.TestCase):
         cases = (
             (TimeoutError("PRIVATE_TIMEOUT_DETAIL"), "exchange_timeout"),
             (ConnectionError("PRIVATE_CONNECTION_DETAIL"), "exchange_connection_error"),
+            (RequestsTimeout("PRIVATE_REQUEST_TIMEOUT"), "exchange_timeout"),
+            (RequestsConnectionError("PRIVATE_REQUEST_CONNECTION"),
+             "exchange_connection_error"),
+            (RequestsSSLError("PRIVATE_REQUEST_TLS"), "exchange_tls_error"),
             (RuntimeError("PRIVATE_PROVIDER_DETAIL"), "unknown_exchange_error"),
         )
         for failure, expected_category in cases:
