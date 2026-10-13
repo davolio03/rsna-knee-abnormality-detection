@@ -103,3 +103,5 @@ Thumbs.db
 # Internal work tracking and local memory are not part of the public repository.
 /odd/tasks/
 .engram/
+
+/odd/
