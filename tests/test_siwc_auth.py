@@ -547,6 +547,90 @@ class SIWCTest(unittest.TestCase):
         with self.assertRaises(AuthError):
             store.save("profile", {"refresh_token": "secret"})
 
+    def test_keyring_save_failure_reports_bounded_payload_size_without_secrets(self):
+        class WindowsKeyring:
+            priority = 5
+            __module__ = "keyring.backends.Windows"
+            def set_password(self, *args):
+                raise RuntimeError("PRIVATE_BACKEND_ERROR private-token")
+            def get_password(self, *args):
+                return None
+
+        secret = "private-token"
+        empty_payload = json.dumps(
+            {"refresh_token": ""}, separators=(",", ":"), sort_keys=True
+        )
+        value = secret + "x" * (1280 - len(empty_payload) - len(secret))
+        record = {"refresh_token": value}
+        serialized = json.dumps(record, separators=(",", ":"), sort_keys=True)
+        self.assertEqual(len(serialized.encode("utf-16-le")), 2560)
+        keyring = Mock(get_keyring=lambda: WindowsKeyring())
+        keyring.set_password.side_effect = RuntimeError(
+            "PRIVATE_BACKEND_ERROR private-token"
+        )
+        store = KeyringCredentialStore(keyring_module=keyring)
+
+        with self.assertRaises(AuthError) as raised:
+            store.save("profile", record)
+
+        error = raised.exception
+        self.assertEqual(error._diagnostics, {
+            "windows_credential_blob_bytes": len(serialized.encode("utf-16-le")),
+            "windows_blob_limit_bytes": 2560,
+            "exceeds_windows_blob_limit": False,
+        })
+        self.assertIn(
+            f"Windows credential blob: {len(serialized.encode('utf-16-le'))} bytes",
+            str(error),
+        )
+        self.assertIn("exceeds limit: no", str(error))
+        for sensitive in (secret, "PRIVATE_BACKEND_ERROR", serialized):
+            self.assertNotIn(sensitive, str(error))
+            self.assertNotIn(sensitive, repr(error))
+            self.assertNotIn(sensitive, repr(error._diagnostics))
+
+    def test_keyring_save_failure_reports_oversize_payload_without_secrets(self):
+        class WindowsKeyring:
+            priority = 5
+            __module__ = "keyring.backends.Windows"
+            def set_password(self, *args):
+                raise RuntimeError("PRIVATE_BACKEND_ERROR private-token")
+            def get_password(self, *args):
+                return None
+
+        secret = "private-token"
+        empty_payload = json.dumps(
+            {"refresh_token": ""}, separators=(",", ":"), sort_keys=True
+        )
+        value = secret + "x" * (1281 - len(empty_payload) - len(secret))
+        record = {"refresh_token": value}
+        serialized = json.dumps(record, separators=(",", ":"), sort_keys=True)
+        self.assertGreater(len(serialized.encode("utf-16-le")), 2560)
+        keyring = Mock(get_keyring=lambda: WindowsKeyring())
+        keyring.set_password.side_effect = RuntimeError(
+            "PRIVATE_BACKEND_ERROR private-token"
+        )
+        store = KeyringCredentialStore(keyring_module=keyring)
+
+        with self.assertRaises(AuthError) as raised:
+            store.save("profile", record)
+
+        error = raised.exception
+        self.assertEqual(error._diagnostics, {
+            "windows_credential_blob_bytes": len(serialized.encode("utf-16-le")),
+            "windows_blob_limit_bytes": 2560,
+            "exceeds_windows_blob_limit": True,
+        })
+        self.assertIn(
+            f"Windows credential blob: {len(serialized.encode('utf-16-le'))} bytes",
+            str(error),
+        )
+        self.assertIn("exceeds limit: yes", str(error))
+        for sensitive in (secret, "PRIVATE_BACKEND_ERROR", serialized):
+            self.assertNotIn(sensitive, str(error))
+            self.assertNotIn(sensitive, repr(error))
+            self.assertNotIn(sensitive, repr(error._diagnostics))
+
     def test_refresh_requires_rotated_refresh_token_and_granted_plan_scope(self):
         profile = self.complete(self.auth.begin_sign_in())
         record = self.store.load(profile.profile_id)

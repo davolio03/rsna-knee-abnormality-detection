@@ -32,6 +32,7 @@ RESOURCE = "https://api.openai.com/v1"
 PLAN_SCOPE = "chatgpt.tokens.use.direct"
 SCOPES = "openid profile email offline_access resource.invoke " + PLAN_SCOPE
 _KEYRING_SERVICE = "rsna-knee-siwc"
+_WINDOWS_CREDENTIAL_BLOB_LIMIT_BYTES = 2560
 _SAFE_KEYRING_MODULES = {
     "keyring.backends.Windows",
     "keyring.backends.macOS",
@@ -125,13 +126,28 @@ class KeyringCredentialStore:
         if module not in _SAFE_KEYRING_MODULES or priority <= 0:
             raise AuthError("A supported secure OS credential backend is required.")
         self._keyring = keyring_module
+        self._backend_module = module
 
     def save(self, profile_id: str, record: Mapping[str, object]) -> None:
+        payload = None
         try:
             payload = json.dumps(dict(record), separators=(",", ":"), sort_keys=True)
             self._keyring.set_password(_KEYRING_SERVICE, profile_id, payload)
         except Exception:
-            raise AuthError("OAuth credentials could not be stored securely.") from None
+            diagnostics = {}
+            if payload is not None and self._backend_module == "keyring.backends.Windows":
+                blob_bytes = len(payload.encode("utf-16-le"))
+                diagnostics = {
+                    "windows_credential_blob_bytes": blob_bytes,
+                    "windows_blob_limit_bytes": _WINDOWS_CREDENTIAL_BLOB_LIMIT_BYTES,
+                    "exceeds_windows_blob_limit": (
+                        blob_bytes > _WINDOWS_CREDENTIAL_BLOB_LIMIT_BYTES
+                    ),
+                }
+            raise AuthError(
+                "OAuth credentials could not be stored securely.",
+                _diagnostics=diagnostics,
+            ) from None
 
     def load(self, profile_id: str) -> Mapping[str, object] | None:
         try:
@@ -355,6 +371,20 @@ def _format_safe_auth_diagnostics(diagnostics: Mapping[str, object]) -> str:
     body_shape = diagnostics.get("response_body_shape")
     if isinstance(body_shape, str) and body_shape in {"json_object", "json_array", "json_scalar"}:
         fields.append(f"response body shape: {body_shape}")
+
+    blob_bytes = diagnostics.get("windows_credential_blob_bytes")
+    blob_limit = diagnostics.get("windows_blob_limit_bytes")
+    exceeds_limit = diagnostics.get("exceeds_windows_blob_limit")
+    if (type(blob_bytes) is int and 0 <= blob_bytes <= sys.maxsize
+            and type(blob_limit) is int
+            and blob_limit == _WINDOWS_CREDENTIAL_BLOB_LIMIT_BYTES
+            and type(exceeds_limit) is bool
+            and exceeds_limit == (blob_bytes > blob_limit)):
+        exceeds_text = "yes" if exceeds_limit else "no"
+        fields.append(
+            f"Windows credential blob: {blob_bytes} bytes; Windows blob limit: "
+            f"{blob_limit} bytes; exceeds limit: {exceeds_text}"
+        )
 
     return "; ".join(fields)
 
