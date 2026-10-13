@@ -13,6 +13,7 @@ import json
 import os
 import re
 import secrets
+import ssl
 import threading
 import uuid
 import time
@@ -45,6 +46,10 @@ _SAFE_OAUTH_ERROR_CODES = {
     "unsupported_grant_type",
 }
 _SAFE_REQUEST_ID = re.compile(r"req_[A-Za-z0-9_-]{1,64}\Z")
+_SAFE_OAUTH_FAILURE_CATEGORIES = {
+    "exchange_timeout", "exchange_connection_error", "exchange_tls_error",
+    "unknown_exchange_error",
+}
 
 
 class AuthError(RuntimeError):
@@ -208,7 +213,9 @@ class _AuthlibOAuthClient:
 def _safe_oauth_failure_diagnostics(error: Exception) -> dict[str, object]:
     """Extract fixed-schema OAuth diagnostics without retaining payload text."""
     response = getattr(error, "response", None)
-    diagnostics: dict[str, object] = {}
+    diagnostics: dict[str, object] = {
+        "failure_category": _safe_oauth_failure_category(error),
+    }
     if response is not None:
         status = getattr(response, "status_code", None)
         if isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599:
@@ -252,9 +259,24 @@ def _safe_oauth_failure_diagnostics(error: Exception) -> dict[str, object]:
     return diagnostics
 
 
+def _safe_oauth_failure_category(error: Exception) -> str:
+    """Classify only stable built-in exception categories; never expose type names."""
+    if isinstance(error, TimeoutError):
+        return "exchange_timeout"
+    if isinstance(error, ssl.SSLError):
+        return "exchange_tls_error"
+    if isinstance(error, ConnectionError):
+        return "exchange_connection_error"
+    return "unknown_exchange_error"
+
+
 def _format_safe_auth_diagnostics(diagnostics: Mapping[str, object]) -> str:
     """Render only known diagnostic fields that pass their strict validators."""
     fields: list[str] = []
+    category = diagnostics.get("failure_category")
+    if isinstance(category, str) and category in _SAFE_OAUTH_FAILURE_CATEGORIES:
+        fields.append(f"failure category: {category}")
+
     status = diagnostics.get("http_status")
     if type(status) is int and 100 <= status <= 599:
         fields.append(f"HTTP status: {status}")

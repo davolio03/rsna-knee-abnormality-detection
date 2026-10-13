@@ -148,6 +148,7 @@ class SIWCTest(unittest.TestCase):
         error = raised.exception
         self.assertTrue(str(error).startswith("Authorization could not be completed. Diagnostics: "))
         self.assertEqual(error._diagnostics, {
+            "failure_category": "unknown_exchange_error",
             "http_status": 400,
             "provider_error_code": "invalid_grant",
             "request_id": "req_safe123",
@@ -194,6 +195,7 @@ class SIWCTest(unittest.TestCase):
                 )
 
         self.assertEqual(raised.exception._diagnostics, {
+            "failure_category": "unknown_exchange_error",
             "http_status": 400,
             "response_body_shape": "json_object",
         })
@@ -231,12 +233,57 @@ class SIWCTest(unittest.TestCase):
                 )
 
         error = raised.exception
-        self.assertEqual(error._diagnostics, {"provider_error_code": "invalid_grant"})
+        self.assertEqual(error._diagnostics, {
+            "failure_category": "unknown_exchange_error",
+            "provider_error_code": "invalid_grant",
+        })
         rendered = str(error)
         self.assertIn("provider error code: invalid_grant", rendered)
         for sensitive in ("PRIVATE_AUTH_CODE", "access-token", "PRIVATE_TOKEN",
                           "description", "error?", "https://provider.invalid"):
             self.assertNotIn(sensitive, rendered)
+
+    def test_exchange_failure_has_fixed_safe_category_when_provider_metadata_is_absent(self):
+        cases = (
+            (TimeoutError("PRIVATE_TIMEOUT_DETAIL"), "exchange_timeout"),
+            (ConnectionError("PRIVATE_CONNECTION_DETAIL"), "exchange_connection_error"),
+            (RuntimeError("PRIVATE_PROVIDER_DETAIL"), "unknown_exchange_error"),
+        )
+        for failure, expected_category in cases:
+            with self.subTest(category=expected_category):
+                class SyntheticSession:
+                    def __init__(self, **kwargs):
+                        pass
+
+                    def fetch_token(self, *args, **kwargs):
+                        raise failure
+
+                authlib = ModuleType("authlib")
+                integrations = ModuleType("authlib.integrations")
+                requests_client = ModuleType("authlib.integrations.requests_client")
+                requests_client.OAuth2Session = SyntheticSession
+
+                with unittest.mock.patch.dict(sys.modules, {
+                    "authlib": authlib,
+                    "authlib.integrations": integrations,
+                    "authlib.integrations.requests_client": requests_client,
+                }):
+                    with self.assertRaises(AuthError) as raised:
+                        _AuthlibOAuthClient().exchange(
+                            client_id="oaiapp-synthetic", code="PRIVATE_CODE",
+                            verifier="PRIVATE_VERIFIER",
+                            redirect_uri="http://127.0.0.1:1455/auth/callback",
+                        )
+
+                error = raised.exception
+                self.assertEqual(error._diagnostics, {
+                    "failure_category": expected_category,
+                })
+                self.assertIn(f"failure category: {expected_category}", str(error))
+                for sensitive in ("PRIVATE_TIMEOUT_DETAIL", "PRIVATE_CONNECTION_DETAIL",
+                                  "PRIVATE_PROVIDER_DETAIL", "PRIVATE_CODE",
+                                  "PRIVATE_VERIFIER"):
+                    self.assertNotIn(sensitive, str(error))
 
     def test_host_id_is_persisted_as_non_secret_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
