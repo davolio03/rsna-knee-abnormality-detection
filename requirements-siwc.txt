@@ -1,3 +1,6 @@
 # SIWC-01: OAuth/OIDC verification and OS-native credential storage.
 Authlib==1.8.0
 keyring==25.7.0
+
+# SIWC-02: Official OpenAI Python SDK for Responses streaming.
+openai==2.11.0

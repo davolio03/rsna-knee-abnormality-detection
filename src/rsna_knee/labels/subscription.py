@@ -57,6 +57,24 @@ _CAUSE_EXPLANATIONS = {
     "uncertainty_range_invalid": "The Codex CLI response contained uncertainty outside the allowed range.",
     "unknown": "The failure cause could not be safely classified.",
 }
+_SAFE_SIWC_ERROR_CODES = {
+    "subscription_sharing_user_not_eligible",
+    "subscription_sharing_usage_limit_exceeded",
+    "subscription_sharing_usage_unavailable",
+    "subscription_sharing_unsupported_capability",
+    "subscription_sharing_route_not_supported",
+    "subscription_sharing_invalid_user",
+    "chatpass_v2_scope_not_authorized",
+    "chatpass_v2_invalid_authorization_context",
+    "subscription_sharing_user_unavailable",
+}
+_SAFE_SIWC_ERROR_PARAMS = {
+    "model", "input", "tools", "service_tier", "store", "stream",
+}
+_SAFE_SIWC_BODY_SHAPES = {
+    "nested_error", "top_level_error", "detail_object", "error_text", "object", "non_object",
+}
+_SAFE_REQUEST_ID = re.compile(r"^req_[A-Za-z0-9_-]{1,120}$")
 
 
 _FAILURE_PATTERNS = (
@@ -76,12 +94,29 @@ class LabelingError(ValueError):
 
     def __init__(self, message: str, *, stage: str = "validation",
                  cause_code: str = "unknown", exit_status: int | None = None,
-                 errno_value: int | None = None):
+                 errno_value: int | None = None, http_status: int | None = None,
+                 provider_error_code: str | None = None,
+                 provider_error_param: str | None = None,
+                 provider_body_shape: str | None = None,
+                 request_id: str | None = None):
         super().__init__(message)
         self.stage = stage
         self.cause_code = cause_code if cause_code in _CAUSE_EXPLANATIONS else "unknown"
         self.exit_status = exit_status if type(exit_status) is int else None
         self.errno_value = errno_value if type(errno_value) is int else None
+        self.http_status = (http_status if type(http_status) is int
+                            and 100 <= http_status <= 599 else None)
+        self.provider_error_code = (provider_error_code
+                                    if isinstance(provider_error_code, str)
+                                    and provider_error_code in _SAFE_SIWC_ERROR_CODES else None)
+        self.provider_error_param = (provider_error_param
+                                    if isinstance(provider_error_param, str)
+                                    and provider_error_param in _SAFE_SIWC_ERROR_PARAMS else None)
+        self.provider_body_shape = (provider_body_shape
+                                   if isinstance(provider_body_shape, str)
+                                   and provider_body_shape in _SAFE_SIWC_BODY_SHAPES else None)
+        self.request_id = (request_id if isinstance(request_id, str)
+                           and _SAFE_REQUEST_ID.fullmatch(request_id) else None)
 
 
 def _classify_cli_failure(stdout: str, stderr: str) -> str:
@@ -474,6 +509,24 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
                 record["exit_status"] = exit_status
             if type(errno_value) is int:
                 record["errno"] = errno_value
+            http_status = getattr(exc, "http_status", None)
+            provider_error_code = getattr(exc, "provider_error_code", None)
+            provider_error_param = getattr(exc, "provider_error_param", None)
+            provider_body_shape = getattr(exc, "provider_body_shape", None)
+            request_id = getattr(exc, "request_id", None)
+            if type(http_status) is int and 100 <= http_status <= 599:
+                record["http_status"] = http_status
+            if (isinstance(provider_error_code, str)
+                    and provider_error_code in _SAFE_SIWC_ERROR_CODES):
+                record["provider_error_code"] = provider_error_code
+            if (isinstance(provider_error_param, str)
+                    and provider_error_param in _SAFE_SIWC_ERROR_PARAMS):
+                record["provider_error_param"] = provider_error_param
+            if (isinstance(provider_body_shape, str)
+                    and provider_body_shape in _SAFE_SIWC_BODY_SHAPES):
+                record["provider_body_shape"] = provider_body_shape
+            if isinstance(request_id, str) and _SAFE_REQUEST_ID.fullmatch(request_id):
+                record["request_id"] = request_id
             try:
                 journal.append(record)
             except LabelingError:
@@ -482,11 +535,25 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
                     f"Progress: started={progress['started']}, completed={progress['completed']}, "
                     f"failed={progress['failed']}.", stage="journal_persist",
                 ) from None
+            diagnostic_context = " ".join(
+                f"{key}={value}" for key, value in (
+                    ("http_status", http_status),
+                    ("provider_error_code", provider_error_code),
+                    ("provider_error_param", provider_error_param),
+                    ("provider_body_shape", provider_body_shape),
+                    ("request_id", request_id),
+                ) if value is not None
+            )
+            if diagnostic_context:
+                diagnostic_context = f" Provider diagnostics: {diagnostic_context}."
             raise LabelingError(
                 f"Pilot stopped at offset {attempt_offset}: {_CAUSE_EXPLANATIONS[cause]} "
                 f"Progress: started={progress['started']}, completed={progress['completed']}, "
-                f"failed={progress['failed']}.", stage=stage, cause_code=cause,
+                f"failed={progress['failed']}.{diagnostic_context}", stage=stage, cause_code=cause,
                 exit_status=exit_status, errno_value=errno_value,
+                http_status=http_status, provider_error_code=provider_error_code,
+                provider_error_param=provider_error_param,
+                provider_body_shape=provider_body_shape, request_id=request_id,
             ) from None
         progress["completed"] += 1
         elapsed_ms = max(0, int((time.monotonic() - started_at) * 1000))

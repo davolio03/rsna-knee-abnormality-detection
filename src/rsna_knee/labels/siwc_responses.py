@@ -7,7 +7,15 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from rsna_knee.labels.siwc_auth import AuthError, SIWCAuthenticator
-from rsna_knee.labels.subscription import LABEL_COLUMNS, LabelingError, validate_label_result
+from rsna_knee.labels.subscription import (
+    LABEL_COLUMNS,
+    LabelingError,
+    _SAFE_REQUEST_ID,
+    _SAFE_SIWC_BODY_SHAPES,
+    _SAFE_SIWC_ERROR_CODES,
+    _SAFE_SIWC_ERROR_PARAMS,
+    validate_label_result,
+)
 
 
 RESPONSES_BASE_URL = "https://api.openai.com/v1"
@@ -90,9 +98,15 @@ class SIWCResponsesInfer:
                 for event in events:
                     event_type = getattr(event, "type", None)
                     if event_type in {"response.failed", "response.incomplete", "error"}:
-                        raise LabelingError(
+                        response = getattr(event, "response", None)
+                        error = getattr(response, "error", None)
+                        if error is None:
+                            error = getattr(event, "error", None)
+                        raise _provider_error(
                             "Responses inference did not complete successfully.",
-                            stage="inference", cause_code="model_error",
+                            error,
+                            response=response,
+                            default_cause="model_error",
                         )
                     if event_type == "response.completed":
                         response = getattr(event, "response", None)
@@ -118,9 +132,8 @@ class SIWCResponsesInfer:
                                     cause_code=exc.cause_code) from None
         except LabelingError:
             raise
-        except Exception:
-            raise LabelingError("Responses inference could not be completed.",
-                                stage="inference", cause_code="network_error") from None
+        except Exception as exc:
+            raise _provider_error("Responses inference could not be completed.", exc) from None
         finally:
             if client is not None:
                 try:
@@ -156,3 +169,79 @@ def _build_label_prompt(report: str) -> str:
         "excerpt (maximum 200 characters); use an empty excerpt when unsupported. Do not add keys.\n\n"
         f"REPORT:\n{report}"
     )
+
+
+def _provider_error(message: str, error: object, *, response: object = None,
+                    default_cause: str = "network_error") -> LabelingError:
+    """Preserve only allowlisted provider fields; never retain body text."""
+    status = _safe_int(getattr(error, "status_code", None))
+    if status is None:
+        status = _safe_int(getattr(response, "status_code", None))
+    code = getattr(error, "code", None)
+    param = getattr(error, "param", None)
+    body = getattr(error, "body", None)
+    body_shape = None
+    if isinstance(body, Mapping):
+        nested = body.get("error")
+        if isinstance(nested, Mapping):
+            body_shape = "nested_error"
+            code = code or nested.get("code")
+            param = param or nested.get("param")
+        elif isinstance(body.get("detail"), str):
+            body_shape = "detail_object"
+        elif isinstance(body.get("error"), str):
+            body_shape = "error_text"
+        elif "code" in body or "param" in body:
+            body_shape = "top_level_error"
+            code = code or body.get("code")
+            param = param or body.get("param")
+        else:
+            body_shape = "object"
+    elif body is not None:
+        body_shape = "non_object"
+    safe_code = (code if isinstance(code, str)
+                 and code in _SAFE_SIWC_ERROR_CODES else None)
+    safe_param = (param if isinstance(param, str)
+                  and param in _SAFE_SIWC_ERROR_PARAMS else None)
+    request_id = getattr(error, "request_id", None)
+    if not isinstance(request_id, str):
+        request_id = getattr(response, "_request_id", None)
+    if not isinstance(request_id, str):
+        response_obj = getattr(error, "response", None)
+        headers = getattr(response_obj, "headers", None)
+        if headers is not None:
+            try:
+                request_id = headers.get("x-request-id")
+            except Exception:
+                request_id = None
+    safe_request_id = (request_id if isinstance(request_id, str)
+                       and _SAFE_REQUEST_ID.fullmatch(request_id) else None)
+
+    cause = default_cause
+    if status == 401 or safe_code == "subscription_sharing_invalid_user":
+        cause = "auth_error"
+    elif status == 429 or safe_code == "subscription_sharing_usage_limit_exceeded":
+        cause = "quota_error"
+    elif (status == 503 or safe_code in {
+            "subscription_sharing_usage_unavailable",
+            "subscription_sharing_user_unavailable",
+        }):
+        cause = "network_error"
+    elif safe_code is not None or status in {400, 403}:
+        cause = "model_error"
+    return LabelingError(
+        message,
+        stage="inference",
+        cause_code=cause,
+        http_status=status,
+        provider_error_code=safe_code,
+        provider_error_param=safe_param,
+        provider_body_shape=(body_shape if body_shape in _SAFE_SIWC_BODY_SHAPES else None),
+        request_id=safe_request_id,
+    )
+
+
+def _safe_int(value: object) -> int | None:
+    if type(value) is int and 100 <= value <= 599:
+        return value
+    return None

@@ -1,9 +1,10 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from rsna_knee.labels.siwc_responses import SIWCResponsesInfer
 from rsna_knee.labels.siwc_auth import SIWCAuthenticator
@@ -140,6 +141,157 @@ class SIWCResponsesTests(unittest.TestCase):
             self.make_infer()(self.report_canary)
         self.assertNotIn(self.report_canary, str(raised.exception))
         self.assertNotIn("transport leak", str(raised.exception))
+
+    def test_http_error_preserves_only_safe_status_code_param_and_request_id(self):
+        provider_exception = RuntimeError("PRIVATE_REPORT_CANARY and raw body")
+        provider_exception.status_code = 429
+        provider_exception.request_id = "req_synthetic-123"
+        provider_exception.body = {"error": {
+            "code": "subscription_sharing_usage_limit_exceeded",
+            "param": "model",
+            "message": self.report_canary,
+        }}
+        self.client.responses.create.side_effect = provider_exception
+
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer()(self.report_canary)
+
+        self.assertEqual(raised.exception.http_status, 429)
+        self.assertEqual(raised.exception.provider_error_code,
+                         "subscription_sharing_usage_limit_exceeded")
+        self.assertEqual(raised.exception.provider_error_param, "model")
+        self.assertEqual(raised.exception.provider_body_shape, "nested_error")
+        self.assertEqual(raised.exception.request_id, "req_synthetic-123")
+        self.assertNotIn(self.report_canary, str(raised.exception))
+        self.assertNotIn("raw body", str(raised.exception))
+
+    def test_untrusted_error_code_param_and_request_id_are_discarded(self):
+        provider_exception = RuntimeError("private error")
+        provider_exception.status_code = 400
+        provider_exception.request_id = self.report_canary
+        provider_exception.body = {"error": {
+            "code": self.report_canary,
+            "param": self.report_canary,
+        }}
+        self.client.get.side_effect = provider_exception
+
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer()(self.report_canary)
+
+        self.assertEqual(raised.exception.http_status, 400)
+        self.assertIsNone(raised.exception.provider_error_code)
+        self.assertIsNone(raised.exception.provider_error_param)
+        self.assertIsNone(raised.exception.request_id)
+        self.assertNotIn(self.report_canary, str(raised.exception))
+
+    def test_admission_detail_shape_and_request_id_are_preserved_without_text(self):
+        provider_exception = RuntimeError("private admission details")
+        provider_exception.status_code = 403
+        provider_exception.response = SimpleNamespace(
+            headers={"x-request-id": "req_admission-901"}
+        )
+        provider_exception.body = {"detail": self.report_canary}
+        self.client.get.side_effect = provider_exception
+
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer()(self.report_canary)
+
+        self.assertEqual(raised.exception.http_status, 403)
+        self.assertEqual(raised.exception.provider_body_shape, "detail_object")
+        self.assertEqual(raised.exception.request_id, "req_admission-901")
+        self.assertIsNone(raised.exception.provider_error_code)
+        self.assertNotIn(self.report_canary, str(raised.exception))
+        self.assertNotIn("private admission details", str(raised.exception))
+
+    def test_failure_event_preserves_allowlisted_recovery_code(self):
+        self.client.responses.create.return_value = FakeStream([
+            SimpleNamespace(type="response.failed", response=SimpleNamespace(
+                error=SimpleNamespace(
+                    code="subscription_sharing_unsupported_capability",
+                    param="service_tier",
+                ),
+                _request_id="req_stream-456",
+            )),
+        ])
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer()(self.report_canary)
+        self.assertEqual(raised.exception.provider_error_code,
+                         "subscription_sharing_unsupported_capability")
+        self.assertEqual(raised.exception.provider_error_param, "service_tier")
+        self.assertEqual(raised.exception.request_id, "req_stream-456")
+        self.assertNotIn(self.report_canary, str(raised.exception))
+
+    def test_usage_unavailable_keeps_retry_later_recovery_classification(self):
+        self.client.responses.create.return_value = FakeStream([
+            SimpleNamespace(type="response.failed", response=SimpleNamespace(
+                error=SimpleNamespace(code="subscription_sharing_usage_unavailable"),
+            )),
+        ])
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer()(self.report_canary)
+        self.assertEqual(raised.exception.cause_code, "network_error")
+        self.assertEqual(raised.exception.provider_error_code,
+                         "subscription_sharing_usage_unavailable")
+
+    def test_default_openai_client_construction_and_pinned_dependency(self):
+        sdk_constructor = Mock(return_value=self.client)
+        with patch.dict(sys.modules, {"openai": SimpleNamespace(OpenAI=sdk_constructor)}):
+            created = SIWCResponsesInfer._default_client_factory(
+                api_key="synthetic-access-token",
+                base_url="https://api.openai.com/v1",
+                max_retries=0,
+            )
+        sdk_constructor.assert_called_once_with(
+            api_key="synthetic-access-token",
+            base_url="https://api.openai.com/v1",
+            max_retries=0,
+        )
+        self.assertIs(created, self.client)
+        requirements = (Path(__file__).resolve().parents[1] / "requirements-siwc.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("openai==2.11.0", requirements)
+
+    def test_run_pilot_persists_only_sanitized_provider_recovery_metadata(self):
+        rows = [{
+            "StudyInstanceUID": "synthetic-study",
+            "Report": self.report_canary,
+            **{target: "" for target in LABEL_COLUMNS},
+        }]
+
+        def failed_infer(_report):
+            raise LabelingError(
+                "safe provider failure",
+                cause_code="quota_error",
+                http_status=429,
+                provider_error_code="subscription_sharing_usage_limit_exceeded",
+                provider_error_param="model",
+                provider_body_shape="nested_error",
+                request_id="req_synthetic-789",
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            journal = root / "data" / "outputs" / "diagnostics.jsonl"
+            with self.assertRaises(LabelingError) as raised:
+                run_pilot(
+                    rows,
+                    gold_ids={f"synthetic-gold-{index}" for index in range(58)},
+                    max_records=1,
+                    output_path=root / "data" / "outputs" / "labels.jsonl",
+                    diagnostics_path=journal,
+                    project_root=root,
+                    subscription_oauth_confirmed=True,
+                    infer=failed_infer,
+                )
+            diagnostic_text = journal.read_text(encoding="utf-8")
+        self.assertIn("http_status=429", str(raised.exception))
+        self.assertIn("subscription_sharing_usage_limit_exceeded", str(raised.exception))
+        self.assertIn('"request_id":"req_synthetic-789"', diagnostic_text)
+        self.assertIn('"provider_error_param":"model"', diagnostic_text)
+        self.assertIn('"provider_body_shape":"nested_error"', diagnostic_text)
+        self.assertNotIn(self.report_canary, str(raised.exception))
+        self.assertNotIn(self.report_canary, diagnostic_text)
 
     def test_no_authorization_or_plan_scope_fails_before_any_client_call(self):
         auth_cases = (
