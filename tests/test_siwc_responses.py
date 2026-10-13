@@ -101,6 +101,19 @@ class SIWCResponsesTests(unittest.TestCase):
             self.make_infer()(self.report_canary)
         self.client.responses.create.assert_not_called()
 
+    def test_list_available_models_returns_only_visible_catalog_entries(self):
+        self.client.get.return_value = {"models": [
+            {"slug": "gpt-6-luna", "display_name": "Luna", "visibility": "list"},
+            {"slug": "hidden-model", "display_name": "Hidden", "visibility": "hidden"},
+            {"slug": "missing-name", "visibility": "list"},
+        ]}
+        self.assertEqual(
+            self.make_infer().list_available_models(),
+            [{"slug": "gpt-6-luna", "display_name": "Luna"}],
+        )
+        self.client.get.assert_called_once_with("/models", cast_to=dict)
+        self.assertTrue(self.client.close.called)
+
     def test_only_response_completed_returns_validated_labels(self):
         self.client.responses.create.return_value = FakeStream([
             SimpleNamespace(type="response.output_text.delta", delta=self.result_text),

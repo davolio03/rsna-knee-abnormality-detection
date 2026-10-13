@@ -71,6 +71,53 @@ class SIWCResponsesInfer:
             raise LabelingError("Responses inference could not be completed.",
                                 stage="inference", cause_code="network_error") from None
 
+    def list_available_models(self) -> list[dict[str, str]]:
+        """Return only displayable models for this authorized ChatGPT account."""
+        try:
+            return self._authenticator.with_plan_access_token(
+                self._profile_id,
+                self._list_models_authorized,
+            )
+        except LabelingError:
+            raise
+        except AuthError:
+            raise LabelingError("A valid ChatGPT plan-use authorization is required.",
+                                stage="inference", cause_code="auth_error") from None
+        except Exception:
+            raise LabelingError("The account model catalog could not be loaded.",
+                                stage="inference", cause_code="network_error") from None
+
+    def _list_models_authorized(self, access_token: str) -> list[dict[str, str]]:
+        client = None
+        try:
+            client = self._client_factory(
+                api_key=access_token,
+                base_url=RESPONSES_BASE_URL,
+                max_retries=0,
+            )
+            catalog = client.get("/models", cast_to=dict)
+            if not isinstance(catalog, Mapping) or not isinstance(catalog.get("models"), list):
+                raise LabelingError("The account model catalog has an invalid structure.",
+                                    stage="inference", cause_code="model_error")
+            return [
+                {"slug": item["slug"], "display_name": item["display_name"]}
+                for item in catalog["models"]
+                if isinstance(item, Mapping)
+                and item.get("visibility") == "list"
+                and isinstance(item.get("slug"), str) and item["slug"].strip()
+                and isinstance(item.get("display_name"), str) and item["display_name"].strip()
+            ]
+        except LabelingError:
+            raise
+        except Exception as exc:
+            raise _provider_error("The account model catalog could not be loaded.", exc) from None
+        finally:
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
     def _infer_authorized(self, access_token: str,
                           report: str) -> dict[str, dict[str, object]]:
         client = None
