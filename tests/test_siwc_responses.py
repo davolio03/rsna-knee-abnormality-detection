@@ -166,6 +166,147 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertTrue(payload["stream"])
         self.assertNotIn("system", [item.get("role") for item in payload["input"]])
 
+    def _sse_handler(self, events):
+        def handler(request):
+            if request.url.path == "/v1/models":
+                return httpx.Response(200, json={"models": [
+                    {"slug": "gpt-6-luna", "display_name": "Luna", "visibility": "list"},
+                ]})
+            body = "".join(
+                f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+                for event in events
+            )
+            return httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, content=body,
+            )
+        return handler
+
+    def _completed_sse_event(self, *, text="", status="completed", output=None):
+        if output is None:
+            output = ([{
+                "id": "msg_synthetic", "type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": text, "annotations": []}],
+            }] if text else [])
+        return {
+            "type": "response.completed" if status == "completed" else f"response.{status}",
+            "response": {
+                "id": "resp_synthetic", "object": "response", "created_at": 0,
+                "status": status, "output": output,
+            },
+        }
+
+    def test_real_sdk_uses_delta_text_only_as_fallback_after_completion(self):
+        events = [
+            {"type": "response.output_text.delta", "sequence_number": 0,
+             "item_id": "msg_synthetic", "output_index": 0,
+             "content_index": 0, "delta": self.result_text},
+            self._completed_sse_event(),
+        ]
+        self.assertEqual(
+            self.make_sdk_infer(self._sse_handler(events))(self.report_canary),
+            valid_result(),
+        )
+
+    def test_real_sdk_completed_text_is_authoritative_without_delta_duplication(self):
+        events = [
+            {"type": "response.output_text.delta", "sequence_number": 0,
+             "item_id": "msg_synthetic", "output_index": 0,
+             "content_index": 0, "delta": self.result_text},
+            self._completed_sse_event(text=self.result_text),
+        ]
+        self.assertEqual(
+            self.make_sdk_infer(self._sse_handler(events))(self.report_canary),
+            valid_result(),
+        )
+
+    def test_real_sdk_refusal_with_valid_json_delta_is_rejected_and_redacted(self):
+        events = [
+            {"type": "response.output_text.delta", "sequence_number": 0,
+             "item_id": "msg_synthetic", "output_index": 0,
+             "content_index": 0, "delta": self.result_text},
+            self._completed_sse_event(output=[{
+                "id": "msg_synthetic", "type": "message", "role": "assistant",
+                "content": [{"type": "refusal", "refusal": "PRIVATE_REFUSAL_CANARY"}],
+            }]),
+        ]
+        with self.assertRaises(LabelingError) as raised:
+            self.make_sdk_infer(self._sse_handler(events))(self.report_canary)
+        self.assertEqual(raised.exception.cause_code, "model_error")
+        self.assertTrue(raised.exception.stream_refusal)
+        self.assertEqual(raised.exception.stream_format, "refusal")
+        for canary in (self.report_canary, "PRIVATE_REFUSAL_CANARY", self.result_text[:30]):
+            self.assertNotIn(canary, str(raised.exception))
+
+    def test_real_sdk_rejects_valid_delta_without_successful_completion(self):
+        events = [{
+            "type": "response.output_text.delta", "sequence_number": 0,
+            "item_id": "msg_synthetic", "output_index": 0,
+            "content_index": 0, "delta": self.result_text,
+        }]
+        with self.assertRaises(LabelingError) as raised:
+            self.make_sdk_infer(self._sse_handler(events))(self.report_canary)
+        self.assertFalse(raised.exception.stream_completed)
+        self.assertEqual(raised.exception.stream_text_source, "none")
+        self.assertEqual(raised.exception.stream_delta_chars, len(self.result_text))
+        self.assertEqual(raised.exception.stream_format, "json_valid")
+
+    def test_real_sdk_incomplete_and_failed_streams_reject_valid_deltas(self):
+        delta = {
+            "type": "response.output_text.delta", "sequence_number": 0,
+            "item_id": "msg_synthetic", "output_index": 0,
+            "content_index": 0, "delta": self.result_text,
+        }
+        events = (
+            [delta, self._completed_sse_event(status="incomplete")],
+            [delta, {"type": "response.failed", "response": {
+                "id": "resp_synthetic", "object": "response", "created_at": 0,
+                "status": "failed", "output": [],
+                "error": {"code": "server_error", "message": "PRIVATE_FAILURE_CANARY"},
+            }}],
+        )
+        for sequence in events:
+            with self.subTest(event_types=[event["type"] for event in sequence]):
+                with self.assertRaises(LabelingError) as raised:
+                    self.make_sdk_infer(self._sse_handler(sequence))(self.report_canary)
+                self.assertFalse(raised.exception.stream_completed)
+                self.assertNotIn("PRIVATE_FAILURE_CANARY", str(raised.exception))
+
+    def test_empty_and_fenced_stream_text_are_rejected_with_safe_classes(self):
+        cases = (
+            ("", "empty"),
+            (f"```json\n{self.result_text}\n```", "fenced"),
+            ("not-json", "json_invalid"),
+        )
+        for text, expected_class in cases:
+            events = [self._completed_sse_event(text=text)]
+            with self.subTest(expected_class=expected_class), self.assertRaises(LabelingError) as raised:
+                self.make_sdk_infer(self._sse_handler(events))(self.report_canary)
+            self.assertEqual(raised.exception.stream_completed, True)
+            self.assertEqual(raised.exception.stream_format, expected_class)
+            self.assertNotIn(self.result_text[:30], str(raised.exception))
+
+    def test_valid_json_with_invalid_label_schema_is_classified_without_text(self):
+        private_json = json.dumps({"PRIVATE_TARGET_CANARY": True})
+        events = [self._completed_sse_event(text=private_json)]
+        with self.assertRaises(LabelingError) as raised:
+            self.make_sdk_infer(self._sse_handler(events))(self.report_canary)
+        self.assertEqual(raised.exception.cause_code, "target_set_invalid")
+        self.assertEqual(raised.exception.stream_format, "json_valid")
+        self.assertNotIn("PRIVATE_TARGET_CANARY", str(raised.exception))
+
+    def test_real_sdk_refusal_delta_is_rejected_even_when_final_has_valid_json(self):
+        events = [
+            {"type": "response.refusal.delta", "sequence_number": 0,
+             "item_id": "msg_synthetic", "output_index": 0,
+             "content_index": 0, "delta": "PRIVATE_REFUSAL_CANARY"},
+            self._completed_sse_event(text=self.result_text),
+        ]
+        with self.assertRaises(LabelingError) as raised:
+            self.make_sdk_infer(self._sse_handler(events))(self.report_canary)
+        self.assertTrue(raised.exception.stream_refusal)
+        self.assertEqual(raised.exception.stream_format, "refusal")
+        self.assertNotIn("PRIVATE_REFUSAL_CANARY", str(raised.exception))
+
     def test_request_uses_selected_available_model_and_nonstored_streaming(self):
         infer = self.make_infer()
 
@@ -274,6 +415,9 @@ class SIWCResponsesTests(unittest.TestCase):
             self.make_infer()(self.report_canary)
         self.assertNotIn(self.report_canary, str(raised.exception))
         self.assertNotIn("transport leak", str(raised.exception))
+        self.assertFalse(raised.exception.stream_completed)
+        self.assertEqual(raised.exception.stream_delta_chars, len("partial"))
+        self.assertEqual(raised.exception.stream_text_source, "none")
 
     def test_http_error_preserves_only_safe_status_code_param_and_request_id(self):
         provider_exception = RuntimeError("PRIVATE_REPORT_CANARY and raw body")
@@ -401,6 +545,12 @@ class SIWCResponsesTests(unittest.TestCase):
                 provider_error_param="model",
                 provider_body_shape="nested_error",
                 request_id="req_synthetic-789",
+                stream_completed=False,
+                stream_delta_chars=124,
+                stream_final_chars=0,
+                stream_text_source="none",
+                stream_refusal=False,
+                stream_format="empty",
             )
 
         with tempfile.TemporaryDirectory() as directory:
@@ -423,6 +573,12 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertIn('"request_id":"req_synthetic-789"', diagnostic_text)
         self.assertIn('"provider_error_param":"model"', diagnostic_text)
         self.assertIn('"provider_body_shape":"nested_error"', diagnostic_text)
+        self.assertIn('"stream_completed":false', diagnostic_text)
+        self.assertIn('"stream_delta_chars":124', diagnostic_text)
+        self.assertIn('"stream_final_chars":0', diagnostic_text)
+        self.assertIn('"stream_text_source":"none"', diagnostic_text)
+        self.assertIn('"stream_refusal":false', diagnostic_text)
+        self.assertIn('"stream_format":"empty"', diagnostic_text)
         self.assertNotIn(self.report_canary, str(raised.exception))
         self.assertNotIn(self.report_canary, diagnostic_text)
 
@@ -441,6 +597,12 @@ class SIWCResponsesTests(unittest.TestCase):
             error.provider_error_param = private_canary
             error.provider_body_shape = private_canary
             error.request_id = private_canary
+            error.stream_completed = private_canary
+            error.stream_delta_chars = private_canary
+            error.stream_final_chars = private_canary
+            error.stream_text_source = private_canary
+            error.stream_refusal = private_canary
+            error.stream_format = private_canary
             raise error
 
         with tempfile.TemporaryDirectory() as directory:

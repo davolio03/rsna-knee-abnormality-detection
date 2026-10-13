@@ -75,6 +75,8 @@ _SAFE_SIWC_BODY_SHAPES = {
     "nested_error", "top_level_error", "detail_object", "error_text", "object", "non_object",
 }
 _SAFE_REQUEST_ID = re.compile(r"^req_[A-Za-z0-9_-]{1,120}$")
+_SAFE_STREAM_TEXT_SOURCES = {"completed", "deltas", "none"}
+_SAFE_STREAM_FORMATS = {"empty", "json_invalid", "fenced", "json_valid", "refusal"}
 
 
 _FAILURE_PATTERNS = (
@@ -98,7 +100,13 @@ class LabelingError(ValueError):
                  provider_error_code: str | None = None,
                  provider_error_param: str | None = None,
                  provider_body_shape: str | None = None,
-                 request_id: str | None = None):
+                 request_id: str | None = None,
+                 stream_completed: bool | None = None,
+                 stream_delta_chars: int | None = None,
+                 stream_final_chars: int | None = None,
+                 stream_text_source: str | None = None,
+                 stream_refusal: bool | None = None,
+                 stream_format: str | None = None):
         super().__init__(message)
         self.stage = stage
         self.cause_code = cause_code if cause_code in _CAUSE_EXPLANATIONS else "unknown"
@@ -117,6 +125,18 @@ class LabelingError(ValueError):
                                    and provider_body_shape in _SAFE_SIWC_BODY_SHAPES else None)
         self.request_id = (request_id if isinstance(request_id, str)
                            and _SAFE_REQUEST_ID.fullmatch(request_id) else None)
+        self.stream_completed = stream_completed if type(stream_completed) is bool else None
+        self.stream_delta_chars = _safe_stream_char_count(stream_delta_chars)
+        self.stream_final_chars = _safe_stream_char_count(stream_final_chars)
+        self.stream_text_source = (stream_text_source if isinstance(stream_text_source, str)
+                                   and stream_text_source in _SAFE_STREAM_TEXT_SOURCES else None)
+        self.stream_refusal = stream_refusal if type(stream_refusal) is bool else None
+        self.stream_format = (stream_format if isinstance(stream_format, str)
+                              and stream_format in _SAFE_STREAM_FORMATS else None)
+
+
+def _safe_stream_char_count(value: object) -> int | None:
+    return value if type(value) is int and 0 <= value <= 2_147_483_647 else None
 
 
 def _classify_cli_failure(stdout: str, stderr: str) -> str:
@@ -196,6 +216,28 @@ class _DiagnosticsJournal:
         except (OSError, ValueError):
             raise LabelingError("Diagnostics journal could not be safely written.",
                                 stage="journal_persist") from None
+
+
+def _safe_stream_diagnostics(error: object) -> dict[str, object]:
+    """Revalidate only the fixed SIWC stream-diagnostic schema at the journal edge."""
+    result = {}
+    completed = getattr(error, "stream_completed", None)
+    if type(completed) is bool:
+        result["stream_completed"] = completed
+    for key in ("stream_delta_chars", "stream_final_chars"):
+        value = getattr(error, key, None)
+        if type(value) is int and 0 <= value <= 2_147_483_647:
+            result[key] = value
+    source = getattr(error, "stream_text_source", None)
+    if isinstance(source, str) and source in _SAFE_STREAM_TEXT_SOURCES:
+        result["stream_text_source"] = source
+    refusal = getattr(error, "stream_refusal", None)
+    if type(refusal) is bool:
+        result["stream_refusal"] = refusal
+    format_class = getattr(error, "stream_format", None)
+    if isinstance(format_class, str) and format_class in _SAFE_STREAM_FORMATS:
+        result["stream_format"] = format_class
+    return result
 
 
 def _known_ids(gold_ids: Iterable[str] | None) -> set[str]:
@@ -527,6 +569,8 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
                 record["provider_body_shape"] = provider_body_shape
             if isinstance(request_id, str) and _SAFE_REQUEST_ID.fullmatch(request_id):
                 record["request_id"] = request_id
+            for key, valid in _safe_stream_diagnostics(exc).items():
+                record[key] = valid
             try:
                 journal.append(record)
             except LabelingError:
@@ -554,6 +598,12 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
                 http_status=http_status, provider_error_code=provider_error_code,
                 provider_error_param=provider_error_param,
                 provider_body_shape=provider_body_shape, request_id=request_id,
+                stream_completed=record.get("stream_completed"),
+                stream_delta_chars=record.get("stream_delta_chars"),
+                stream_final_chars=record.get("stream_final_chars"),
+                stream_text_source=record.get("stream_text_source"),
+                stream_refusal=record.get("stream_refusal"),
+                stream_format=record.get("stream_format"),
             ) from None
         progress["completed"] += 1
         elapsed_ms = max(0, int((time.monotonic() - started_at) * 1000))

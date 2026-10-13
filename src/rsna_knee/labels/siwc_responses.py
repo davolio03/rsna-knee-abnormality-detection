@@ -14,6 +14,8 @@ from rsna_knee.labels.subscription import (
     _SAFE_SIWC_BODY_SHAPES,
     _SAFE_SIWC_ERROR_CODES,
     _SAFE_SIWC_ERROR_PARAMS,
+    _SAFE_STREAM_FORMATS,
+    _SAFE_STREAM_TEXT_SOURCES,
     validate_label_result,
 )
 
@@ -35,6 +37,18 @@ def safe_provider_diagnostics(error: object) -> str:
          lambda value: type(value) is str and value in _SAFE_SIWC_BODY_SHAPES),
         ("request_id", getattr(error, "request_id", None),
          lambda value: type(value) is str and _SAFE_REQUEST_ID.fullmatch(value)),
+        ("stream_completed", getattr(error, "stream_completed", None),
+         lambda value: type(value) is bool),
+        ("stream_delta_chars", getattr(error, "stream_delta_chars", None),
+         lambda value: type(value) is int and 0 <= value <= 2_147_483_647),
+        ("stream_final_chars", getattr(error, "stream_final_chars", None),
+         lambda value: type(value) is int and 0 <= value <= 2_147_483_647),
+        ("stream_text_source", getattr(error, "stream_text_source", None),
+         lambda value: type(value) is str and value in _SAFE_STREAM_TEXT_SOURCES),
+        ("stream_refusal", getattr(error, "stream_refusal", None),
+         lambda value: type(value) is bool),
+        ("stream_format", getattr(error, "stream_format", None),
+         lambda value: type(value) is str and value in _SAFE_STREAM_FORMATS),
     )
     return " ".join(f"{name}={value}" for name, value, is_safe in values if is_safe(value))
 
@@ -157,43 +171,109 @@ class SIWCResponsesInfer:
                 store=False,
                 stream=True,
             )
-            completed_text = None
-            with stream as events:
-                for event in events:
-                    event_type = getattr(event, "type", None)
-                    if event_type in {"response.failed", "response.incomplete", "error"}:
-                        response = getattr(event, "response", None)
-                        error = getattr(response, "error", None)
-                        if error is None:
-                            error = getattr(event, "error", None)
-                        raise _provider_error(
-                            "Responses inference did not complete successfully.",
-                            error,
-                            response=response,
-                            default_cause="model_error",
-                        )
-                    if event_type == "response.completed":
-                        response = getattr(event, "response", None)
-                        text = getattr(response, "output_text", None)
-                        if isinstance(text, str):
-                            completed_text = text
-            if completed_text is None:
+            delta_parts = []
+            final_text = None
+            completed = False
+            refusal = False
+            try:
+                with stream as events:
+                    for event in events:
+                        event_type = getattr(event, "type", None)
+                        if event_type in {"response.refusal.delta", "response.refusal.done"}:
+                            refusal = True
+                        if event_type == "response.output_text.delta":
+                            delta = getattr(event, "delta", None)
+                            if isinstance(delta, str):
+                                delta_parts.append(delta)
+                        if event_type in {"response.failed", "response.incomplete", "error"}:
+                            response = getattr(event, "response", None)
+                            error = getattr(response, "error", None)
+                            if error is None:
+                                error = getattr(event, "error", None)
+                            final_text = _response_text(response)
+                            refusal = refusal or _response_has_refusal(response)
+                            observed_text = final_text or "".join(delta_parts)
+                            raise _provider_error(
+                                "Responses inference did not complete successfully.",
+                                error,
+                                response=response,
+                                default_cause="model_error",
+                                stream_completed=False,
+                                stream_delta_chars=sum(map(len, delta_parts)),
+                                stream_final_chars=len(final_text) if final_text is not None else None,
+                                stream_text_source="none",
+                                stream_refusal=refusal,
+                                stream_format=_classify_response_format(observed_text, refusal=refusal),
+                            )
+                        if event_type == "response.completed":
+                            response = getattr(event, "response", None)
+                            final_text = _response_text(response)
+                            refusal = refusal or _response_has_refusal(response)
+                            completed = True
+            except LabelingError:
+                raise
+            except Exception as exc:
+                delta_text = "".join(delta_parts)
+                raise _provider_error(
+                    "Responses inference could not be completed.", exc,
+                    stream_completed=False,
+                    stream_delta_chars=len(delta_text),
+                    stream_final_chars=None,
+                    stream_text_source="none",
+                    stream_refusal=refusal,
+                    stream_format=_classify_response_format(delta_text, refusal=refusal),
+                ) from None
+            delta_text = "".join(delta_parts)
+            delta_chars = len(delta_text)
+            final_chars = len(final_text) if final_text is not None else None
+            selected_source = ("completed" if isinstance(final_text, str) and final_text
+                               else "deltas" if delta_text else "none")
+            selected_text = final_text if selected_source == "completed" else delta_text
+            format_class = _classify_response_format(
+                selected_text, refusal=refusal,
+            )
+            if not completed:
                 raise LabelingError(
                     "Responses stream ended without response.completed.",
                     stage="inference", cause_code="network_error",
+                    stream_completed=False, stream_delta_chars=delta_chars,
+                    stream_final_chars=final_chars, stream_text_source="none",
+                    stream_refusal=refusal, stream_format=format_class,
+                )
+            if refusal:
+                raise LabelingError(
+                    "Responses returned a refusal instead of label data.",
+                    stage="response_validation", cause_code="model_error",
+                    stream_completed=True, stream_delta_chars=delta_chars,
+                    stream_final_chars=final_chars, stream_text_source="none",
+                    stream_refusal=True, stream_format="refusal",
+                )
+            if format_class in {"empty", "fenced"}:
+                raise LabelingError(
+                    "Responses output was not valid structured label data.",
+                    stage="response_validation", cause_code="malformed_json",
+                    stream_completed=True, stream_delta_chars=delta_chars,
+                    stream_final_chars=final_chars, stream_text_source=selected_source,
+                    stream_refusal=False, stream_format=format_class,
                 )
             try:
-                parsed = json.loads(completed_text)
+                parsed = json.loads(selected_text)
             except (TypeError, ValueError, json.JSONDecodeError):
                 raise LabelingError("Responses output was not valid structured label data.",
                                     stage="response_validation",
-                                    cause_code="malformed_json") from None
+                                    cause_code="malformed_json",
+                                    stream_completed=True, stream_delta_chars=delta_chars,
+                                    stream_final_chars=final_chars, stream_text_source=selected_source,
+                                    stream_refusal=False, stream_format=format_class) from None
             try:
                 return validate_label_result(parsed)
             except LabelingError as exc:
                 raise LabelingError("Responses output failed local label validation.",
                                     stage="response_validation",
-                                    cause_code=exc.cause_code) from None
+                                    cause_code=exc.cause_code,
+                                    stream_completed=True, stream_delta_chars=delta_chars,
+                                    stream_final_chars=final_chars, stream_text_source=selected_source,
+                                    stream_refusal=False, stream_format="json_valid") from None
         except LabelingError:
             raise
         except Exception as exc:
@@ -236,7 +316,13 @@ def _build_label_prompt(report: str) -> str:
 
 
 def _provider_error(message: str, error: object, *, response: object = None,
-                    default_cause: str = "network_error") -> LabelingError:
+                    default_cause: str = "network_error",
+                    stream_completed: bool | None = None,
+                    stream_delta_chars: int | None = None,
+                    stream_final_chars: int | None = None,
+                    stream_text_source: str | None = None,
+                    stream_refusal: bool | None = None,
+                    stream_format: str | None = None) -> LabelingError:
     """Preserve only allowlisted provider fields; never retain body text."""
     status = _safe_int(getattr(error, "status_code", None))
     if status is None:
@@ -302,6 +388,12 @@ def _provider_error(message: str, error: object, *, response: object = None,
         provider_error_param=safe_param,
         provider_body_shape=(body_shape if body_shape in _SAFE_SIWC_BODY_SHAPES else None),
         request_id=safe_request_id,
+        stream_completed=stream_completed,
+        stream_delta_chars=stream_delta_chars,
+        stream_final_chars=stream_final_chars,
+        stream_text_source=stream_text_source,
+        stream_refusal=stream_refusal,
+        stream_format=stream_format,
     )
 
 
@@ -309,3 +401,39 @@ def _safe_int(value: object) -> int | None:
     if type(value) is int and 100 <= value <= 599:
         return value
     return None
+
+
+def _response_text(response: object) -> str | None:
+    text = getattr(response, "output_text", None)
+    return text if isinstance(text, str) else None
+
+
+def _response_has_refusal(response: object) -> bool:
+    output = getattr(response, "output", None)
+    if not isinstance(output, (list, tuple)):
+        return False
+    for item in output:
+        content = getattr(item, "content", None)
+        if isinstance(item, Mapping):
+            content = item.get("content")
+        if not isinstance(content, (list, tuple)):
+            continue
+        for block in content:
+            block_type = block.get("type") if isinstance(block, Mapping) else getattr(block, "type", None)
+            if block_type == "refusal":
+                return True
+    return False
+
+
+def _classify_response_format(text: str, *, refusal: bool) -> str:
+    if refusal:
+        return "refusal"
+    if not text.strip():
+        return "empty"
+    if text.lstrip().startswith("```"):
+        return "fenced"
+    try:
+        json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return "json_invalid"
+    return "json_valid"

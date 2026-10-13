@@ -17,6 +17,27 @@ import siwc_label_reports as cli
 
 
 class SIWCLabelReportsCliTests(unittest.TestCase):
+    def test_stream_diagnostics_formatter_revalidates_mutable_metadata(self):
+        safe = SimpleNamespace(
+            stream_completed=False,
+            stream_delta_chars=42,
+            stream_final_chars=0,
+            stream_text_source="none",
+            stream_refusal=False,
+            stream_format="json_invalid",
+        )
+        self.assertEqual(
+            cli.safe_provider_diagnostics(safe),
+            "stream_completed=False stream_delta_chars=42 stream_final_chars=0 "
+            "stream_text_source=none stream_refusal=False stream_format=json_invalid",
+        )
+        malicious = SimpleNamespace(
+            stream_completed="PRIVATE_CANARY", stream_delta_chars=True,
+            stream_final_chars=-1, stream_text_source="PRIVATE_CANARY",
+            stream_refusal="PRIVATE_CANARY", stream_format="PRIVATE_CANARY",
+        )
+        self.assertEqual(cli.safe_provider_diagnostics(malicious), "")
+
     def test_cli_requires_an_explicit_subcommand(self):
         with patch("sys.stderr", new_callable=io.StringIO):
             with self.assertRaises(SystemExit):
@@ -223,6 +244,12 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
             error.provider_error_param = "model"
             error.provider_body_shape = "nested_error"
             error.request_id = "req_synthetic-123"
+            error.stream_completed = False
+            error.stream_delta_chars = 321
+            error.stream_final_chars = 0
+            error.stream_text_source = "none"
+            error.stream_refusal = False
+            error.stream_format = "empty"
             error.raw_detail = "PRIVATE_DETAIL_CANARY"
             error.raw_headers = "PRIVATE_HEADER_CANARY"
             error.access_token = "PRIVATE_TOKEN_CANARY"
@@ -253,6 +280,12 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
         self.assertEqual(rendered.count("Provider diagnostics:"), 1)
         self.assertIn("http_status=429", rendered)
         self.assertIn("provider_error_code=subscription_sharing_usage_limit_exceeded", rendered)
+        self.assertIn("stream_completed=False", rendered)
+        self.assertIn("stream_delta_chars=321", rendered)
+        self.assertIn("stream_final_chars=0", rendered)
+        self.assertIn("stream_text_source=none", rendered)
+        self.assertIn("stream_refusal=False", rendered)
+        self.assertIn("stream_format=empty", rendered)
         self.assertNotIn("Codex CLI", rendered)
         self.assertNotIn("PRIVATE_DETAIL_CANARY", rendered)
         self.assertNotIn("PRIVATE_HEADER_CANARY", rendered)
@@ -260,6 +293,12 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
         failed = next(record for record in journal if record["event"] == "attempt_failed")
         self.assertEqual(failed["cause_explanation"], "The labeling provider reported a quota or rate-limit problem.")
         self.assertEqual(failed["http_status"], 429)
+        self.assertIs(failed["stream_completed"], False)
+        self.assertEqual(failed["stream_delta_chars"], 321)
+        self.assertEqual(failed["stream_final_chars"], 0)
+        self.assertEqual(failed["stream_text_source"], "none")
+        self.assertIs(failed["stream_refusal"], False)
+        self.assertEqual(failed["stream_format"], "empty")
 
     def test_label_requires_both_explicit_confirmation_flags(self):
         args = [
