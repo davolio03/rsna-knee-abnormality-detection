@@ -1,0 +1,3 @@
+# SIWC-01: OAuth/OIDC verification and OS-native credential storage.
+Authlib==1.8.0
+keyring==25.7.0
