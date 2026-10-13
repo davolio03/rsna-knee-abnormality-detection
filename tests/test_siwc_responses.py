@@ -293,6 +293,44 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertNotIn(self.report_canary, str(raised.exception))
         self.assertNotIn(self.report_canary, diagnostic_text)
 
+    def test_run_pilot_never_renders_raw_injected_exception_diagnostics(self):
+        rows = [{
+            "StudyInstanceUID": "synthetic-study",
+            "Report": self.report_canary,
+            **{target: "" for target in LABEL_COLUMNS},
+        }]
+        private_canary = "PRIVATE_REPORT_DIAGNOSTIC_CANARY"
+
+        def failed_infer(_report):
+            error = LabelingError("safe provider failure", cause_code="quota_error")
+            error.http_status = private_canary
+            error.provider_error_code = private_canary
+            error.provider_error_param = private_canary
+            error.provider_body_shape = private_canary
+            error.request_id = private_canary
+            raise error
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            journal = root / "data" / "outputs" / "diagnostics.jsonl"
+            with self.assertRaises(LabelingError) as raised:
+                run_pilot(
+                    rows,
+                    gold_ids={f"synthetic-gold-{index}" for index in range(58)},
+                    max_records=1,
+                    output_path=root / "data" / "outputs" / "labels.jsonl",
+                    diagnostics_path=journal,
+                    project_root=root,
+                    subscription_oauth_confirmed=True,
+                    infer=failed_infer,
+                )
+            diagnostic_text = journal.read_text(encoding="utf-8")
+        self.assertNotIn(private_canary, str(raised.exception))
+        self.assertNotIn(private_canary, diagnostic_text)
+        self.assertIn('"cause_code":"quota_error"', diagnostic_text)
+        self.assertNotIn(self.report_canary, str(raised.exception))
+        self.assertNotIn(self.report_canary, diagnostic_text)
+
     def test_no_authorization_or_plan_scope_fails_before_any_client_call(self):
         auth_cases = (
             SIWCAuthenticator(

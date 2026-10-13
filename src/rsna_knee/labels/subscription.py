@@ -537,11 +537,11 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
                 ) from None
             diagnostic_context = " ".join(
                 f"{key}={value}" for key, value in (
-                    ("http_status", http_status),
-                    ("provider_error_code", provider_error_code),
-                    ("provider_error_param", provider_error_param),
-                    ("provider_body_shape", provider_body_shape),
-                    ("request_id", request_id),
+                    ("http_status", record.get("http_status")),
+                    ("provider_error_code", record.get("provider_error_code")),
+                    ("provider_error_param", record.get("provider_error_param")),
+                    ("provider_body_shape", record.get("provider_body_shape")),
+                    ("request_id", record.get("request_id")),
                 ) if value is not None
             )
             if diagnostic_context:
