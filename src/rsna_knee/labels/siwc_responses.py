@@ -153,7 +153,7 @@ class SIWCResponsesInfer:
             prompt = _build_label_prompt(report)
             stream = client.responses.create(
                 model=self._model,
-                input=prompt,
+                input=[{"role": "user", "content": prompt}],
                 store=False,
                 stream=True,
             )

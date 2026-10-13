@@ -242,6 +242,10 @@ def main(argv: Sequence[str] | None = None, *, output: TextIO | None = None) -> 
         message = str(exc)
         if isinstance(exc, LabelingError):
             diagnostics = safe_provider_diagnostics(exc)
+            # The shared runner may already have included diagnostics in its
+            # safe error message. Rebuild that suffix from validated fields so
+            # it is rendered once, and never trust stale mutable attributes.
+            message = message.split(" Provider diagnostics:", 1)[0]
             if diagnostics:
                 message = f"{message} Provider diagnostics: {diagnostics}."
         parser.error(message)

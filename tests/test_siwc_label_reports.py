@@ -1,11 +1,14 @@
 import io
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from rsna_knee.labels.siwc_auth import AuthError
+from rsna_knee.labels.subscription import LABEL_COLUMNS
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -204,6 +207,59 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
         self.assertIn("provider_error_code=subscription_sharing_usage_limit_exceeded", rendered)
         for canary in ("PRIVATE_PARAM_CANARY", "PRIVATE_SHAPE_CANARY", "PRIVATE_REQUEST_CANARY"):
             self.assertNotIn(canary, rendered)
+
+    def test_label_runner_renders_sanitized_provider_diagnostics_once(self):
+        rows = [{
+            "StudyInstanceUID": "synthetic-study",
+            "Report": "SYNTHETIC_REPORT_CANARY",
+            **{target: "" for target in LABEL_COLUMNS},
+        }]
+        gold_ids = {f"synthetic-gold-{index}" for index in range(58)}
+
+        def fail_with_safe_provider_error(_report):
+            error = cli.LabelingError("The Responses provider request failed.", cause_code="quota_error")
+            error.http_status = 429
+            error.provider_error_code = "subscription_sharing_usage_limit_exceeded"
+            error.provider_error_param = "model"
+            error.provider_body_shape = "nested_error"
+            error.request_id = "req_synthetic-123"
+            error.raw_detail = "PRIVATE_DETAIL_CANARY"
+            error.raw_headers = "PRIVATE_HEADER_CANARY"
+            error.access_token = "PRIVATE_TOKEN_CANARY"
+            raise error
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_path = root / "data" / "outputs" / "labels.jsonl"
+            diagnostics_path = root / "data" / "outputs" / "diagnostics.jsonl"
+            args = [
+                "label", "--train-csv", "synthetic-train.csv", "--gold-exclusions", "synthetic-gold.csv",
+                "--profile-id", "synthetic-profile", "--model", "gpt-6-luna", "--max-records", "1",
+                "--output", str(output_path), "--diagnostics", str(diagnostics_path),
+                "--confirm-siwc-oauth", "--confirm-report-transfer",
+            ]
+            stderr = io.StringIO()
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "_read_rows", return_value=rows), \
+                    patch.object(cli, "_read_gold_ids", return_value=gold_ids), \
+                    patch.object(cli, "_create_authenticator", return_value=object()), \
+                    patch.object(cli, "SIWCResponsesInfer", return_value=fail_with_safe_provider_error), \
+                    patch("sys.stderr", stderr), self.assertRaises(SystemExit):
+                cli.main(args)
+
+            rendered = stderr.getvalue()
+            journal = [json.loads(line) for line in diagnostics_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(rendered.count("Provider diagnostics:"), 1)
+        self.assertIn("http_status=429", rendered)
+        self.assertIn("provider_error_code=subscription_sharing_usage_limit_exceeded", rendered)
+        self.assertNotIn("Codex CLI", rendered)
+        self.assertNotIn("PRIVATE_DETAIL_CANARY", rendered)
+        self.assertNotIn("PRIVATE_HEADER_CANARY", rendered)
+        self.assertNotIn("PRIVATE_TOKEN_CANARY", rendered)
+        failed = next(record for record in journal if record["event"] == "attempt_failed")
+        self.assertEqual(failed["cause_explanation"], "The labeling provider reported a quota or rate-limit problem.")
+        self.assertEqual(failed["http_status"], 429)
 
     def test_label_requires_both_explicit_confirmation_flags(self):
         args = [

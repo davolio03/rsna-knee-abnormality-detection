@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import httpx
 from openai import OpenAI
 
-from rsna_knee.labels.siwc_responses import SIWCResponsesInfer
+from rsna_knee.labels.siwc_responses import SIWCResponsesInfer, _build_label_prompt
 from rsna_knee.labels.siwc_auth import SIWCAuthenticator
 from rsna_knee.labels.subscription import LABEL_COLUMNS, LabelingError, run_pilot
 
@@ -124,6 +124,48 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertEqual(raised.exception.cause_code, "model_error")
         self.assertEqual([request.url.path for request in requests], ["/v1/models"])
 
+    def test_real_sdk_serializes_documented_message_array_for_inference(self):
+        requests = []
+        expected_prompt = _build_label_prompt(self.report_canary)
+        result_text = json.dumps(valid_result())
+
+        def handler(request):
+            if request.url.path == "/v1/models":
+                return httpx.Response(200, json={"models": [
+                    {"slug": "gpt-6-luna", "display_name": "Luna", "visibility": "list"},
+                ]})
+            requests.append(request)
+            event = {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_synthetic",
+                    "object": "response",
+                    "created_at": 0,
+                    "status": "completed",
+                    "output": [{
+                        "id": "msg_synthetic",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": result_text, "annotations": []}],
+                    }],
+                    "output_text": result_text,
+                },
+            }
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=f"event: response.completed\ndata: {json.dumps(event)}\n\n",
+            )
+
+        self.assertEqual(self.make_sdk_infer(handler)(self.report_canary), valid_result())
+        self.assertEqual(len(requests), 1)
+        payload = json.loads(requests[0].content)
+        self.assertEqual(payload["input"], [{"role": "user", "content": expected_prompt}])
+        self.assertIsInstance(payload["input"], list)
+        self.assertFalse(payload["store"])
+        self.assertTrue(payload["stream"])
+        self.assertNotIn("system", [item.get("role") for item in payload["input"]])
+
     def test_request_uses_selected_available_model_and_nonstored_streaming(self):
         infer = self.make_infer()
 
@@ -139,7 +181,9 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertEqual(kwargs["model"], "gpt-6-luna")
         self.assertFalse(kwargs["store"])
         self.assertTrue(kwargs["stream"])
-        self.assertIn(self.report_canary, kwargs["input"])
+        self.assertEqual(kwargs["input"], [{
+            "role": "user", "content": _build_label_prompt(self.report_canary),
+        }])
         self.assertNotIn("reasoning_effort", kwargs)
 
     def test_requested_model_missing_from_account_fails_before_inference(self):
