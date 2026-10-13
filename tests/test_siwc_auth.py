@@ -329,6 +329,53 @@ class SIWCTest(unittest.TestCase):
                                   "PRIVATE_ERROR_TEXT"):
                     self.assertNotIn(sensitive, str(error))
 
+    def test_unknown_exception_type_str_subclass_cannot_customize_diagnostics(self):
+        class HostileTypeName(str):
+            def __format__(self, format_spec):
+                return "PRIVATE_FORMAT_LEAK"
+
+            def __repr__(self):
+                return "PRIVATE_REPR_LEAK"
+
+        class HostileNamedError(Exception):
+            pass
+
+        HostileNamedError.__name__ = HostileTypeName("SafeLookingError")
+
+        class SyntheticSession:
+            def __init__(self, **kwargs):
+                pass
+
+            def fetch_token(self, *args, **kwargs):
+                raise HostileNamedError("PRIVATE_ERROR_MESSAGE")
+
+        authlib = ModuleType("authlib")
+        integrations = ModuleType("authlib.integrations")
+        requests_client = ModuleType("authlib.integrations.requests_client")
+        requests_client.OAuth2Session = SyntheticSession
+
+        with unittest.mock.patch.dict(sys.modules, {
+            "authlib": authlib,
+            "authlib.integrations": integrations,
+            "authlib.integrations.requests_client": requests_client,
+        }):
+            with self.assertRaises(AuthError) as raised:
+                _AuthlibOAuthClient().exchange(
+                    client_id="oaiapp-synthetic", code="PRIVATE_CODE",
+                    verifier="PRIVATE_VERIFIER",
+                    redirect_uri="http://127.0.0.1:1455/auth/callback",
+                )
+
+        error = raised.exception
+        rendered = str(error)
+        diagnostics_repr = repr(error._diagnostics)
+        for sensitive in ("SafeLookingError", "PRIVATE_FORMAT_LEAK",
+                          "PRIVATE_REPR_LEAK", "PRIVATE_ERROR_MESSAGE",
+                          "PRIVATE_CODE", "PRIVATE_VERIFIER"):
+            self.assertNotIn(sensitive, rendered)
+            self.assertNotIn(sensitive, diagnostics_repr)
+        self.assertNotIn("exception_type", error._diagnostics)
+
     def test_host_id_is_persisted_as_non_secret_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             path = __import__("pathlib").Path(directory) / "metadata" / "host-id"

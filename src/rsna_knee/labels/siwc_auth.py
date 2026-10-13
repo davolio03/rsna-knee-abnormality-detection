@@ -319,7 +319,7 @@ def _safe_oauth_exception_family(error: Exception) -> str:
 def _safe_oauth_exception_type_name(error: Exception) -> str | None:
     """Return an exception class name only when it is a bounded ASCII identifier."""
     name = type(error).__name__
-    return (name if isinstance(name, str)
+    return (name if type(name) is str
             and _SAFE_EXCEPTION_TYPE_NAME.fullmatch(name) else None)
 
 
@@ -336,7 +336,7 @@ def _format_safe_auth_diagnostics(diagnostics: Mapping[str, object]) -> str:
         fields.append(f"exception family: {exception_family}")
     exception_type = diagnostics.get("exception_type")
     if (category == "unknown_exchange_error"
-            and isinstance(exception_type, str)
+            and type(exception_type) is str
             and _SAFE_EXCEPTION_TYPE_NAME.fullmatch(exception_type)):
         fields.append(f"exception type: {exception_type}")
 
