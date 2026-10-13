@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import ssl
+import sys
 import threading
 import uuid
 import time
@@ -48,8 +49,9 @@ _SAFE_OAUTH_ERROR_CODES = {
 _SAFE_REQUEST_ID = re.compile(r"req_[A-Za-z0-9_-]{1,64}\Z")
 _SAFE_OAUTH_FAILURE_CATEGORIES = {
     "exchange_timeout", "exchange_connection_error", "exchange_tls_error",
-    "unknown_exchange_error",
+    "exchange_invalid_json_response", "unknown_exchange_error",
 }
+_SAFE_OAUTH_EXCEPTION_FAMILIES = {"authlib", "requests", "urllib3", "stdlib", "other"}
 
 
 class AuthError(RuntimeError):
@@ -213,9 +215,10 @@ class _AuthlibOAuthClient:
 def _safe_oauth_failure_diagnostics(error: Exception) -> dict[str, object]:
     """Extract fixed-schema OAuth diagnostics without retaining payload text."""
     response = getattr(error, "response", None)
-    diagnostics: dict[str, object] = {
-        "failure_category": _safe_oauth_failure_category(error),
-    }
+    failure_category = _safe_oauth_failure_category(error)
+    diagnostics: dict[str, object] = {"failure_category": failure_category}
+    if failure_category == "unknown_exchange_error":
+        diagnostics["exception_family"] = _safe_oauth_exception_family(error)
     if response is not None:
         status = getattr(response, "status_code", None)
         if isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599:
@@ -264,12 +267,18 @@ def _safe_oauth_failure_category(error: Exception) -> str:
     request_timeout_types: tuple[type[BaseException], ...] = ()
     request_tls_types: tuple[type[BaseException], ...] = ()
     request_connection_types: tuple[type[BaseException], ...] = ()
+    request_json_error_types: tuple[type[BaseException], ...] = ()
     try:
         from requests.exceptions import (
             ConnectionError as RequestsConnectionError,
             SSLError as RequestsSSLError,
             Timeout as RequestsTimeout,
         )
+        try:
+            from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+            request_json_error_types = (RequestsJSONDecodeError,)
+        except ImportError:
+            pass
         request_timeout_types = (RequestsTimeout,)
         request_tls_types = (RequestsSSLError,)
         request_connection_types = (RequestsConnectionError,)
@@ -285,7 +294,22 @@ def _safe_oauth_failure_category(error: Exception) -> str:
     if (isinstance(error, ConnectionError)
             or isinstance(error, request_connection_types)):
         return "exchange_connection_error"
+    if isinstance(error, request_json_error_types):
+        return "exchange_invalid_json_response"
     return "unknown_exchange_error"
+
+
+def _safe_oauth_exception_family(error: Exception) -> str:
+    """Return only a coarse, fixed family label for otherwise unknown errors."""
+    module = type(error).__module__
+    if isinstance(module, str):
+        for family in ("authlib", "requests", "urllib3"):
+            if module == family or module.startswith(family + "."):
+                return family
+        root = module.partition(".")[0]
+        if root == "builtins" or root in sys.stdlib_module_names:
+            return "stdlib"
+    return "other"
 
 
 def _format_safe_auth_diagnostics(diagnostics: Mapping[str, object]) -> str:
@@ -294,6 +318,11 @@ def _format_safe_auth_diagnostics(diagnostics: Mapping[str, object]) -> str:
     category = diagnostics.get("failure_category")
     if isinstance(category, str) and category in _SAFE_OAUTH_FAILURE_CATEGORIES:
         fields.append(f"failure category: {category}")
+    exception_family = diagnostics.get("exception_family")
+    if (category == "unknown_exchange_error"
+            and isinstance(exception_family, str)
+            and exception_family in _SAFE_OAUTH_EXCEPTION_FAMILIES):
+        fields.append(f"exception family: {exception_family}")
 
     status = diagnostics.get("http_status")
     if type(status) is int and 100 <= status <= 599:

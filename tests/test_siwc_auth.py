@@ -11,6 +11,8 @@ from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
 from requests.exceptions import (
     ConnectionError as RequestsConnectionError,
+    JSONDecodeError as RequestsJSONDecodeError,
+    RequestException as RequestsException,
     SSLError as RequestsSSLError,
     Timeout as RequestsTimeout,
 )
@@ -154,6 +156,7 @@ class SIWCTest(unittest.TestCase):
         self.assertTrue(str(error).startswith("Authorization could not be completed. Diagnostics: "))
         self.assertEqual(error._diagnostics, {
             "failure_category": "unknown_exchange_error",
+            "exception_family": "other",
             "http_status": 400,
             "provider_error_code": "invalid_grant",
             "request_id": "req_safe123",
@@ -201,6 +204,7 @@ class SIWCTest(unittest.TestCase):
 
         self.assertEqual(raised.exception._diagnostics, {
             "failure_category": "unknown_exchange_error",
+            "exception_family": "other",
             "http_status": 400,
             "response_body_shape": "json_object",
         })
@@ -212,6 +216,7 @@ class SIWCTest(unittest.TestCase):
                 self.description = "PRIVATE_AUTH_CODE access-token description"
                 self.uri = "https://provider.invalid/error?token=PRIVATE_TOKEN"
                 super().__init__(f"{self.error}: {self.description}")
+        AuthlibOAuthErrorShape.__module__ = "authlib.oauth2.rfc6749.errors"
 
         class SyntheticSession:
             def __init__(self, **kwargs):
@@ -240,6 +245,7 @@ class SIWCTest(unittest.TestCase):
         error = raised.exception
         self.assertEqual(error._diagnostics, {
             "failure_category": "unknown_exchange_error",
+            "exception_family": "authlib",
             "provider_error_code": "invalid_grant",
         })
         rendered = str(error)
@@ -256,9 +262,16 @@ class SIWCTest(unittest.TestCase):
             (RequestsConnectionError("PRIVATE_REQUEST_CONNECTION"),
              "exchange_connection_error"),
             (RequestsSSLError("PRIVATE_REQUEST_TLS"), "exchange_tls_error"),
-            (RuntimeError("PRIVATE_PROVIDER_DETAIL"), "unknown_exchange_error"),
+            (RequestsJSONDecodeError("PRIVATE_JSON_DETAIL", "PRIVATE_DOC", 0),
+             "exchange_invalid_json_response"),
+            (RequestsException("PRIVATE_REQUEST_ERROR"), "unknown_exchange_error",
+             "requests"),
+            (RuntimeError("PRIVATE_PROVIDER_DETAIL"), "unknown_exchange_error",
+             "stdlib"),
         )
-        for failure, expected_category in cases:
+        for case in cases:
+            failure, expected_category = case[:2]
+            expected_family = case[2] if len(case) == 3 else None
             with self.subTest(category=expected_category):
                 class SyntheticSession:
                     def __init__(self, **kwargs):
@@ -285,13 +298,22 @@ class SIWCTest(unittest.TestCase):
                         )
 
                 error = raised.exception
-                self.assertEqual(error._diagnostics, {
+                expected_diagnostics = {
                     "failure_category": expected_category,
-                })
+                }
+                if expected_family is not None:
+                    expected_diagnostics["exception_family"] = expected_family
+                self.assertEqual(error._diagnostics, expected_diagnostics)
                 self.assertIn(f"failure category: {expected_category}", str(error))
+                if expected_family is not None:
+                    self.assertIn(f"exception family: {expected_family}", str(error))
                 for sensitive in ("PRIVATE_TIMEOUT_DETAIL", "PRIVATE_CONNECTION_DETAIL",
-                                  "PRIVATE_PROVIDER_DETAIL", "PRIVATE_CODE",
-                                  "PRIVATE_VERIFIER"):
+                                  "PRIVATE_PROVIDER_DETAIL", "PRIVATE_REQUEST_TIMEOUT",
+                                  "PRIVATE_REQUEST_CONNECTION", "PRIVATE_REQUEST_TLS",
+                                  "PRIVATE_JSON_DETAIL", "PRIVATE_DOC",
+                                  "PRIVATE_REQUEST_ERROR", "PRIVATE_CODE",
+                                  "PRIVATE_VERIFIER", "JSONDecodeError",
+                                  "RequestException"):
                     self.assertNotIn(sensitive, str(error))
 
     def test_host_id_is_persisted_as_non_secret_metadata(self):
