@@ -307,6 +307,27 @@ class SIWCAuthenticator:
         with profile_lock:
             return self._refresh_if_needed_locked(profile_id)
 
+    def with_plan_access_token(self, profile_id: str,
+                               operation: Callable[[str], object]) -> object:
+        """Run one operation with a refreshed plan-use token, without returning it.
+
+        Callers receive only the operation result; the OAuth token remains inside
+        this narrow credential boundary.
+        """
+        if not callable(operation):
+            raise AuthError("An authorized operation is required.")
+        self.refresh_if_needed(profile_id)
+        record = self._store.load(profile_id)
+        if record is None:
+            raise AuthError("The selected account profile is unavailable.")
+        profile = _profile(record)
+        token = record.get("access_token")
+        if not profile.plan_usage_enabled:
+            raise AuthError("ChatGPT plan usage permission was not granted.")
+        if not isinstance(token, str) or not token:
+            raise AuthError("The selected account authorization is unavailable.")
+        return operation(token)
+
     def _refresh_if_needed_locked(self, profile_id: str) -> Profile:
         record = self._store.load(profile_id)
         if record is None:
