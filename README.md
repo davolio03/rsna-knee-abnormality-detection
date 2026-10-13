@@ -32,4 +32,6 @@ Competition data is not part of this repository. Do not commit raw data, DICOM i
 
 Verify current competition rules before relying on them, including constraints on external data, models, tools, report processing, and inference. The competition terms and their application to derived artifacts may require clarification. This repository does not grant rights to competition data or derivatives and does not declare a project license.
 
+The optional local Sign in with ChatGPT labeling workflow is documented in [`docs/SIWC_LABELING_SETUP.md`](docs/SIWC_LABELING_SETUP.md). It sends eligible non-Gold report text to an external service when run; the guide is operational documentation, not authorization or a determination that such transfer complies with competition, privacy, or licensing rules.
+
 For the project's durable constraints and research conventions, see [`docs/DECISIONS.md`](docs/DECISIONS.md), [`docs/COMPETITION.md`](docs/COMPETITION.md), [`docs/DATA.md`](docs/DATA.md), and [`AGENTS.md`](AGENTS.md).
