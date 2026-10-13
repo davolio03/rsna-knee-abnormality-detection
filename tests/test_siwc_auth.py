@@ -34,12 +34,14 @@ class FakeOAuth:
         self.refresh_result = None
         self.exchange_args = None
         self.refresh_args = None
+        self.refresh_calls = 0
 
     def exchange(self, *, client_id, code, verifier, redirect_uri):
         self.exchange_args = (client_id, code, verifier, redirect_uri)
         return dict(self.exchange_result)
 
     def refresh(self, *, client_id, refresh_token):
+        self.refresh_calls += 1
         self.refresh_args = (client_id, refresh_token)
         return dict(self.refresh_result)
 
@@ -112,6 +114,197 @@ class SIWCTest(unittest.TestCase):
             __import__("base64").urlsafe_b64encode(b"A" * 32).rstrip(b"=").decode("ascii"),
             "http://127.0.0.1:1455/auth/callback",
         ))
+
+    def test_sign_in_persists_refresh_token_and_metadata_only(self):
+        profile = self.complete(self.auth.begin_sign_in())
+
+        record = self.store.load(profile.profile_id)
+        self.assertEqual(
+            set(record),
+            {"client_id", "subject", "email", "issuer", "refresh_token",
+             "token_type", "scopes", "expires_at"},
+        )
+        serialized = json.dumps(record)
+        self.assertNotIn("access_token", serialized)
+        self.assertNotIn("id_token", serialized)
+
+    def test_fresh_authenticator_refreshes_legacy_record_before_callback_use(self):
+        profile = self.complete(self.auth.begin_sign_in())
+        legacy = self.store.load(profile.profile_id)
+        legacy.update({"access_token": "synthetic-legacy-access",
+                       "id_token": "synthetic-legacy-id",
+                       "expires_at": self.now() + 3600})
+        self.store.save(profile.profile_id, legacy)
+        fresh_oauth = FakeOAuth()
+        fresh_oauth.refresh_result = {
+            "access_token": "synthetic-fresh-access",
+            "refresh_token": "synthetic-rotated-refresh",
+            "expires_in": 3600,
+        }
+        fresh_auth = SIWCAuthenticator(
+            store=self.store, oauth=fresh_oauth, clock=self.now,
+            host_id="urn:uuid:synthetic-host",
+            redirect_uri="http://127.0.0.1:1455/auth/callback",
+            random_value=lambda n: b"B" * n,
+        )
+
+        result = fresh_auth.with_plan_access_token(
+            profile.profile_id, lambda token: token == "synthetic-fresh-access"
+        )
+
+        self.assertTrue(result)
+        persisted = self.store.load(profile.profile_id)
+        self.assertEqual(
+            set(persisted),
+            {"client_id", "subject", "email", "issuer", "refresh_token",
+             "token_type", "scopes", "expires_at"},
+        )
+        serialized = json.dumps(persisted)
+        self.assertNotIn("access_token", serialized)
+        self.assertNotIn("id_token", serialized)
+
+    def test_callback_uses_just_refreshed_short_lived_token_once(self):
+        profile = self.complete(self.auth.begin_sign_in())
+        record = self.store.load(profile.profile_id)
+        record["expires_at"] = self.now() - 1
+        self.store.save(profile.profile_id, record)
+        self.oauth.refresh_result = {
+            "access_token": "synthetic-short-lived-access",
+            "refresh_token": "synthetic-short-lived-rotation",
+            "expires_in": 20,
+        }
+
+        result = self.auth.with_plan_access_token(
+            profile.profile_id,
+            lambda token: token == "synthetic-short-lived-access",
+        )
+
+        self.assertTrue(result)
+        self.assertEqual(self.oauth.refresh_calls, 1)
+
+    def test_concurrent_callbacks_share_one_refresh_and_release_lock_before_operation(self):
+        profile = self.complete(self.auth.begin_sign_in())
+        record = self.store.load(profile.profile_id)
+        record["expires_at"] = self.now() - 1
+        self.store.save(profile.profile_id, record)
+
+        class SlowOAuth(FakeOAuth):
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def refresh(self, *, client_id, refresh_token):
+                self.calls += 1
+                self.started.set()
+                if not self.release.wait(2):
+                    raise AssertionError("synthetic refresh release timed out")
+                return {
+                    "access_token": "synthetic-shared-access",
+                    "refresh_token": "synthetic-shared-rotation",
+                    "expires_in": 20,
+                }
+
+        slow_oauth = SlowOAuth()
+        self.auth._oauth = slow_oauth
+        operation_barrier = threading.Barrier(2)
+        results = []
+        errors = []
+
+        def call():
+            try:
+                results.append(self.auth.with_plan_access_token(
+                    profile.profile_id,
+                    lambda token: (
+                        operation_barrier.wait(timeout=1) is not None
+                        and token == "synthetic-shared-access"
+                    ),
+                ))
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+
+        first = threading.Thread(target=call)
+        second = threading.Thread(target=call)
+        first.start()
+        self.assertTrue(slow_oauth.started.wait(1))
+        second.start()
+        time.sleep(0.05)
+        slow_oauth.release.set()
+        first.join(2)
+        second.join(2)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(slow_oauth.calls, 1)
+        self.assertEqual(results, [True, True])
+
+    def test_reauthentication_store_and_cache_update_are_atomic_for_callbacks(self):
+        profile = self.complete(self.auth.begin_sign_in())
+        original_save = self.store.save
+        save_entered = threading.Event()
+        release_save = threading.Event()
+        callback_finished = threading.Event()
+        results = []
+        errors = []
+
+        def blocking_save(profile_id, record):
+            original_save(profile_id, record)
+            save_entered.set()
+            if not release_save.wait(2):
+                raise AssertionError("synthetic sign-in save release timed out")
+
+        self.store.save = blocking_save
+        request = self.auth.begin_sign_in(profile.profile_id)
+        self.oauth.exchange_result = {
+            "access_token": "synthetic-reauth-access",
+            "refresh_token": "synthetic-reauth-refresh",
+            "id_token": "synthetic-reauth-id",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "openid profile email offline_access resource.invoke " + PLAN_SCOPE,
+        }
+        state = parse_qs(urlparse(request.authorization_url).query)["state"][0]
+        callback_url = (
+            "http://127.0.0.1:1455/auth/callback?code=synthetic-code"
+            f"&state={state}"
+        )
+
+        def reauthenticate():
+            try:
+                self.auth.complete_sign_in(callback_url)
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+
+        def use_profile():
+            try:
+                results.append(self.auth.with_plan_access_token(
+                    profile.profile_id,
+                    lambda token: token == "synthetic-reauth-access",
+                ))
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+            finally:
+                callback_finished.set()
+
+        sign_in_thread = threading.Thread(target=reauthenticate)
+        sign_in_thread.start()
+        self.assertTrue(save_entered.wait(1))
+        callback_thread = threading.Thread(target=use_profile)
+        callback_thread.start()
+        time.sleep(0.05)
+        callback_was_blocked = not callback_finished.is_set()
+        release_save.set()
+        sign_in_thread.join(2)
+        callback_thread.join(2)
+        self.store.save = original_save
+
+        self.assertFalse(sign_in_thread.is_alive())
+        self.assertFalse(callback_thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertTrue(callback_was_blocked)
+        self.assertEqual(results, [True])
 
     def test_exchange_failure_exposes_only_sanitized_provider_diagnostics(self):
         response = Mock(
@@ -547,6 +740,28 @@ class SIWCTest(unittest.TestCase):
         with self.assertRaises(AuthError):
             store.save("profile", {"refresh_token": "secret"})
 
+    def test_keyring_payload_filters_legacy_access_and_identity_token_fields(self):
+        class WindowsKeyring:
+            priority = 5
+            __module__ = "keyring.backends.Windows"
+            def set_password(self, *args): pass
+            def get_password(self, *args): return None
+
+        keyring = Mock(get_keyring=lambda: WindowsKeyring())
+        store = KeyringCredentialStore(keyring_module=keyring)
+        store.save("profile", {
+            "client_id": "synthetic-client", "subject": "synthetic-subject",
+            "refresh_token": "synthetic-refresh", "access_token": "synthetic-access",
+            "id_token": "synthetic-id", "expires_at": self.now() + 300,
+        })
+
+        payload = json.loads(keyring.set_password.call_args.args[2])
+        self.assertEqual(
+            set(payload), {"client_id", "subject", "refresh_token", "expires_at"}
+        )
+        self.assertNotIn("access_token", payload)
+        self.assertNotIn("id_token", payload)
+
     def test_keyring_save_failure_reports_bounded_payload_size_without_secrets(self):
         class WindowsKeyring:
             priority = 5
@@ -652,8 +867,14 @@ class SIWCTest(unittest.TestCase):
         refreshed = self.auth.refresh_if_needed(profile.profile_id)
         self.assertEqual(refreshed.subject, "subject-1")
         self.assertTrue(refreshed.plan_usage_enabled)
-        self.assertEqual(self.store.load(profile.profile_id)["id_token"], "id-secret")
-        self.assertEqual(self.store.load(profile.profile_id)["refresh_token"], "rotated-refresh-secret")
+        persisted = self.store.load(profile.profile_id)
+        self.assertNotIn("id_token", persisted)
+        self.assertNotIn("access_token", persisted)
+        self.assertEqual(
+            set(persisted),
+            {"client_id", "subject", "email", "issuer", "refresh_token",
+             "token_type", "scopes", "expires_at"},
+        )
 
     def test_expired_or_invalid_id_token_is_rejected_before_credentials_are_saved(self):
         self.auth._verify_id_token = lambda token, client_id, nonce: {

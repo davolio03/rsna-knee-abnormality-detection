@@ -49,6 +49,10 @@ _SAFE_OAUTH_ERROR_CODES = {
 }
 _SAFE_REQUEST_ID = re.compile(r"req_[A-Za-z0-9_-]{1,64}\Z")
 _SAFE_EXCEPTION_TYPE_NAME = re.compile(r"\A[A-Za-z][A-Za-z0-9_]{0,63}\Z", re.ASCII)
+_PERSISTED_CREDENTIAL_FIELDS = frozenset({
+    "client_id", "subject", "email", "issuer", "refresh_token",
+    "token_type", "scopes", "expires_at",
+})
 _SAFE_OAUTH_FAILURE_CATEGORIES = {
     "exchange_timeout", "exchange_connection_error", "exchange_tls_error",
     "exchange_invalid_json_response", "unknown_exchange_error",
@@ -131,7 +135,11 @@ class KeyringCredentialStore:
     def save(self, profile_id: str, record: Mapping[str, object]) -> None:
         payload = None
         try:
-            payload = json.dumps(dict(record), separators=(",", ":"), sort_keys=True)
+            safe_record = {
+                key: value for key, value in record.items()
+                if key in _PERSISTED_CREDENTIAL_FIELDS
+            }
+            payload = json.dumps(safe_record, separators=(",", ":"), sort_keys=True)
             self._keyring.set_password(_KEYRING_SERVICE, profile_id, payload)
         except Exception:
             diagnostics = {}
@@ -437,6 +445,7 @@ class SIWCAuthenticator:
         self._pending: dict[str, _PendingAuthorization] = {}
         self._refresh_lock_guard = threading.Lock()
         self._refresh_locks: dict[str, threading.Lock] = {}
+        self._access_tokens: dict[str, tuple[str, float, int]] = {}
 
     def begin_sign_in(self, profile_id: str | None = None) -> AuthorizationRequest:
         record = self._store.load(profile_id) if profile_id is not None else None
@@ -461,8 +470,6 @@ class SIWCAuthenticator:
             "code_challenge": challenge,
         }
         if existing:
-            if record.get("id_token"):
-                values["id_token_hint"] = str(record["id_token"])
             if record.get("email"):
                 values["login_hint"] = str(record["email"])
             subject = str(record["subject"])
@@ -503,15 +510,21 @@ class SIWCAuthenticator:
                                           pending.existing_subject)
         record = _record_from_tokens(tokens, client_id, profile.subject,
                                      profile.email, self._clock())
-        # Preserve the validated token verbatim as the next optional OIDC hint.
-        self._store.save(profile.profile_id, record)
+        with self._profile_lock(profile.profile_id):
+            self._store.save(profile.profile_id, record)
+            self._cache_access_token(profile.profile_id,
+                                     str(tokens["access_token"]),
+                                     profile.expires_at)
         return profile
 
     def refresh_if_needed(self, profile_id: str) -> Profile:
-        with self._refresh_lock_guard:
-            profile_lock = self._refresh_locks.setdefault(profile_id, threading.Lock())
+        profile_lock = self._profile_lock(profile_id)
         with profile_lock:
             return self._refresh_if_needed_locked(profile_id)
+
+    def _profile_lock(self, profile_id: str) -> threading.Lock:
+        with self._refresh_lock_guard:
+            return self._refresh_locks.setdefault(profile_id, threading.Lock())
 
     def with_plan_access_token(self, profile_id: str,
                                operation: Callable[[str], object]) -> object:
@@ -522,23 +535,39 @@ class SIWCAuthenticator:
         """
         if not callable(operation):
             raise AuthError("An authorized operation is required.")
-        self.refresh_if_needed(profile_id)
-        record = self._store.load(profile_id)
-        if record is None:
-            raise AuthError("The selected account profile is unavailable.")
-        profile = _profile(record)
-        token = record.get("access_token")
-        if not profile.plan_usage_enabled:
-            raise AuthError("ChatGPT plan usage permission was not granted.")
-        if not isinstance(token, str) or not token:
-            raise AuthError("The selected account authorization is unavailable.")
+        request_started = time.monotonic_ns()
+        with self._profile_lock(profile_id):
+            self._refresh_if_needed_locked(
+                profile_id, allow_cache_created_since=request_started
+            )
+            with self._refresh_lock_guard:
+                cached = self._access_tokens.get(profile_id)
+            if cached is None or cached[1] <= self._clock():
+                raise AuthError("The selected account authorization is unavailable.")
+            record = self._store.load(profile_id)
+            if record is None:
+                raise AuthError("The selected account profile is unavailable.")
+            if not _profile(record).plan_usage_enabled:
+                raise AuthError("ChatGPT plan usage permission was not granted.")
+            token = cached[0]
         return operation(token)
 
-    def _refresh_if_needed_locked(self, profile_id: str) -> Profile:
+    def _refresh_if_needed_locked(
+            self, profile_id: str, *,
+            allow_cache_created_since: float | None = None) -> Profile:
         record = self._store.load(profile_id)
         if record is None:
             raise AuthError("The selected account profile is unavailable.")
-        if float(record.get("expires_at", 0)) > self._clock() + 30:
+        with self._refresh_lock_guard:
+            cached = self._access_tokens.get(profile_id)
+        if (cached is not None and cached[1] > self._clock() + 30
+                and float(record.get("expires_at", 0)) > self._clock() + 30):
+            return _profile(record)
+        # Overlapping callbacks may share a token refreshed after they began;
+        # an older cached token still follows the 30-second refresh buffer.
+        if (cached is not None and allow_cache_created_since is not None
+                and cached[2] > allow_cache_created_since
+                and cached[1] > self._clock()):
             return _profile(record)
         refresh_token = record.get("refresh_token")
         if not isinstance(refresh_token, str) or not refresh_token:
@@ -565,7 +594,6 @@ class SIWCAuthenticator:
                     or isinstance(expires_in, bool)
                     or not isinstance(expires_in, (int, float)) or expires_in <= 0):
                 raise AuthError("The refreshed authorization response was incomplete.")
-            tokens["id_token"] = record["id_token"]
             subject, email = str(record["subject"]), record.get("email")
             profile = Profile(profile_id, str(record["client_id"]), subject,
                               email if isinstance(email, str) else None, True,
@@ -574,7 +602,16 @@ class SIWCAuthenticator:
                                         subject, email if isinstance(email, str) else None,
                                         self._clock())
         self._store.save(profile.profile_id, refreshed)
+        self._cache_access_token(profile.profile_id, str(tokens["access_token"]),
+                                 profile.expires_at)
         return profile
+
+    def _cache_access_token(self, profile_id: str, token: str,
+                            expires_at: float) -> None:
+        with self._refresh_lock_guard:
+            self._access_tokens[profile_id] = (
+                token, expires_at, time.monotonic_ns()
+            )
 
     def _validated_profile(self, tokens: Mapping[str, object], client_id: str,
                            nonce: str | None, expected_subject: str | None) -> Profile:
@@ -624,9 +661,7 @@ def _record_from_tokens(tokens: Mapping[str, object], client_id: str, subject: s
         "subject": subject,
         "email": email,
         "issuer": ISSUER,
-        "access_token": tokens["access_token"],
         "refresh_token": tokens["refresh_token"],
-        "id_token": tokens["id_token"],
         "token_type": str(tokens.get("token_type", "Bearer")),
         "scopes": sorted(_granted_scopes(tokens)),
         "expires_at": now + expires_in,
