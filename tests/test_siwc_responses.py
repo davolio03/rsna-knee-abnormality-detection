@@ -4,7 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import Mock, patch
+
+import httpx
+from openai import OpenAI
 
 from rsna_knee.labels.siwc_responses import SIWCResponsesInfer
 from rsna_knee.labels.siwc_auth import SIWCAuthenticator
@@ -75,6 +79,51 @@ class SIWCResponsesTests(unittest.TestCase):
             client_factory=self.client_factory,
         )
 
+    def make_sdk_infer(self, handler, *, model="gpt-6-luna"):
+        def client_factory(**kwargs):
+            return OpenAI(
+                **kwargs,
+                http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+            )
+
+        return SIWCResponsesInfer(
+            authenticator=FakeAuthorizedProfile(),
+            profile_id="synthetic-profile",
+            model=model,
+            client_factory=client_factory,
+        )
+
+    def test_real_sdk_model_listing_parses_synthetic_http_response(self):
+        requests = []
+
+        def handler(request):
+            requests.append(request)
+            return httpx.Response(200, json={"models": [
+                {"slug": "gpt-6-luna", "display_name": "Luna", "visibility": "list"},
+                {"slug": "hidden-model", "display_name": "Hidden", "visibility": "hidden"},
+            ]})
+
+        self.assertEqual(
+            self.make_sdk_infer(handler).list_available_models(),
+            [{"slug": "gpt-6-luna", "display_name": "Luna"}],
+        )
+        self.assertEqual([request.url.path for request in requests], ["/v1/models"])
+
+    def test_real_sdk_inference_preflight_parses_catalog_before_model_rejection(self):
+        requests = []
+
+        def handler(request):
+            requests.append(request)
+            return httpx.Response(200, json={"models": [
+                {"slug": "another-model", "display_name": "Other", "visibility": "list"},
+            ]})
+
+        with self.assertRaisesRegex(LabelingError, "not available") as raised:
+            self.make_sdk_infer(handler)(self.report_canary)
+
+        self.assertEqual(raised.exception.cause_code, "model_error")
+        self.assertEqual([request.url.path for request in requests], ["/v1/models"])
+
     def test_request_uses_selected_available_model_and_nonstored_streaming(self):
         infer = self.make_infer()
 
@@ -84,7 +133,7 @@ class SIWCResponsesTests(unittest.TestCase):
             base_url="https://api.openai.com/v1",
             max_retries=0,
         )
-        self.client.get.assert_called_once_with("/models", cast_to=dict)
+        self.client.get.assert_called_once_with("/models", cast_to=dict[str, Any])
         self.client.responses.create.assert_called_once()
         kwargs = self.client.responses.create.call_args.kwargs
         self.assertEqual(kwargs["model"], "gpt-6-luna")
@@ -111,7 +160,7 @@ class SIWCResponsesTests(unittest.TestCase):
             self.make_infer().list_available_models(),
             [{"slug": "gpt-6-luna", "display_name": "Luna"}],
         )
-        self.client.get.assert_called_once_with("/models", cast_to=dict)
+        self.client.get.assert_called_once_with("/models", cast_to=dict[str, Any])
         self.assertTrue(self.client.close.called)
 
     def test_list_available_models_preserves_allowlisted_provider_diagnostics_only(self):

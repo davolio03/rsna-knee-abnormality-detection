@@ -112,7 +112,7 @@ class SIWCResponsesInfer:
                 base_url=RESPONSES_BASE_URL,
                 max_retries=0,
             )
-            catalog = client.get("/models", cast_to=dict)
+            catalog = client.get("/models", cast_to=dict[str, Any])
             if not isinstance(catalog, Mapping) or not isinstance(catalog.get("models"), list):
                 raise LabelingError("The account model catalog has an invalid structure.",
                                     stage="inference", cause_code="model_error")
@@ -144,7 +144,7 @@ class SIWCResponsesInfer:
                 base_url=RESPONSES_BASE_URL,
                 max_retries=0,
             )
-            catalog = client.get("/models", cast_to=dict)
+            catalog = client.get("/models", cast_to=dict[str, Any])
             if not self._model_is_available(catalog):
                 raise LabelingError(
                     "The requested model is not available to the selected account.",
