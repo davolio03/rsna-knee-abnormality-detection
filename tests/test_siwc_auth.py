@@ -1,10 +1,12 @@
 import json
 import hashlib
+import sys
 import threading
 import tempfile
 import time
 import unittest
 from datetime import datetime, timezone
+from types import ModuleType
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
 
@@ -13,6 +15,7 @@ from rsna_knee.labels.siwc_auth import (
     AuthError,
     KeyringCredentialStore,
     SIWCAuthenticator,
+    _AuthlibOAuthClient,
     load_or_create_host_id,
 )
 
@@ -102,6 +105,138 @@ class SIWCTest(unittest.TestCase):
             __import__("base64").urlsafe_b64encode(b"A" * 32).rstrip(b"=").decode("ascii"),
             "http://127.0.0.1:1455/auth/callback",
         ))
+
+    def test_exchange_failure_exposes_only_sanitized_provider_diagnostics(self):
+        response = Mock(
+            status_code=400,
+            headers={"x-request-id": "req_safe123"},
+        )
+        response.json.return_value = {
+            "error": "invalid_grant",
+            "error_description": "AUTH_CODE and access-secret must never escape",
+        }
+
+        class SyntheticOAuthFailure(Exception):
+            def __init__(self):
+                super().__init__("AUTH_CODE access-secret raw exception")
+                self.response = response
+
+        class SyntheticSession:
+            def __init__(self, **kwargs):
+                pass
+
+            def fetch_token(self, *args, **kwargs):
+                raise SyntheticOAuthFailure()
+
+        authlib = ModuleType("authlib")
+        integrations = ModuleType("authlib.integrations")
+        requests_client = ModuleType("authlib.integrations.requests_client")
+        requests_client.OAuth2Session = SyntheticSession
+
+        with unittest.mock.patch.dict(sys.modules, {
+            "authlib": authlib,
+            "authlib.integrations": integrations,
+            "authlib.integrations.requests_client": requests_client,
+        }):
+            with self.assertRaises(AuthError) as raised:
+                _AuthlibOAuthClient().exchange(
+                    client_id="oaiapp-synthetic", code="AUTH_CODE",
+                    verifier="synthetic-verifier",
+                    redirect_uri="http://127.0.0.1:1455/auth/callback",
+                )
+
+        error = raised.exception
+        self.assertTrue(str(error).startswith("Authorization could not be completed. Diagnostics: "))
+        self.assertEqual(error._diagnostics, {
+            "http_status": 400,
+            "provider_error_code": "invalid_grant",
+            "request_id": "req_safe123",
+            "response_body_shape": "json_object",
+        })
+        for sensitive in ("AUTH_CODE", "access-secret", "raw exception", "error_description"):
+            self.assertNotIn(sensitive, repr(error))
+            self.assertNotIn(sensitive, repr(error._diagnostics))
+
+    def test_exchange_failure_omits_untrusted_provider_error_values(self):
+        response = Mock(
+            status_code=400,
+            headers={"x-request-id": "AUTH_CODE"},
+        )
+        response.json.return_value = {"error": "access-secret"}
+
+        class SyntheticOAuthFailure(Exception):
+            def __init__(self):
+                super().__init__("raw exception with access-secret")
+                self.response = response
+
+        class SyntheticSession:
+            def __init__(self, **kwargs):
+                pass
+
+            def fetch_token(self, *args, **kwargs):
+                raise SyntheticOAuthFailure()
+
+        authlib = ModuleType("authlib")
+        integrations = ModuleType("authlib.integrations")
+        requests_client = ModuleType("authlib.integrations.requests_client")
+        requests_client.OAuth2Session = SyntheticSession
+
+        with unittest.mock.patch.dict(sys.modules, {
+            "authlib": authlib,
+            "authlib.integrations": integrations,
+            "authlib.integrations.requests_client": requests_client,
+        }):
+            with self.assertRaises(AuthError) as raised:
+                _AuthlibOAuthClient().exchange(
+                    client_id="oaiapp-synthetic", code="AUTH_CODE",
+                    verifier="synthetic-verifier",
+                    redirect_uri="http://127.0.0.1:1455/auth/callback",
+                )
+
+        self.assertEqual(raised.exception._diagnostics, {
+            "http_status": 400,
+            "response_body_shape": "json_object",
+        })
+
+    def test_authlib_oauth_error_shape_preserves_only_allowlisted_error_code(self):
+        class AuthlibOAuthErrorShape(Exception):
+            def __init__(self):
+                self.error = "invalid_grant"
+                self.description = "PRIVATE_AUTH_CODE access-token description"
+                self.uri = "https://provider.invalid/error?token=PRIVATE_TOKEN"
+                super().__init__(f"{self.error}: {self.description}")
+
+        class SyntheticSession:
+            def __init__(self, **kwargs):
+                pass
+
+            def fetch_token(self, *args, **kwargs):
+                raise AuthlibOAuthErrorShape()
+
+        authlib = ModuleType("authlib")
+        integrations = ModuleType("authlib.integrations")
+        requests_client = ModuleType("authlib.integrations.requests_client")
+        requests_client.OAuth2Session = SyntheticSession
+
+        with unittest.mock.patch.dict(sys.modules, {
+            "authlib": authlib,
+            "authlib.integrations": integrations,
+            "authlib.integrations.requests_client": requests_client,
+        }):
+            with self.assertRaises(AuthError) as raised:
+                _AuthlibOAuthClient().exchange(
+                    client_id="oaiapp-synthetic", code="PRIVATE_AUTH_CODE",
+                    verifier="synthetic-verifier",
+                    redirect_uri="http://127.0.0.1:1455/auth/callback",
+                )
+
+        error = raised.exception
+        self.assertEqual(error._diagnostics, {"provider_error_code": "invalid_grant"})
+        rendered = str(error)
+        self.assertIn("provider error code: invalid_grant", rendered)
+        for sensitive in ("PRIVATE_AUTH_CODE", "access-token", "PRIVATE_TOKEN",
+                          "description", "error?", "https://provider.invalid"):
+            self.assertNotIn(sensitive, rendered)
 
     def test_host_id_is_persisted_as_non_secret_metadata(self):
         with tempfile.TemporaryDirectory() as directory:

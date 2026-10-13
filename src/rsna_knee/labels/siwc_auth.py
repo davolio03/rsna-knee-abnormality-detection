@@ -11,6 +11,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import secrets
 import threading
 import uuid
@@ -36,10 +37,28 @@ _SAFE_KEYRING_MODULES = {
     "keyring.backends.kwallet",
     "keyring.backends.libsecret",
 }
+_SAFE_OAUTH_ERROR_CODES = {
+    "access_denied", "invalid_client", "invalid_grant", "invalid_refresh_token",
+    "invalid_request", "invalid_scope", "refresh_token_expired",
+    "refresh_token_invalidated", "refresh_token_reused", "server_error",
+    "temporarily_unavailable", "token_expired", "unauthorized_client",
+    "unsupported_grant_type",
+}
+_SAFE_REQUEST_ID = re.compile(r"req_[A-Za-z0-9_-]{1,64}\Z")
 
 
 class AuthError(RuntimeError):
     """A safe authentication failure that contains no OAuth response data."""
+
+    def __init__(self, message: str, *, _diagnostics: Mapping[str, object] | None = None):
+        super().__init__(message)
+        # Diagnostics are private and fixed-schema; never put them in repr/message.
+        self._diagnostics = dict(_diagnostics or {})
+
+    def __str__(self) -> str:
+        message = super().__str__()
+        summary = _format_safe_auth_diagnostics(self._diagnostics)
+        return f"{message} Diagnostics: {summary}" if summary else message
 
 
 class OAuthClient(Protocol):
@@ -169,8 +188,11 @@ class _AuthlibOAuthClient:
                 code_verifier=verifier, redirect_uri=redirect_uri,
                 resource=RESOURCE, include_client_id=True,
             )
-        except Exception:
-            raise AuthError("Authorization could not be completed.") from None
+        except Exception as exc:
+            raise AuthError(
+                "Authorization could not be completed.",
+                _diagnostics=_safe_oauth_failure_diagnostics(exc),
+            ) from None
 
     def refresh(self, *, client_id: str,
                 refresh_token: str) -> Mapping[str, object]:
@@ -181,6 +203,75 @@ class _AuthlibOAuthClient:
             )
         except Exception:
             raise AuthError("The saved authorization could not be refreshed.") from None
+
+
+def _safe_oauth_failure_diagnostics(error: Exception) -> dict[str, object]:
+    """Extract fixed-schema OAuth diagnostics without retaining payload text."""
+    response = getattr(error, "response", None)
+    diagnostics: dict[str, object] = {}
+    if response is not None:
+        status = getattr(response, "status_code", None)
+        if isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599:
+            diagnostics["http_status"] = status
+
+        headers = getattr(response, "headers", None)
+        try:
+            request_id = next(
+                value for name, value in headers.items()
+                if isinstance(name, str) and name.lower() == "x-request-id"
+            )
+        except (AttributeError, StopIteration, TypeError):
+            request_id = None
+        if isinstance(request_id, str) and _SAFE_REQUEST_ID.fullmatch(request_id):
+            diagnostics["request_id"] = request_id
+
+        body_unavailable = object()
+        try:
+            body = response.json()
+        except Exception:
+            body = body_unavailable
+        if isinstance(body, dict):
+            diagnostics["response_body_shape"] = "json_object"
+            error_value = body.get("error")
+            error_code = error_value.get("code") if isinstance(error_value, dict) else error_value
+        elif isinstance(body, list):
+            diagnostics["response_body_shape"] = "json_array"
+            error_code = None
+        elif body is None or isinstance(body, (str, int, float, bool)):
+            diagnostics["response_body_shape"] = "json_scalar"
+            error_code = None
+        else:
+            error_code = None
+        if isinstance(error_code, str) and error_code in _SAFE_OAUTH_ERROR_CODES:
+            diagnostics["provider_error_code"] = error_code
+
+    if "provider_error_code" not in diagnostics:
+        error_code = getattr(error, "error", None)
+        if isinstance(error_code, str) and error_code in _SAFE_OAUTH_ERROR_CODES:
+            diagnostics["provider_error_code"] = error_code
+    return diagnostics
+
+
+def _format_safe_auth_diagnostics(diagnostics: Mapping[str, object]) -> str:
+    """Render only known diagnostic fields that pass their strict validators."""
+    fields: list[str] = []
+    status = diagnostics.get("http_status")
+    if type(status) is int and 100 <= status <= 599:
+        fields.append(f"HTTP status: {status}")
+
+    error_code = diagnostics.get("provider_error_code")
+    if isinstance(error_code, str) and error_code in _SAFE_OAUTH_ERROR_CODES:
+        fields.append(f"provider error code: {error_code}")
+
+    request_id = diagnostics.get("request_id")
+    if isinstance(request_id, str) and _SAFE_REQUEST_ID.fullmatch(request_id):
+        fields.append(f"request ID: {request_id}")
+
+    body_shape = diagnostics.get("response_body_shape")
+    if isinstance(body_shape, str) and body_shape in {"json_object", "json_array", "json_scalar"}:
+        fields.append(f"response body shape: {body_shape}")
+
+    return "; ".join(fields)
 
 
 def _verify_openai_id_token(token: str, client_id: str,

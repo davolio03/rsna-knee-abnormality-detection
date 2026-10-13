@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from rsna_knee.labels.siwc_auth import AuthError
+
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
@@ -53,6 +55,46 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
         self.assertIn("issued-client", output.getvalue())
         self.assertTrue(server.server_close.called)
         self.assertIsNone(server.callback_url)
+
+    def test_signin_displays_only_sanitized_exchange_diagnostics(self):
+        callback = "http://127.0.0.1:1455/auth/callback?code=PRIVATE_AUTH_CODE&state=PRIVATE_STATE&client_id=issued-client"
+        auth = Mock()
+        auth.begin_sign_in.return_value = SimpleNamespace(
+            authorization_url="https://auth.openai.com/authorize?state=PRIVATE_STATE",
+        )
+        auth.complete_sign_in.side_effect = AuthError(
+            "Authorization could not be completed.",
+            _diagnostics={
+                "http_status": 400,
+                "provider_error_code": "invalid_grant",
+                "request_id": "req_safe123",
+                "response_body_shape": "json_object",
+                "error_description": "PRIVATE_AUTH_CODE access-token private body",
+                "response_body": "refresh-token private body",
+            },
+        )
+        server = Mock()
+
+        def handle_request():
+            server.callback_url = callback
+
+        server.handle_request.side_effect = handle_request
+        error_output = io.StringIO()
+        with patch.object(cli, "_create_authenticator", return_value=auth), \
+                patch.object(cli, "HTTPServer", return_value=server), \
+                patch.object(cli.webbrowser, "open", return_value=True), \
+                patch("sys.stderr", error_output):
+            with self.assertRaises(SystemExit):
+                cli.main(["signin", "--callback-port", "1455", "--timeout-seconds", "1"])
+
+        rendered = error_output.getvalue()
+        for diagnostic in ("HTTP status: 400", "provider error code: invalid_grant",
+                           "request ID: req_safe123", "response body shape: json_object"):
+            self.assertIn(diagnostic, rendered)
+        for sensitive in ("PRIVATE_AUTH_CODE", "PRIVATE_STATE", "access-token",
+                          "refresh-token", "private body", "error_description",
+                          "response_body"):
+            self.assertNotIn(sensitive, rendered)
 
     def test_callback_handler_suppresses_request_line_logging(self):
         handler_type = cli._callback_handler_type(1455)
