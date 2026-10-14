@@ -1,8 +1,8 @@
 # Project State
 
-## Latest SIWC canary diagnostic (2026-10-14)
+## Latest SIWC canary confirmation (2026-10-14)
 
-E008 records one authorized retry of the third eligible case with the frozen C2/Luna configuration. It failed with the static category `whitespace_only`; the checkpoint remains at two accepted records, both unchanged. Literal evidence acceptance was not relaxed, the failed result was not saved, and no further inference was launched. The full canary and cohort remain incomplete. The original rejected response was not retained, so its exact discrepancy is still unknown. Any whitespace-only recovery policy is a separate decision.
+The separately authorized third-case run completed one request (started 1, completed 1, failed 0) and advanced the checkpoint from two accepted records to three; the original two records were unchanged. No mismatch diagnostic was emitted. This confirms the bounded run outcome only: it does not establish that fresh-response whitespace recovery was exercised, since the response may have matched the report literally. E008 remains the historical failed retry (`whitespace_only`); the original discarded response remains unclassified. No further inference was launched, and no claim is made about label quality, evidence relevance, or clinical validity. See E009.
 
 - **Last updated:** 2026-10-14
 - **Current phase:** Phase 1 - Dataset Understanding / EDA
