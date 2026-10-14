@@ -231,7 +231,7 @@ class _AuthlibOAuthClient:
         try:
             return self._session(client_id).refresh_token(
                 TOKEN_ENDPOINT, refresh_token=refresh_token, resource=RESOURCE,
-                include_client_id=True,
+                scope=None,
             )
         except Exception:
             raise AuthError("The saved authorization could not be refreshed.") from None

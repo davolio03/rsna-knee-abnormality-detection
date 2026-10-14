@@ -7,7 +7,8 @@ import time
 import unittest
 from datetime import datetime, timezone
 from types import ModuleType
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+import requests
 from urllib.parse import parse_qs, urlparse
 from requests.exceptions import (
     ConnectionError as RequestsConnectionError,
@@ -18,7 +19,10 @@ from requests.exceptions import (
 )
 
 from rsna_knee.labels.siwc_auth import (
+    AUTHORIZATION_ENDPOINT,
     PLAN_SCOPE,
+    RESOURCE,
+    SCOPES,
     AuthError,
     KeyringCredentialStore,
     SIWCAuthenticator,
@@ -688,6 +692,47 @@ class SIWCTest(unittest.TestCase):
             self.auth.complete_sign_in(f"http://127.0.0.1:1455/auth/callback?code=x&state={query['state'][0]}&client_id=dynamic_agent_client")
         with self.assertRaises(AuthError):
             self.auth.complete_sign_in("http://127.0.0.1:1455.evil.test/auth/callback?code=x&state=x")
+
+    def test_authlib_refresh_serializes_no_scope_and_preserves_refresh_fields(self):
+        requests_seen = []
+
+        def send_without_network(_session, request, **kwargs):
+            requests_seen.append(request)
+            response = requests.Response()
+            response.status_code = 200
+            response.headers["Content-Type"] = "application/json"
+            response._content = (
+                b'{"access_token":"new-access",'
+                b'"refresh_token":"rotated-refresh",'
+                b'"token_type":"Bearer","expires_in":3600}'
+            )
+            response.request = request
+            return response
+
+        with patch("requests.sessions.Session.send", send_without_network):
+            result = _AuthlibOAuthClient().refresh(
+                client_id="synthetic-client",
+                refresh_token="synthetic-refresh",
+            )
+
+        self.assertEqual(result["refresh_token"], "rotated-refresh")
+        self.assertEqual(len(requests_seen), 1)
+        form = parse_qs(requests_seen[0].body)
+        self.assertEqual(form.get("grant_type"), ["refresh_token"])
+        self.assertEqual(form.get("client_id"), ["synthetic-client"])
+        self.assertEqual(form.get("resource"), [RESOURCE])
+        self.assertEqual(form.get("refresh_token"), ["synthetic-refresh"])
+        self.assertNotIn("scope", form)
+        self.assertNotIn("include_client_id", form)
+
+        authorization_url, _ = _AuthlibOAuthClient._session(
+            "synthetic-client"
+        ).create_authorization_url(
+            AUTHORIZATION_ENDPOINT, scope=SCOPES
+        )
+        self.assertEqual(
+            parse_qs(urlparse(authorization_url).query).get("scope"), [SCOPES]
+        )
 
     def test_expired_access_token_refresh_rotates_refresh_token(self):
         profile = self.complete(self.auth.begin_sign_in())
