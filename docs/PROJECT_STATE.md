@@ -1,5 +1,9 @@
 # Project State
 
+## Latest SIWC canary diagnostic (2026-10-14)
+
+E008 records one authorized retry of the third eligible case with the frozen C2/Luna configuration. It failed with the static category `whitespace_only`; the checkpoint remains at two accepted records, both unchanged. Literal evidence acceptance was not relaxed, the failed result was not saved, and no further inference was launched. The full canary and cohort remain incomplete. The original rejected response was not retained, so its exact discrepancy is still unknown. Any whitespace-only recovery policy is a separate decision.
+
 - **Last updated:** 2026-10-14
 - **Current phase:** Phase 1 - Dataset Understanding / EDA
 - **Status:** In progress. Phase 0 remains complete against the acceptance criteria in `docs/ROADMAP.md`. One authorized constant-prediction smoke submission completed successfully, providing submission/scoring-path evidence only; no model-performance claim. Gold-58 candidate identification, the light non-Gold CSV metadata inventory, and the broadened deterministic 50-study DICOM geometry characterization are complete; Phase 1 as a whole is not.
