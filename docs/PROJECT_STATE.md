@@ -1,8 +1,8 @@
 # Project State
 
-## Latest SIWC canary confirmation (2026-10-14)
+## Latest SIWC canary window (2026-10-14)
 
-The separately authorized third-case run completed one request (started 1, completed 1, failed 0) and advanced the checkpoint from two accepted records to three; the original two records were unchanged. No mismatch diagnostic was emitted. This confirms the bounded run outcome only: it does not establish that fresh-response whitespace recovery was exercised, since the response may have matched the report literally. E008 remains the historical failed retry (`whitespace_only`); the original discarded response remains unclassified. No further inference was launched, and no claim is made about label quality, evidence relevance, or clinical validity. See E009.
+The parent-executed, explicitly authorized sequential window started two cases, completed one, and failed one (exit 2 in 35.61 seconds); nine of the 11 planned cases were not attempted. The checkpoint advanced from three to four records, and the prior three records were byte-for-byte unchanged. The first window case succeeded. The next case at offset 4 failed with the safe diagnostic `no_literal_match`; this category does not establish hallucination or identify what differed. The safe journal reports `stream_completed=true`; refusal or JSON-format details were not recorded. No retry or further case was launched. The canary remains incomplete: one failed and nine unattempted cases remain, and execution alone establishes no label quality, evidence relevance, or clinical validity. See E010. E008 and E009 below remain historical records.
 
 - **Last updated:** 2026-10-14
 - **Current phase:** Phase 1 - Dataset Understanding / EDA
