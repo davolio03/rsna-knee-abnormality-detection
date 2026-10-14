@@ -95,6 +95,147 @@ class SIWCTest(unittest.TestCase):
                     f"&state={query['state'][0]}&client_id={client_id}")
         return self.auth.complete_sign_in(callback)
 
+    def _signed_id_token(self, **overrides):
+        from authlib.jose import jwk, jwt
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        now = int(self.now())
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        private_pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        public_jwk = jwk.dumps(private_key.public_key(), "RSA")
+        public_jwk.update(kid="offline-test-key")
+        claims = {
+            "iss": "https://auth.openai.com", "sub": "SUBJECT-CANARY",
+            "aud": "synthetic-client", "nonce": "NONCE-CANARY",
+            "iat": now, "exp": now + 120,
+        }
+        claims.update(overrides)
+        token = jwt.encode(
+            {"alg": "RS256", "kid": "offline-test-key"}, claims, private_pem
+        )
+        return token, {"keys": [public_jwk]}, now, private_key
+
+    @staticmethod
+    def _jwks_response(jwks):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(jwks).encode("utf-8")
+
+        return Response()
+
+    def test_real_authlib_accepts_iat_and_nbf_within_five_second_clock_skew(self):
+        token, jwks, now, _private_key = self._signed_id_token(
+            iat=int(self.now()) + 5, nbf=int(self.now()) + 5
+        )
+        with patch("rsna_knee.labels.siwc_auth.time.time", return_value=now):
+            with patch("urllib.request.urlopen", return_value=self._jwks_response(jwks)):
+                claims = _verify_openai_id_token(
+                    token, "synthetic-client", "NONCE-CANARY"
+                )
+        self.assertEqual(claims["iat"], now + 5)
+        self.assertEqual(claims["nbf"], now + 5)
+
+    def test_real_authlib_rejects_iat_and_nbf_beyond_five_second_clock_skew(self):
+        for claim in ("iat", "nbf"):
+            with self.subTest(claim=claim):
+                token, jwks, now, _private_key = self._signed_id_token(
+                    **{claim: int(self.now()) + 6}
+                )
+                with patch("rsna_knee.labels.siwc_auth.time.time", return_value=now):
+                    with patch("urllib.request.urlopen", return_value=self._jwks_response(jwks)):
+                        with self.assertRaises(AuthError) as raised:
+                            _verify_openai_id_token(
+                                token, "synthetic-client", "NONCE-CANARY"
+                            )
+                self.assertEqual(
+                    raised.exception._diagnostics,
+                    {"failure_category": "identity_claims_invalid"},
+                )
+
+    def test_real_authlib_rejects_expired_token_at_verifier_and_profile_boundaries(self):
+        token, jwks, now, _private_key = self._signed_id_token(exp=int(self.now()) - 1)
+        with patch("rsna_knee.labels.siwc_auth.time.time", return_value=now):
+            with patch("urllib.request.urlopen", return_value=self._jwks_response(jwks)):
+                with self.assertRaises(AuthError) as verified_error:
+                    _verify_openai_id_token(
+                        token, "synthetic-client", "NONCE-CANARY"
+                    )
+        self.assertEqual(
+            verified_error.exception._diagnostics,
+            {"failure_category": "identity_claims_invalid"},
+        )
+
+        self.auth._verify_id_token = lambda value, client_id, nonce: (
+            _verify_openai_id_token(value, client_id, nonce)
+        )
+        with patch("rsna_knee.labels.siwc_auth.time.time", return_value=now):
+            with patch("urllib.request.urlopen", return_value=self._jwks_response(jwks)):
+                with self.assertRaises(AuthError):
+                    self.auth._validated_profile(
+                        {"id_token": token}, "synthetic-client", "NONCE-CANARY", None
+                    )
+
+    def test_profile_validation_rejects_expiration_independently_of_verifier(self):
+        self.auth._verify_id_token = lambda _token, client_id, nonce: {
+            "iss": "https://auth.openai.com", "sub": "subject-1",
+            "aud": client_id, "nonce": nonce,
+            "exp": self.now() - 1, "iat": self.now(),
+        }
+
+        with self.assertRaises(AuthError) as raised:
+            self.auth._validated_profile(
+                {"id_token": "synthetic-already-verified-token"},
+                "synthetic-client", "synthetic-nonce", None,
+            )
+
+        self.assertEqual(
+            raised.exception._diagnostics,
+            {"failure_category": "identity_claims_invalid"},
+        )
+        self.assertFalse(self.store.values)
+
+    def test_real_authlib_still_rejects_bad_signature_issuer_audience_and_nonce(self):
+        _token, jwks, now, _private_key = self._signed_id_token()
+        bad_signature_token, _bad_jwks, _now, _different_key = self._signed_id_token()
+        wrong_issuer, issuer_jwks, _now, _key = self._signed_id_token(
+            iss="https://attacker.invalid"
+        )
+        wrong_audience, audience_jwks, _now, _key = self._signed_id_token(
+            aud="another-client"
+        )
+        wrong_nonce, nonce_jwks, _now, _key = self._signed_id_token(
+            nonce="another-nonce"
+        )
+        invalid_cases = (
+            (bad_signature_token, jwks, "synthetic-client", "NONCE-CANARY"),
+            (wrong_issuer, issuer_jwks, "synthetic-client", "NONCE-CANARY"),
+            (wrong_audience, audience_jwks, "synthetic-client", "NONCE-CANARY"),
+            (wrong_nonce, nonce_jwks, "synthetic-client", "NONCE-CANARY"),
+        )
+        for index, (candidate, candidate_jwks, client_id, nonce) in enumerate(invalid_cases):
+            with self.subTest(index=index):
+                with patch("rsna_knee.labels.siwc_auth.time.time", return_value=now):
+                    with patch("urllib.request.urlopen", return_value=self._jwks_response(candidate_jwks)):
+                        with self.assertRaises(AuthError) as raised:
+                            _verify_openai_id_token(candidate, client_id, nonce)
+                for canary in (
+                    candidate.decode("ascii"), "SUBJECT-CANARY", "NONCE-CANARY",
+                    "attacker.invalid", "another-client", "another-nonce",
+                ):
+                    self.assertNotIn(canary, str(raised.exception))
+                    self.assertNotIn(canary, repr(raised.exception._diagnostics))
+
     def test_new_registration_uses_dynamic_client_and_required_oauth_parameters(self):
         request = self.auth.begin_sign_in()
         query = parse_qs(urlparse(request.authorization_url).query)
@@ -740,6 +881,25 @@ class SIWCTest(unittest.TestCase):
             parse_qs(urlparse(authorization_url).query).get("scope"), [SCOPES]
         )
 
+    def test_authlib_refresh_preserves_only_safe_failure_diagnostics(self):
+        class FailedSession:
+            def refresh_token(self, *args, **kwargs):
+                raise requests.ConnectionError("PRIVATE-REFRESH-CANARY")
+
+        with patch.object(_AuthlibOAuthClient, "_session", return_value=FailedSession()):
+            with self.assertRaises(AuthError) as raised:
+                _AuthlibOAuthClient().refresh(
+                    client_id="synthetic-client", refresh_token="REFRESH-CANARY"
+                )
+
+        self.assertEqual(raised.exception._diagnostics, {
+            "failure_category": "exchange_connection_error",
+        })
+        self.assertIn("failure category: exchange_connection_error", str(raised.exception))
+        for canary in ("PRIVATE-REFRESH-CANARY", "REFRESH-CANARY", "synthetic-client"):
+            self.assertNotIn(canary, str(raised.exception))
+            self.assertNotIn(canary, repr(raised.exception._diagnostics))
+
     def test_expired_access_token_refresh_rotates_refresh_token(self):
         profile = self.complete(self.auth.begin_sign_in())
         record = self.store.load(profile.profile_id)
@@ -1031,10 +1191,12 @@ class SIWCTest(unittest.TestCase):
                 return b'{"keys":[{"kty":"RSA","kid":"synthetic"}]}'
 
         class InvalidClaims(dict):
-            def validate(self, *, now):
+            def validate(self, *, now, leeway):
+                self_test.assertEqual(leeway, 5)
                 raise ValueError("CLAIM-EXCEPTION-CANARY CLAIM-VALUE-CANARY")
 
         jose = ModuleType("authlib.jose")
+        self_test = self
 
         class DecodingJWT:
             def __init__(self, algorithms):
@@ -1073,16 +1235,20 @@ class SIWCTest(unittest.TestCase):
                 return b'{"keys":[{"kty":"RSA","kid":"synthetic"}]}'
 
         class Claims(dict):
-            def validate(self, *, now):
+            def validate(self, *, now, leeway):
+                self_test.assertEqual(leeway, 5)
                 self.validated_at = now
+                self.leeway = leeway
 
         expected = {
             "iss": "https://auth.openai.com",
             "sub": "synthetic-subject",
             "aud": "synthetic-client",
             "nonce": "synthetic-nonce",
+            "exp": int(time.time()) + 3600,
         }
         jose = ModuleType("authlib.jose")
+        self_test = self
 
         class AcceptingJWT:
             def __init__(self, algorithms):

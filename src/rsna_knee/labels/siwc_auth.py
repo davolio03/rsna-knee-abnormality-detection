@@ -31,6 +31,7 @@ ISSUER = "https://auth.openai.com"
 RESOURCE = "https://api.openai.com/v1"
 PLAN_SCOPE = "chatgpt.tokens.use.direct"
 SCOPES = "openid profile email offline_access resource.invoke " + PLAN_SCOPE
+_IDENTITY_CLAIM_LEEWAY_SECONDS = 5
 _KEYRING_SERVICE = "rsna-knee-siwc"
 _WINDOWS_CREDENTIAL_BLOB_LIMIT_BYTES = 2560
 _SAFE_KEYRING_MODULES = {
@@ -236,8 +237,11 @@ class _AuthlibOAuthClient:
                 TOKEN_ENDPOINT, refresh_token=refresh_token, resource=RESOURCE,
                 scope=None,
             )
-        except Exception:
-            raise AuthError("The saved authorization could not be refreshed.") from None
+        except Exception as exc:
+            raise AuthError(
+                "The saved authorization could not be refreshed.",
+                _diagnostics=_safe_oauth_failure_diagnostics(exc),
+            ) from None
 
 
 def _safe_oauth_failure_diagnostics(error: Exception) -> dict[str, object]:
@@ -457,7 +461,15 @@ def _verify_openai_id_token(token: str, client_id: str,
         ) from None
 
     try:
-        claims.validate(now=int(time.time()))
+        validation_now = int(time.time())
+        claims.validate(
+            now=validation_now, leeway=_IDENTITY_CLAIM_LEEWAY_SECONDS
+        )
+        expiration = claims.get("exp")
+        if (isinstance(expiration, bool)
+                or not isinstance(expiration, (int, float))
+                or float(expiration) <= validation_now):
+            raise ValueError("The token is expired or has no expiration claim.")
     except Exception:
         raise AuthError(
             "The identity token could not be validated.",
@@ -682,13 +694,16 @@ class SIWCAuthenticator:
         audience = claims.get("aud")
         audience_matches = (audience == client_id if isinstance(audience, str)
                             else isinstance(audience, (list, tuple)) and client_id in audience)
+        now = self._clock()
         if (claims.get("iss") != ISSUER or not audience_matches
                 or (nonce is not None and claims.get("nonce") != nonce)
                 or not isinstance(claims.get("exp"), (int, float))
-                or float(claims["exp"]) <= self._clock()
+                or float(claims["exp"]) <= now
                 or isinstance(claims.get("iat"), bool)
                 or not isinstance(claims.get("iat"), (int, float))
-                or float(claims["iat"]) > self._clock() + 5
+                or float(claims["iat"]) > (
+                    now + _IDENTITY_CLAIM_LEEWAY_SECONDS
+                )
                 or not isinstance(claims.get("sub"), str) or not claims.get("sub")):
             raise AuthError(
                 "The identity token could not be validated.",

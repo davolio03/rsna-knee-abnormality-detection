@@ -6,7 +6,11 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from rsna_knee.labels.siwc_auth import AuthError, SIWCAuthenticator
+from rsna_knee.labels.siwc_auth import (
+    AuthError,
+    SIWCAuthenticator,
+    _format_safe_auth_diagnostics,
+)
 from rsna_knee.labels.prompt_comparison import build_candidate_prompt
 from rsna_knee.labels.subscription import (
     LabelingError,
@@ -114,9 +118,13 @@ class SIWCResponsesInfer:
             )
         except LabelingError:
             raise
-        except AuthError:
-            raise LabelingError("A valid ChatGPT plan-use authorization is required.",
-                                stage="inference", cause_code="auth_error") from None
+        except AuthError as exc:
+            message = "A valid ChatGPT plan-use authorization is required."
+            diagnostics = _format_safe_auth_diagnostics(exc._diagnostics)
+            if diagnostics:
+                message += f" Diagnostics: {diagnostics}"
+            raise LabelingError(message, stage="inference",
+                                cause_code="auth_error") from None
         except Exception:
             raise LabelingError("The account model catalog could not be loaded.",
                                 stage="inference", cause_code="network_error") from None

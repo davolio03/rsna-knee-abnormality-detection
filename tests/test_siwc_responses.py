@@ -11,7 +11,7 @@ import httpx
 from openai import OpenAI
 
 from rsna_knee.labels.siwc_responses import SIWCResponsesInfer
-from rsna_knee.labels.siwc_auth import SIWCAuthenticator
+from rsna_knee.labels.siwc_auth import AuthError, SIWCAuthenticator
 from rsna_knee.labels.subscription import LABEL_COLUMNS, LabelingError, run_pilot
 from rsna_knee.labels.prompt_comparison import build_candidate_prompt
 
@@ -109,6 +109,27 @@ class SIWCResponsesTests(unittest.TestCase):
             [{"slug": "gpt-6-luna", "display_name": "Luna"}],
         )
         self.assertEqual([request.url.path for request in requests], ["/v1/models"])
+
+    def test_model_catalog_surfaces_only_validated_auth_diagnostics(self):
+        class FailedAuth:
+            def with_plan_access_token(self, _profile_id, _operation):
+                raise AuthError(
+                    "The saved authorization could not be refreshed.",
+                    _diagnostics={
+                        "failure_category": "identity_claims_invalid",
+                        "provider_error_code": "PRIVATE-CODE-CANARY",
+                        "refresh_token": "PRIVATE-TOKEN-CANARY",
+                    },
+                )
+
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer(auth=FailedAuth()).list_available_models()
+
+        self.assertEqual(raised.exception.cause_code, "auth_error")
+        self.assertIn("failure category: identity_claims_invalid", str(raised.exception))
+        self.assertNotIn("PRIVATE-CODE-CANARY", str(raised.exception))
+        self.assertNotIn("PRIVATE-TOKEN-CANARY", str(raised.exception))
+        self.client_factory.assert_not_called()
 
     def test_real_sdk_inference_preflight_parses_catalog_before_model_rejection(self):
         requests = []
