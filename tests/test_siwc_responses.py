@@ -727,8 +727,39 @@ class SIWCResponsesTests(unittest.TestCase):
             self.make_infer()(self.report_canary)
 
         self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
+        self.assertEqual(raised.exception.evidence_mismatch_kind, "no_literal_match")
         self.assertNotIn("PRIVATE_UNGROUNDED_EVIDENCE", str(raised.exception))
         self.assertNotIn(self.report_canary, str(raised.exception))
+
+    def test_literal_evidence_mismatch_reports_only_static_category(self):
+        cases = (
+            ("prefix\n ACL tear", "prefix ACL tear", "whitespace_only"),
+            ("ACL TEAR", "acl tear", "case_only"),
+            ("cafe\u0301", "caf\u00e9", "unicode_only"),
+            ("ACL fracture", "ACL tear", "no_literal_match"),
+        )
+        for evidence, report, expected in cases:
+            with self.subTest(expected=expected):
+                result = valid_result()
+                result["ACL"]["evidence"] = evidence
+                with self.assertRaises(LabelingError) as raised:
+                    self.make_infer().validate_source_evidence(result, report)
+                self.assertEqual(raised.exception.evidence_mismatch_kind, expected)
+                self.assertNotIn(evidence, str(raised.exception))
+                self.assertNotIn(report, str(raised.exception))
+
+    def test_blank_normalization_does_not_match_but_empty_and_exact_evidence_do(self):
+        result = valid_result()
+        result["ACL"]["evidence"] = " \n\t "
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer().validate_source_evidence(result, " \t ")
+        self.assertEqual(raised.exception.evidence_mismatch_kind, "no_literal_match")
+        result["ACL"]["evidence"] = ""
+        for target in result.values():
+            target["evidence"] = ""
+        self.make_infer().validate_source_evidence(result, "")
+        result["ACL"]["evidence"] = "ACL tear"
+        self.make_infer().validate_source_evidence(result, "Report: ACL tear.")
 
     def test_empty_evidence_remains_allowed(self):
         empty = valid_result()
@@ -809,6 +840,9 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
         self.assertIn('"cause_code":"evidence_not_grounded"', diagnostic_text)
+        failed_record = next(json.loads(line) for line in diagnostic_text.splitlines()
+                             if '"event":"attempt_failed"' in line)
+        self.assertEqual(failed_record["evidence_mismatch_kind"], "no_literal_match")
         for private_value in ("PRIVATE_FRESH_EVIDENCE", self.report_canary, "synthetic-study"):
             self.assertNotIn(private_value, str(raised.exception))
             self.assertNotIn(private_value, diagnostic_text)

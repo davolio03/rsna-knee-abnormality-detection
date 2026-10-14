@@ -121,6 +121,31 @@ class SubscriptionLabelContractTests(unittest.TestCase):
             self.assertNotIn(text, json.dumps(records))
             self.assertNotIn(text, str(raised.exception))
 
+    def test_evidence_mismatch_kind_is_allowlisted_in_journal_and_wrapper(self):
+        rows = [{"StudyInstanceUID": "synthetic-study", "Report": "SYNTHETIC_REPORT_CANARY",
+                 **{target: "" for target in LABEL_COLUMNS}}]
+        error = LabelingError("PRIVATE_VALUE_CANARY", cause_code="evidence_not_grounded",
+                              evidence_mismatch_kind="case_only")
+        error.evidence_mismatch_kind = "PRIVATE_MUTATED_CANARY"
+        infer = Mock(side_effect=error)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            journal = root / "data" / "outputs" / "diagnostics.jsonl"
+            with self.assertRaises(LabelingError) as raised:
+                run_pilot(rows, gold_ids=gold_fixture(), max_records=1,
+                          output_path=output, diagnostics_path=journal, project_root=root,
+                          subscription_oauth_confirmed=True, infer=infer)
+            journal_text = journal.read_text(encoding="utf-8")
+            records = [json.loads(line) for line in journal_text.splitlines()]
+
+        failed = next(record for record in records if record["event"] == "attempt_failed")
+        self.assertNotIn("evidence_mismatch_kind", failed)
+        self.assertIsNone(raised.exception.evidence_mismatch_kind)
+        self.assertNotIn("PRIVATE_MUTATED_CANARY", journal_text)
+        self.assertNotIn("PRIVATE_VALUE_CANARY", journal_text)
+        self.assertNotIn("SYNTHETIC_REPORT_CANARY", str(raised.exception))
+
     def test_failure_classifier_uses_fixed_safe_causes_and_unknown_fallback(self):
         from rsna_knee.labels.subscription import _classify_cli_failure
 

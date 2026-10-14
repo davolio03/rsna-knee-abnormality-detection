@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -21,6 +22,7 @@ from rsna_knee.labels.subscription import (
     _SAFE_STREAM_FORMATS,
     _SAFE_STREAM_TEXT_SOURCES,
     _SAFE_JSON_VALUE_TYPES,
+    _SAFE_EVIDENCE_MISMATCH_KINDS,
     validate_label_result,
 )
 
@@ -56,8 +58,23 @@ def safe_provider_diagnostics(error: object) -> str:
          lambda value: type(value) is str and value in _SAFE_STREAM_FORMATS),
         ("invalid_label_json_type", getattr(error, "invalid_label_json_type", None),
          lambda value: type(value) is str and value in _SAFE_JSON_VALUE_TYPES),
+        ("evidence_mismatch_kind", getattr(error, "evidence_mismatch_kind", None),
+         lambda value: type(value) is str and value in _SAFE_EVIDENCE_MISMATCH_KINDS),
     )
     return " ".join(f"{name}={value}" for name, value, is_safe in values if is_safe(value))
+
+
+def _classify_evidence_mismatch(evidence: str, report: object) -> str:
+    """Describe a failed literal check without normalizing acceptance."""
+    if not isinstance(report, str):
+        return "no_literal_match"
+    if (normalized := " ".join(evidence.split())) and normalized in " ".join(report.split()):
+        return "whitespace_only"
+    if (folded := evidence.casefold()) and folded in report.casefold():
+        return "case_only"
+    if (canonical := unicodedata.normalize("NFC", evidence)) and canonical in unicodedata.normalize("NFC", report):
+        return "unicode_only"
+    return "no_literal_match"
 
 
 class SIWCResponsesInfer:
@@ -138,8 +155,10 @@ class SIWCResponsesInfer:
         for target in result.values():
             evidence = target["evidence"]
             if evidence and evidence not in report:
+                mismatch_kind = _classify_evidence_mismatch(evidence, report)
                 raise LabelingError("Responses evidence was not found in the source report.",
-                                    stage="response_validation", cause_code="evidence_not_grounded")
+                                    stage="response_validation", cause_code="evidence_not_grounded",
+                                    evidence_mismatch_kind=mismatch_kind)
 
     def _list_models_authorized(self, access_token: str) -> list[dict[str, str]]:
         client = None
@@ -299,7 +318,8 @@ class SIWCResponsesInfer:
                                     stream_completed=True, stream_delta_chars=delta_chars,
                                     stream_final_chars=final_chars, stream_text_source=selected_source,
                                     stream_refusal=False, stream_format="json_valid",
-                                    invalid_label_json_type=exc.invalid_label_json_type) from None
+                                    invalid_label_json_type=exc.invalid_label_json_type,
+                                    evidence_mismatch_kind=exc.evidence_mismatch_kind) from None
         except LabelingError:
             raise
         except Exception as exc:

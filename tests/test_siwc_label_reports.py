@@ -133,6 +133,54 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
         )
         self.assertEqual(cli.safe_provider_diagnostics(malicious), "")
 
+    def test_evidence_mismatch_diagnostic_revalidates_mutable_metadata(self):
+        safe = SimpleNamespace(evidence_mismatch_kind="unicode_only")
+        self.assertEqual(cli.safe_provider_diagnostics(safe), "evidence_mismatch_kind=unicode_only")
+        malicious = SimpleNamespace(evidence_mismatch_kind="PRIVATE_CANARY")
+        self.assertEqual(cli.safe_provider_diagnostics(malicious), "")
+
+    def test_cli_and_journal_render_only_whitelisted_evidence_mismatch(self):
+        rows = [{"StudyInstanceUID": "synthetic-study", "Report": "SYNTHETIC_REPORT_CANARY",
+                 **{target: "" for target in LABEL_COLUMNS}}]
+        gold_ids = {f"synthetic-gold-{index}" for index in range(58)}
+
+        def fail_with_evidence_diagnostic(_report):
+            error = cli.LabelingError("PRIVATE_VALUE_CANARY PRIVATE_REPORT_CANARY",
+                                      cause_code="evidence_not_grounded",
+                                      stage="response_validation",
+                                      evidence_mismatch_kind="case_only")
+            raise error
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_path = root / "data" / "outputs" / "c2.jsonl"
+            diagnostics_path = root / "data" / "outputs" / "c2-diagnostics.jsonl"
+            args = [
+                "label", "--train-csv", "synthetic.csv", "--gold-exclusions", "synthetic-gold.csv",
+                "--profile-id", "synthetic-profile", "--model", "gpt-6-luna", "--max-records", "1",
+                "--output", str(output_path), "--diagnostics", str(diagnostics_path),
+                "--confirm-siwc-oauth", "--confirm-report-transfer",
+            ]
+            stderr = io.StringIO()
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "_read_rows", return_value=rows), \
+                    patch.object(cli, "_read_gold_ids", return_value=gold_ids), \
+                    patch.object(cli, "_create_authenticator", return_value=object()), \
+                    patch.object(cli, "SIWCResponsesInfer", return_value=fail_with_evidence_diagnostic), \
+                    patch("sys.stderr", stderr), self.assertRaises(SystemExit):
+                cli.main(args)
+
+            rendered = stderr.getvalue()
+            journal_text = diagnostics_path.read_text(encoding="utf-8")
+            failed = next(record for record in map(json.loads, journal_text.splitlines())
+                          if record["event"] == "attempt_failed")
+
+        self.assertIn("evidence_mismatch_kind=case_only", rendered)
+        self.assertEqual(failed["evidence_mismatch_kind"], "case_only")
+        for canary in ("PRIVATE_VALUE_CANARY", "PRIVATE_REPORT_CANARY", "SYNTHETIC_REPORT_CANARY"):
+            self.assertNotIn(canary, rendered)
+            self.assertNotIn(canary, journal_text)
+
     def test_cli_requires_an_explicit_subcommand(self):
         with patch("sys.stderr", new_callable=io.StringIO):
             with self.assertRaises(SystemExit):

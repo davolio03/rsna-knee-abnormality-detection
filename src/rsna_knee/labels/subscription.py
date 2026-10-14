@@ -79,6 +79,9 @@ _SAFE_REQUEST_ID = re.compile(r"^req_[A-Za-z0-9_-]{1,120}$")
 _SAFE_STREAM_TEXT_SOURCES = {"completed", "deltas", "none"}
 _SAFE_STREAM_FORMATS = {"empty", "json_invalid", "fenced", "json_valid", "refusal"}
 _SAFE_JSON_VALUE_TYPES = {"string", "number", "null", "array", "object", "other"}
+_SAFE_EVIDENCE_MISMATCH_KINDS = {
+    "whitespace_only", "case_only", "unicode_only", "no_literal_match",
+}
 
 
 _FAILURE_PATTERNS = (
@@ -109,7 +112,8 @@ class LabelingError(ValueError):
                  stream_text_source: str | None = None,
                  stream_refusal: bool | None = None,
                  stream_format: str | None = None,
-                 invalid_label_json_type: str | None = None):
+                 invalid_label_json_type: str | None = None,
+                 evidence_mismatch_kind: str | None = None):
         super().__init__(message)
         self.stage = stage
         self.cause_code = cause_code if cause_code in _CAUSE_EXPLANATIONS else "unknown"
@@ -139,6 +143,10 @@ class LabelingError(ValueError):
         self.invalid_label_json_type = (
             invalid_label_json_type if isinstance(invalid_label_json_type, str)
             and invalid_label_json_type in _SAFE_JSON_VALUE_TYPES else None
+        )
+        self.evidence_mismatch_kind = (
+            evidence_mismatch_kind if type(evidence_mismatch_kind) is str
+            and evidence_mismatch_kind in _SAFE_EVIDENCE_MISMATCH_KINDS else None
         )
 
 
@@ -613,6 +621,10 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
             if (isinstance(invalid_label_json_type, str)
                     and invalid_label_json_type in _SAFE_JSON_VALUE_TYPES):
                 record["invalid_label_json_type"] = invalid_label_json_type
+            evidence_mismatch_kind = getattr(exc, "evidence_mismatch_kind", None)
+            if (type(evidence_mismatch_kind) is str
+                    and evidence_mismatch_kind in _SAFE_EVIDENCE_MISMATCH_KINDS):
+                record["evidence_mismatch_kind"] = evidence_mismatch_kind
             try:
                 journal.append(record)
             except LabelingError:
@@ -629,6 +641,7 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
                     ("provider_body_shape", record.get("provider_body_shape")),
                     ("request_id", record.get("request_id")),
                     ("invalid_label_json_type", record.get("invalid_label_json_type")),
+                    ("evidence_mismatch_kind", record.get("evidence_mismatch_kind")),
                 ) if value is not None
             )
             if diagnostic_context:
@@ -648,6 +661,7 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
                 stream_refusal=record.get("stream_refusal"),
                 stream_format=record.get("stream_format"),
                 invalid_label_json_type=record.get("invalid_label_json_type"),
+                evidence_mismatch_kind=record.get("evidence_mismatch_kind"),
             ) from None
         progress["completed"] += 1
         elapsed_ms = max(0, int((time.monotonic() - started_at) * 1000))
