@@ -58,7 +58,7 @@ class FakeStream:
 
 class SIWCResponsesTests(unittest.TestCase):
     def setUp(self):
-        self.report_canary = "PRIVATE_REPORT_CANARY"
+        self.report_canary = "PRIVATE_REPORT_CANARY synthetic evidence"
         self.result_text = json.dumps(valid_result())
         self.completed = SimpleNamespace(
             type="response.completed",
@@ -693,6 +693,168 @@ class SIWCResponsesTests(unittest.TestCase):
             )
         self.assertEqual(count, 1)
         self.assertEqual(self.client.responses.create.call_count, 1)
+
+    def test_nonempty_evidence_must_be_literal_source_substring(self):
+        invalid = valid_result()
+        invalid["ACL"]["evidence"] = "PRIVATE_UNGROUNDED_EVIDENCE"
+        self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(output_text=json.dumps(invalid)),
+        )])
+
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer()(self.report_canary)
+
+        self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
+        self.assertNotIn("PRIVATE_UNGROUNDED_EVIDENCE", str(raised.exception))
+        self.assertNotIn(self.report_canary, str(raised.exception))
+
+    def test_empty_evidence_remains_allowed(self):
+        empty = valid_result()
+        empty["ACL"]["evidence"] = ""
+        self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(output_text=json.dumps(empty)),
+        )])
+
+        result = self.make_infer()(self.report_canary)
+
+        self.assertEqual(result["ACL"]["evidence"], "")
+
+    def test_cached_ungrounded_evidence_fails_before_inference_and_preserves_output(self):
+        rows = [{
+            "StudyInstanceUID": "synthetic-study",
+            "Report": self.report_canary,
+            **{target: "" for target in LABEL_COLUMNS},
+        }]
+        cached = valid_result()
+        cached["ACL"]["evidence"] = "PRIVATE_CACHED_EVIDENCE"
+        payload = json.dumps({"StudyInstanceUID": "synthetic-study", "labels": cached}) + "\n"
+        infer = Mock()
+        infer.validate_source_evidence = self.make_infer().validate_source_evidence
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            output.parent.mkdir(parents=True)
+            output.write_text(payload, encoding="utf-8")
+            with self.assertRaises(LabelingError) as raised:
+                run_pilot(
+                    rows,
+                    gold_ids={f"synthetic-gold-{index}" for index in range(58)},
+                    max_records=1,
+                    output_path=output,
+                    diagnostics_path=root / "data" / "outputs" / "diagnostics.jsonl",
+                    project_root=root,
+                    subscription_oauth_confirmed=True,
+                    infer=infer,
+                )
+            after = output.read_text(encoding="utf-8")
+
+        infer.assert_not_called()
+        self.assertEqual(after, payload)
+        self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
+        self.assertNotIn("PRIVATE_CACHED_EVIDENCE", str(raised.exception))
+        self.assertNotIn("synthetic-study", str(raised.exception))
+
+    def test_fresh_ungrounded_evidence_is_rejected_before_persist_with_safe_diagnostic(self):
+        rows = [{
+            "StudyInstanceUID": "synthetic-study",
+            "Report": self.report_canary,
+            **{target: "" for target in LABEL_COLUMNS},
+        }]
+        invalid = valid_result()
+        invalid["ACL"]["evidence"] = "PRIVATE_FRESH_EVIDENCE"
+        infer = Mock(return_value=invalid)
+        infer.validate_source_evidence = self.make_infer().validate_source_evidence
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            journal = root / "data" / "outputs" / "diagnostics.jsonl"
+            with self.assertRaises(LabelingError) as raised:
+                run_pilot(
+                    rows,
+                    gold_ids={f"synthetic-gold-{index}" for index in range(58)},
+                    max_records=1,
+                    output_path=output,
+                    diagnostics_path=journal,
+                    project_root=root,
+                    subscription_oauth_confirmed=True,
+                    infer=infer,
+                )
+            diagnostic_text = journal.read_text(encoding="utf-8")
+
+        self.assertFalse(output.exists())
+        self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
+        self.assertIn('"cause_code":"evidence_not_grounded"', diagnostic_text)
+        for private_value in ("PRIVATE_FRESH_EVIDENCE", self.report_canary, "synthetic-study"):
+            self.assertNotIn(private_value, str(raised.exception))
+            self.assertNotIn(private_value, diagnostic_text)
+
+    def test_valid_cached_nonselected_prefix_is_grounded_before_resume(self):
+        rows = [
+            {
+                "StudyInstanceUID": f"synthetic-study-{index}",
+                "Report": self.report_canary,
+                **{target: "" for target in LABEL_COLUMNS},
+            }
+            for index in range(2)
+        ]
+        labels = valid_result()
+        infer_calls = []
+        def infer(_report):
+            infer_calls.append(True)
+            return valid_result()
+
+        infer.validate_source_evidence = self.make_infer().validate_source_evidence
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            output.parent.mkdir(parents=True)
+            output.write_text(
+                json.dumps({"StudyInstanceUID": "synthetic-study-0", "labels": labels}) + "\n",
+                encoding="utf-8",
+            )
+            count = run_pilot(
+                rows,
+                gold_ids={f"synthetic-gold-{index}" for index in range(58)},
+                max_records=1,
+                skip_records=1,
+                output_path=output,
+                diagnostics_path=root / "data" / "outputs" / "diagnostics.jsonl",
+                project_root=root,
+                subscription_oauth_confirmed=True,
+                infer=infer,
+            )
+
+        self.assertEqual(count, 2)
+        self.assertEqual(infer_calls, [True])
+
+    def test_generic_infer_path_does_not_require_source_grounding_hook(self):
+        rows = [{
+            "StudyInstanceUID": "synthetic-study",
+            "Report": self.report_canary,
+            **{target: "" for target in LABEL_COLUMNS},
+        }]
+        def infer(_report):
+            return valid_result()
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            count = run_pilot(
+                rows,
+                gold_ids={f"synthetic-gold-{index}" for index in range(58)},
+                max_records=1,
+                output_path=root / "data" / "outputs" / "labels.jsonl",
+                diagnostics_path=root / "data" / "outputs" / "diagnostics.jsonl",
+                project_root=root,
+                subscription_oauth_confirmed=True,
+                infer=infer,
+            )
+
+        self.assertEqual(count, 1)
 
 
 if __name__ == "__main__":

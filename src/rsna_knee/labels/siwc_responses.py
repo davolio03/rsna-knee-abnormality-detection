@@ -121,6 +121,18 @@ class SIWCResponsesInfer:
             raise LabelingError("The account model catalog could not be loaded.",
                                 stage="inference", cause_code="network_error") from None
 
+    @staticmethod
+    def validate_source_evidence(result: Mapping[str, Mapping[str, object]], report: str) -> None:
+        """Reject non-empty evidence not literally present in the exact report text."""
+        if not isinstance(report, str):
+            raise LabelingError("Responses evidence could not be checked against the source report.",
+                                stage="response_validation", cause_code="evidence_not_grounded")
+        for target in result.values():
+            evidence = target["evidence"]
+            if evidence and evidence not in report:
+                raise LabelingError("Responses evidence was not found in the source report.",
+                                    stage="response_validation", cause_code="evidence_not_grounded")
+
     def _list_models_authorized(self, access_token: str) -> list[dict[str, str]]:
         client = None
         try:
@@ -269,7 +281,9 @@ class SIWCResponsesInfer:
                                     stream_final_chars=final_chars, stream_text_source=selected_source,
                                     stream_refusal=False, stream_format=format_class) from None
             try:
-                return validate_label_result(parsed)
+                result = validate_label_result(parsed)
+                self.validate_source_evidence(result, report)
+                return result
             except LabelingError as exc:
                 raise LabelingError("Responses output failed local label validation.",
                                     stage="response_validation",

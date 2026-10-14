@@ -53,6 +53,7 @@ _CAUSE_EXPLANATIONS = {
     "label_type_invalid": "The labeling provider response contained an invalid label type.",
     "evidence_type_invalid": "The labeling provider response contained an invalid evidence type.",
     "evidence_length_invalid": "The labeling provider response contained evidence over the allowed length.",
+    "evidence_not_grounded": "The labeling provider returned evidence not found in the source report.",
     "uncertainty_type_invalid": "The labeling provider response contained an invalid uncertainty type.",
     "uncertainty_range_invalid": "The labeling provider response contained uncertainty outside the allowed range.",
     "unknown": "The failure cause could not be safely classified.",
@@ -529,6 +530,14 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
     current_ids = {str(row[STUDY_COLUMN]).strip() for row in eligible[:selected_end]}
     if not completed.issubset(current_ids):
         raise LabelingError("Existing output does not match the current eligible cohort.")
+    validate_source_evidence = getattr(infer, "validate_source_evidence", None)
+    if callable(validate_source_evidence):
+        source_reports = {
+            str(row[STUDY_COLUMN]).strip(): str(row[REPORT_COLUMN])
+            for row in eligible[:selected_end]
+        }
+        for record in records:
+            validate_source_evidence(record["labels"], source_reports[record[STUDY_COLUMN]])
     progress = {"started": 0, "completed": 0, "failed": 0}
     for selected_index, row in enumerate(selected):
         study_id = str(row[STUDY_COLUMN]).strip()
@@ -545,6 +554,8 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
             else:
                 raw_result = infer(str(row[REPORT_COLUMN]))
             result = validate_label_result(raw_result)
+            if callable(validate_source_evidence):
+                validate_source_evidence(result, str(row[REPORT_COLUMN]))
             records.append({STUDY_COLUMN: study_id, "labels": result})
             try:
                 _atomic_write_jsonl(destination, records)

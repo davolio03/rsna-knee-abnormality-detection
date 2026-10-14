@@ -38,6 +38,8 @@ By default, labels are written to `data/outputs/siwc-c2-report-labels.jsonl` and
 
 The SIWC adapter uses the exact frozen Candidate 2 prompt from the comparison registry; it does not construct a parallel prompt/schema or coerce output. The label JSONL remains a resumable checkpoint and validates cohort membership, but this runner does not generally fingerprint prompt/model settings. When using explicit output overrides or changing the selected model, choose a new ignored path rather than assuming prior output is compatible. Optional output and diagnostics paths must remain under `data/outputs`.
 
+For each target, non-empty evidence must occur literally in that row's source report. The runner rejects invalid fresh evidence before saving it and checks cached evidence before skipping completed records; on a mismatch it stops and preserves the existing output file. This is a provenance check only—it does not establish clinical correctness.
+
 When strict label validation rejects a non-boolean JSON label, safe diagnostics may include only `invalid_label_json_type` with one of `string`, `number`, `null`, `array`, `object`, or `other`. They never include the target name, raw value, report text, or runtime type name.
 
 ## Authorization and privacy boundary
