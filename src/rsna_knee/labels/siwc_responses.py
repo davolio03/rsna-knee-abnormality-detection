@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -75,6 +76,53 @@ def _classify_evidence_mismatch(evidence: str, report: object) -> str:
     if (canonical := unicodedata.normalize("NFC", evidence)) and canonical in unicodedata.normalize("NFC", report):
         return "unicode_only"
     return "no_literal_match"
+
+
+def _unique_whitespace_source_span(evidence: str, report: str) -> str | None:
+    """Return one exact source span for an identical token sequence, if unique."""
+    evidence_tokens = [match.group() for match in re.finditer(r"\S+", evidence)]
+    if not evidence_tokens:
+        return None
+    report_tokens = [(match.group(), match.start(), match.end())
+                     for match in re.finditer(r"\S+", report)]
+    if len(evidence_tokens) > len(report_tokens):
+        return None
+    matched_span = None
+    width = len(evidence_tokens)
+    for start in range(len(report_tokens) - width + 1):
+        if any(report_tokens[start + offset][0] != token
+               for offset, token in enumerate(evidence_tokens)):
+            continue
+        if matched_span is not None:
+            return None
+        matched_span = (report_tokens[start][1], report_tokens[start + width - 1][2])
+    if matched_span is None:
+        return None
+    span_start, span_end = matched_span
+    return report[span_start:span_end]
+
+
+def _recover_fresh_whitespace_evidence(
+    result: Mapping[str, Mapping[str, object]], report: str,
+) -> Mapping[str, Mapping[str, object]]:
+    """Copy a result with unique whitespace-only evidence spans mapped to report text."""
+    updates: dict[str, str] = {}
+    for target_name, target in result.items():
+        evidence = target["evidence"]
+        if not evidence or evidence in report:
+            continue
+        source_span = _unique_whitespace_source_span(evidence, report)
+        if source_span is None:
+            return result
+        updates[target_name] = source_span
+    if not updates:
+        return result
+    recovered: dict[str, dict[str, object]] = {
+        target_name: dict(target) for target_name, target in result.items()
+    }
+    for target_name, evidence in updates.items():
+        recovered[target_name]["evidence"] = evidence
+    return recovered
 
 
 class SIWCResponsesInfer:
@@ -309,6 +357,7 @@ class SIWCResponsesInfer:
                                     stream_refusal=False, stream_format=format_class) from None
             try:
                 result = validate_label_result(parsed)
+                result = _recover_fresh_whitespace_evidence(result, report)
                 self.validate_source_evidence(result, report)
                 return result
             except LabelingError as exc:

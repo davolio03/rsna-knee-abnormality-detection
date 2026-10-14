@@ -21,6 +21,7 @@ from rsna_knee.labels.subscription import (
     run_pilot,
     validate_label_result,
 )
+from rsna_knee.labels.siwc_responses import SIWCResponsesInfer
 
 
 def gold_fixture(*extra_ids):
@@ -145,6 +146,31 @@ class SubscriptionLabelContractTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_MUTATED_CANARY", journal_text)
         self.assertNotIn("PRIVATE_VALUE_CANARY", journal_text)
         self.assertNotIn("SYNTHETIC_REPORT_CANARY", str(raised.exception))
+
+    def test_cached_whitespace_only_evidence_remains_strict(self):
+        rows = [{"StudyInstanceUID": "synthetic-study", "Report": "ACL tear",
+                 **{target: "" for target in LABEL_COLUMNS}}]
+        cached = {target: {"label": False, "evidence": "", "uncertainty": 0.25}
+                  for target in LABEL_COLUMNS}
+        cached[LABEL_COLUMNS[0]]["evidence"] = "ACL\ntear"
+        payload = json.dumps({"StudyInstanceUID": "synthetic-study", "labels": cached}) + "\n"
+        infer = Mock()
+        infer.validate_source_evidence = SIWCResponsesInfer.validate_source_evidence
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            output.parent.mkdir(parents=True)
+            output.write_text(payload, encoding="utf-8")
+            with self.assertRaises(LabelingError) as raised:
+                run_pilot(rows, gold_ids=gold_fixture(), max_records=1,
+                          output_path=output, diagnostics_path=root / "data" / "outputs" / "diagnostics.jsonl",
+                          project_root=root, subscription_oauth_confirmed=True, infer=infer)
+            after = output.read_text(encoding="utf-8")
+
+        infer.assert_not_called()
+        self.assertEqual(after, payload)
+        self.assertEqual(raised.exception.evidence_mismatch_kind, "whitespace_only")
 
     def test_failure_classifier_uses_fixed_safe_causes_and_unknown_fallback(self):
         from rsna_knee.labels.subscription import _classify_cli_failure

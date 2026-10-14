@@ -79,7 +79,11 @@ The SIWC Responses adapter now targets the frozen Candidate 2 prompt via the exi
 
 ### SIWC literal-evidence diagnostics (2026-10-14)
 
-Offline validation now classifies rejected non-empty evidence as `whitespace_only`, `case_only`, `unicode_only` (NFC canonical equivalence), or `no_literal_match`. Classification is diagnostic only: exact substring acceptance is unchanged, and `no_literal_match` does not establish hallucination. Only these fixed categories may reach the failure journal or CLI; report/evidence text remains excluded. No live report, credential, network request, or inference was used for this implementation.
+Offline implementation classifies rejected non-empty evidence as `whitespace_only`, `case_only`, `unicode_only` (NFC canonical equivalence), or `no_literal_match`. Classification is diagnostic only: exact substring acceptance is unchanged, and `no_literal_match` does not establish hallucination. Only these fixed categories may reach the failure journal or CLI; report/evidence text remains excluded.
+
+One separately authorized retry of the same third eligible case used the existing checkpoint and journal with no model, prompt, or authorization change. It made one attempt (started 1, completed 0, failed 1) and reported `whitespace_only`; the checkpoint remained at two records, prior records were unchanged, and the failed result was not saved. No further requests were made. This identifies the retry's mismatch category only; the original discarded response remains unclassified. No claim is made about label quality, evidence relevance, or clinical validity.
+
+A separate bounded policy now permits fresh-response recovery only when non-whitespace tokens map to one unique contiguous report span; accepted evidence is replaced with that exact source substring before the unchanged literal guard. Ambiguous matches and non-whitespace differences remain rejected, while cached records stay strict. This does not establish evidence relevance or clinical validity and does not authorize further inference.
 
 ### SIWC full-cohort scaling authorization (2026-10-14)
 

@@ -71,9 +71,10 @@ An interruption during an in-flight request leaves that row uncheckpointed. Expl
 - The SIWC path is separate from the existing Codex CLI labeler; it does not reuse Codex CLI credentials or accept API keys/access tokens on the command line.
 - Inference requires the selected profile's verified `chatgpt.tokens.use.direct` plan-use grant. The adapter uses the official Responses endpoint with `store=false`, streaming enabled, and accepts results only after `response.completed`.
 - Rejected non-empty evidence may include a fixed `evidence_mismatch_kind` diagnostic (`whitespace_only`, `case_only`, `unicode_only`, or `no_literal_match`). This is classification only: acceptance remains an exact substring check, and `no_literal_match` does not prove hallucination. The journal and CLI never include report or evidence text.
+- For fresh SIWC Responses only, an evidence mismatch may be recovered when the exact non-whitespace token sequence maps to one unique contiguous source-report span; the stored evidence becomes that literal source substring. Ambiguous spans and any word, case, punctuation, or non-whitespace Unicode change remain rejected. Cached records still use strict literal validation and are never rewritten by recovery.
 - The report text is sent to an external service during `label`. The local output and diagnostics paths do not make that transfer private from the provider or authorize it under competition/data rules.
 - The CLI's required `--confirm-siwc-oauth` and `--confirm-report-transfer` flags record operator assertions only. Do not run until separate authorization for the specific data, destination/service, and operation is explicit and applicable rules have been checked.
-- This setup guide records implementation and intended use only. No login, API request, inference, report/data read, or SIWC labeling run was performed for it.
+- This guide documents implementation constraints, not authorization. The single separately authorized E008 retry is summarized in `PROJECT_STATE.md` and `experiments/E008_siwc_evidence_whitespace_diagnostic.md`; no report/evidence/label text or credential is reproduced here.
 
 ## Official references
 

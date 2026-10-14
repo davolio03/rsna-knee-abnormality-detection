@@ -10,7 +10,10 @@ from unittest.mock import Mock, patch
 import httpx
 from openai import OpenAI
 
-from rsna_knee.labels.siwc_responses import SIWCResponsesInfer
+from rsna_knee.labels.siwc_responses import (
+    SIWCResponsesInfer,
+    _recover_fresh_whitespace_evidence,
+)
 from rsna_knee.labels.siwc_auth import AuthError, SIWCAuthenticator
 from rsna_knee.labels.subscription import LABEL_COLUMNS, LabelingError, run_pilot
 from rsna_knee.labels.prompt_comparison import build_candidate_prompt
@@ -760,6 +763,123 @@ class SIWCResponsesTests(unittest.TestCase):
         self.make_infer().validate_source_evidence(result, "")
         result["ACL"]["evidence"] = "ACL tear"
         self.make_infer().validate_source_evidence(result, "Report: ACL tear.")
+
+    def test_fresh_inference_recovers_unique_whitespace_span_as_source_literal(self):
+        raw_result = valid_result()
+        raw_result["ACL"]["evidence"] = "ACL\n\ttear;"
+        serialized = json.dumps(raw_result)
+        self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(output_text=serialized),
+        )])
+
+        result = self.make_infer()("Report says ACL  tear; synthetic evidence")
+
+        self.assertEqual(result["ACL"]["evidence"], "ACL  tear;")
+        original = json.loads(serialized)
+        self.assertEqual(original["ACL"]["evidence"], "ACL\n\ttear;")
+        for target in result:
+            self.assertEqual(result[target]["label"], original[target]["label"])
+            self.assertEqual(result[target]["uncertainty"], original[target]["uncertainty"])
+
+    def test_fresh_inference_rejects_ambiguous_and_nonwhitespace_changes(self):
+        cases = (
+            ("ACL\ntear", "ACL tear and ACL tear", "whitespace_only"),
+            ("ACL injury", "ACL tear", "no_literal_match"),
+            ("ACL TEAR", "ACL tear", "case_only"),
+            ("ACL-tear", "ACL tear", "no_literal_match"),
+            ("cafe\u0301", "caf\u00e9", "unicode_only"),
+        )
+        for evidence, report, mismatch_kind in cases:
+            with self.subTest(mismatch_kind=mismatch_kind, report=report):
+                raw_result = valid_result()
+                for target in raw_result.values():
+                    target["evidence"] = ""
+                raw_result["ACL"]["evidence"] = evidence
+                self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+                    type="response.completed",
+                    response=SimpleNamespace(output_text=json.dumps(raw_result)),
+                )])
+                with self.assertRaises(LabelingError) as raised:
+                    self.make_infer()(report)
+                self.assertEqual(raised.exception.evidence_mismatch_kind, mismatch_kind)
+                self.assertNotIn(evidence, str(raised.exception))
+
+    def test_fresh_inference_keeps_exact_duplicate_substrings_accepted(self):
+        result = valid_result()
+        for target in result.values():
+            target["evidence"] = ""
+        result["ACL"]["evidence"] = "ACL tear"
+        self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(output_text=json.dumps(result)),
+        )])
+
+        accepted = self.make_infer()("ACL tear; then ACL tear")
+
+        self.assertEqual(accepted["ACL"]["evidence"], "ACL tear")
+
+    def test_whitespace_recovery_returns_copy_and_never_partially_mutates(self):
+        result = valid_result()
+        result["ACL"]["evidence"] = "ACL\ntear;"
+        recovered = _recover_fresh_whitespace_evidence(result, "ACL  tear; synthetic evidence")
+        self.assertIsNot(recovered, result)
+        self.assertIsNot(recovered["ACL"], result["ACL"])
+        self.assertEqual(recovered["ACL"]["evidence"], "ACL  tear;")
+        self.assertEqual(result["ACL"]["evidence"], "ACL\ntear;")
+
+        result["MCL"]["evidence"] = "missing\ttext"
+        rejected = _recover_fresh_whitespace_evidence(result, "ACL  tear; synthetic evidence")
+        self.assertIs(rejected, result)
+        self.assertEqual(result["ACL"]["evidence"], "ACL\ntear;")
+        self.assertEqual(result["MCL"]["evidence"], "missing\ttext")
+
+    def test_runner_preserves_cached_prefix_and_saves_recovered_source_span(self):
+        rows = [{
+            "StudyInstanceUID": f"synthetic-study-{index}",
+            "Report": "ACL  tear with synthetic evidence",
+            **{target: "" for target in LABEL_COLUMNS},
+        } for index in range(3)]
+        previous = [valid_result(), valid_result()]
+        source_result = valid_result()
+        source_result["ACL"]["evidence"] = "ACL\ntear"
+        serialized = json.dumps(source_result)
+        self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(output_text=serialized),
+        )])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            journal = root / "data" / "outputs" / "diagnostics.jsonl"
+            original_records = [
+                {"StudyInstanceUID": f"synthetic-study-{index}", "labels": labels}
+                for index, labels in enumerate(previous)
+            ]
+            output.parent.mkdir(parents=True)
+            output.write_text("".join(json.dumps(record) + "\n" for record in original_records),
+                              encoding="utf-8")
+
+            count = run_pilot(
+                rows,
+                gold_ids={f"synthetic-gold-{index}" for index in range(58)},
+                max_records=1,
+                skip_records=2,
+                output_path=output,
+                diagnostics_path=journal,
+                project_root=root,
+                subscription_oauth_confirmed=True,
+                infer=self.make_infer(),
+            )
+            saved = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(count, 3)
+        self.assertEqual(saved[:2], original_records)
+        self.assertEqual(saved[2]["labels"]["ACL"]["evidence"], "ACL  tear")
+        expected = json.loads(serialized)
+        expected["ACL"]["evidence"] = "ACL  tear"
+        self.assertEqual(saved[2]["labels"], expected)
 
     def test_empty_evidence_remains_allowed(self):
         empty = valid_result()
