@@ -9,10 +9,12 @@ Run these commands from the repository root in Windows PowerShell. Installation 
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-siwc.txt
+python -m pip install --use-feature=truststore -r requirements-siwc.txt
 python scripts\siwc_label_reports.py signin
 python scripts\siwc_label_reports.py models --profile-id "<profile-id-from-signin>"
 ```
+
+`requirements-siwc.txt` includes `truststore==0.10.5`. Each SIWC command initializes the system certificate store in its own process before creating authentication or Responses clients. Certificate-chain and hostname verification remain enabled. The SSL-module adjustment is process-local; no persistent Python setting or operating-system trust store is changed. If the CLI reports that system certificate support is unavailable, install the SIWC requirements in the active environment and rerun the command.
 
 Choose a slug printed by `models`. `gpt-6-luna` is the adapter default, not a promise of account access; if it is absent from the selected account's visible catalog, choose a listed model instead. The CLI does not accept or send a `reasoning_effort` option.
 
@@ -77,3 +79,4 @@ An interruption during an in-flight request leaves that row uncheckpointed. Expl
 - [Sign in with ChatGPT sign-in flow](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
 - [Models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
 - [Preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
+- [Truststore documentation](https://truststore.readthedocs.io/en/latest/)

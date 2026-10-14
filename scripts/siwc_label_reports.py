@@ -40,6 +40,33 @@ DEFAULT_OUTPUT = REPOSITORY_ROOT / "data" / "outputs" / "siwc-c2-report-labels.j
 DEFAULT_DIAGNOSTICS = REPOSITORY_ROOT / "data" / "outputs" / "siwc-c2-pilot-diagnostics.jsonl"
 
 
+class SystemTrustError(RuntimeError):
+    """A safe, actionable failure to initialize system certificate trust."""
+
+
+def _initialize_system_trust() -> None:
+    """Use the OS certificate store for this CLI process's network clients."""
+    try:
+        import truststore
+    except ImportError:
+        raise SystemTrustError(
+            "Secure system certificate support is unavailable. Install SIWC "
+            "dependencies with: python -m pip install --use-feature=truststore "
+            "-r requirements-siwc.txt"
+        ) from None
+    except Exception:
+        raise SystemTrustError(
+            "Secure system certificate support could not be loaded."
+        ) from None
+
+    try:
+        truststore.inject_into_ssl()
+    except Exception:
+        raise SystemTrustError(
+            "Secure system certificate support could not be initialized."
+        ) from None
+
+
 def _callback_handler_type(port: int):
     class CallbackHandler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -366,6 +393,7 @@ def main(argv: Sequence[str] | None = None, *, output: TextIO | None = None) -> 
         parser.error("Access tokens must not be passed on the command line.")
     args = parser.parse_args(raw_args)
     try:
+        _initialize_system_trust()
         if args.command == "signin":
             return sign_in(
                 profile_id=args.profile_id,
@@ -407,7 +435,7 @@ def main(argv: Sequence[str] | None = None, *, output: TextIO | None = None) -> 
             "resume explicitly with the same output and diagnostics paths.\n"
         )
         return 130
-    except (AuthError, LabelingError, OSError) as exc:
+    except (AuthError, LabelingError, OSError, SystemTrustError) as exc:
         # Auth and runner exceptions contain only fixed/sanitized diagnostics.
         message = str(exc)
         if isinstance(exc, LabelingError):

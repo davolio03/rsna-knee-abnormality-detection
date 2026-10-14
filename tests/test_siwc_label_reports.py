@@ -1,10 +1,12 @@
 import io
 import json
+import builtins
+import importlib
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
 
 from rsna_knee.labels.siwc_auth import AuthError
@@ -17,6 +19,96 @@ import siwc_label_reports as cli
 
 
 class SIWCLabelReportsCliTests(unittest.TestCase):
+    def test_import_does_not_inject_system_trust(self):
+        truststore = ModuleType("truststore")
+        truststore.inject_into_ssl = Mock()
+
+        with patch.dict(sys.modules, {"truststore": truststore}):
+            importlib.reload(cli)
+
+        truststore.inject_into_ssl.assert_not_called()
+
+    def test_main_initializes_system_trust_before_creating_network_clients(self):
+        events = []
+        truststore = ModuleType("truststore")
+        truststore.inject_into_ssl = lambda: events.append("system-trust")
+        adapter = Mock()
+        adapter.list_available_models.return_value = []
+
+        with patch.dict(sys.modules, {"truststore": truststore}), \
+                patch.object(
+                    cli, "_create_authenticator",
+                    side_effect=lambda: events.append("authenticator") or object(),
+                ), patch.object(
+                    cli, "SIWCResponsesInfer",
+                    side_effect=lambda **kwargs: events.append("responses-client") or adapter,
+                ):
+            result = cli.main(["models", "--profile-id", "synthetic-profile"],
+                              output=io.StringIO())
+
+        self.assertEqual(result, 0)
+        self.assertEqual(events, ["system-trust", "authenticator", "responses-client"])
+
+    def test_missing_system_trust_dependency_has_safe_install_guidance(self):
+        original_import = builtins.__import__
+
+        def fail_truststore_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "truststore":
+                raise ImportError("PRIVATE_IMPORT_EXCEPTION")
+            return original_import(name, globals, locals, fromlist, level)
+
+        error_output = io.StringIO()
+        with patch("builtins.__import__", side_effect=fail_truststore_import), \
+                patch.object(cli, "_create_authenticator") as create_authenticator, \
+                patch.object(cli, "SIWCResponsesInfer") as responses_client, \
+                patch("sys.stderr", error_output):
+            with self.assertRaises(SystemExit):
+                cli.main(["models", "--profile-id", "synthetic-profile"])
+
+        rendered = error_output.getvalue()
+        self.assertIn("requirements-siwc.txt", rendered)
+        self.assertIn("--use-feature=truststore", rendered)
+        self.assertNotIn("PRIVATE_IMPORT_EXCEPTION", rendered)
+        create_authenticator.assert_not_called()
+        responses_client.assert_not_called()
+
+    def test_help_does_not_require_system_trust_dependency(self):
+        original_import = builtins.__import__
+
+        def fail_truststore_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "truststore":
+                raise ImportError("PRIVATE_IMPORT_EXCEPTION")
+            return original_import(name, globals, locals, fromlist, level)
+
+        with patch("builtins.__import__", side_effect=fail_truststore_import), \
+                patch("sys.stdout", new_callable=io.StringIO) as help_output:
+            with self.assertRaises(SystemExit) as raised:
+                cli.main(["--help"])
+
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("signin", help_output.getvalue())
+
+    def test_system_trust_initialization_failure_is_sanitized(self):
+        truststore = ModuleType("truststore")
+
+        def fail_initialization():
+            raise RuntimeError("PRIVATE_INITIALIZATION_EXCEPTION")
+
+        truststore.inject_into_ssl = fail_initialization
+        error_output = io.StringIO()
+        with patch.dict(sys.modules, {"truststore": truststore}), \
+                patch.object(cli, "_create_authenticator") as create_authenticator, \
+                patch.object(cli, "SIWCResponsesInfer") as responses_client, \
+                patch("sys.stderr", error_output):
+            with self.assertRaises(SystemExit):
+                cli.main(["models", "--profile-id", "synthetic-profile"])
+
+        rendered = error_output.getvalue()
+        self.assertIn("could not be initialized", rendered)
+        self.assertNotIn("PRIVATE_INITIALIZATION_EXCEPTION", rendered)
+        create_authenticator.assert_not_called()
+        responses_client.assert_not_called()
+
     def test_stream_diagnostics_formatter_revalidates_mutable_metadata(self):
         safe = SimpleNamespace(
             stream_completed=False,
