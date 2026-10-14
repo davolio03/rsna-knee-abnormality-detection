@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import sys
@@ -27,6 +28,7 @@ from rsna_knee.labels.siwc_responses import (  # noqa: E402
 from rsna_knee.labels.subscription import (  # noqa: E402
     MAX_PILOT_RECORDS,
     LabelingError,
+    eligible_reports,
     run_pilot,
 )
 from label_reports import _read_gold_ids, _read_rows  # noqa: E402
@@ -183,6 +185,123 @@ def run_label_pilot(*, train_csv: Path, gold_exclusions: Path,
     return 0
 
 
+def _cohort_paths(output_path: Path, diagnostics_path: Path, *, resume: bool) -> tuple[Path, Path]:
+    root = REPOSITORY_ROOT.resolve()
+    outputs = (root / "data" / "outputs").resolve()
+    raw_output = Path(output_path)
+    raw_diagnostics = Path(diagnostics_path)
+    output = (raw_output if raw_output.is_absolute() else root / raw_output).resolve()
+    diagnostics = (raw_diagnostics if raw_diagnostics.is_absolute() else root / raw_diagnostics).resolve()
+    if output == diagnostics:
+        raise LabelingError("Full-cohort output and diagnostics paths must be distinct.")
+    for path in (output, diagnostics):
+        try:
+            path.relative_to(outputs)
+        except ValueError:
+            raise LabelingError("Full-cohort files must stay under ignored data/outputs.") from None
+    protected = {
+        DEFAULT_OUTPUT.resolve(),
+        DEFAULT_DIAGNOSTICS.resolve(),
+        (outputs / "siwc-report-labels.jsonl").resolve(),
+        (outputs / "siwc-pilot-diagnostics.jsonl").resolve(),
+    }
+    if output in protected or diagnostics in protected:
+        raise LabelingError("Full-cohort paths must be fresh and separate from prior SIWC outputs.")
+    if resume:
+        if not diagnostics.is_file() or (output.exists() and not output.is_file()):
+            raise LabelingError("Resume requires the prior diagnostics journal and regular checkpoint path.")
+    elif output.exists() or diagnostics.exists():
+        raise LabelingError(
+            "A new full-cohort run requires fresh output and diagnostics paths; use --resume only for its checkpoint."
+        )
+    return output, diagnostics
+
+
+def _reject_usage_limited_resume(diagnostics_path: Path) -> None:
+    """Do not turn a provider usage denial into an automatic retry on resume."""
+    if not diagnostics_path.exists():
+        return
+    try:
+        entries = [json.loads(line) for line in diagnostics_path.read_text(encoding="utf-8").splitlines()]
+    except (OSError, ValueError, json.JSONDecodeError):
+        raise LabelingError("Prior full-cohort diagnostics are invalid; refusing to resume.") from None
+    if not all(isinstance(entry, dict) for entry in entries):
+        raise LabelingError("Prior full-cohort diagnostics are invalid; refusing to resume.")
+    usage_denial_codes = {
+        "subscription_sharing_usage_limit_exceeded",
+        "subscription_sharing_usage_unavailable",
+    }
+    if any(
+        entry.get("event") == "attempt_failed"
+        and (
+            entry.get("cause_code") == "quota_error"
+            or entry.get("http_status") == 429
+            or entry.get("provider_error_code") in usage_denial_codes
+        )
+        for entry in entries
+    ):
+        raise LabelingError(
+            "A prior provider usage denial blocks automatic resume; wait for provider guidance before a new run."
+        )
+
+
+def run_label_cohort(*, train_csv: Path, gold_exclusions: Path,
+                     profile_id: str, model: str,
+                     output_path: Path, diagnostics_path: Path,
+                     confirm_siwc_oauth: bool = False,
+                     confirm_report_transfer: bool = False,
+                     resume: bool = False,
+                     output: TextIO | None = None) -> int:
+    """Run all eligible non-Gold rows in safe, resumable windows of at most 14."""
+    if confirm_siwc_oauth is not True or confirm_report_transfer is not True:
+        raise LabelingError(
+            "Both explicit SIWC OAuth and report-transfer confirmations are required."
+        )
+    if not isinstance(profile_id, str) or not profile_id.strip():
+        raise LabelingError("A saved profile ID is required.", cause_code="auth_error")
+    if model != DEFAULT_SIWC_MODEL:
+        raise LabelingError("Full-cohort labeling is fixed to the frozen Candidate 2 model.",
+                            cause_code="model_error")
+    if type(resume) is not bool:
+        raise LabelingError("Resume must be an explicit boolean.")
+    output_path, diagnostics_path = _cohort_paths(
+        output_path, diagnostics_path, resume=resume,
+    )
+    if resume:
+        _reject_usage_limited_resume(diagnostics_path)
+
+    rows = list(_read_rows(train_csv))
+    gold_ids = _read_gold_ids(gold_exclusions)
+    eligible = eligible_reports(rows, gold_ids=gold_ids)
+    output = output or sys.stdout
+    output.write(f"Eligible non-Gold records: {len(eligible)}.\n")
+    if not eligible:
+        output.write("No inference was started.\n")
+        return 0
+
+    # Authentication is constructed only after Gold exclusion and eligibility preflight.
+    infer = SIWCResponsesInfer(
+        authenticator=_create_authenticator(), profile_id=profile_id, model=model,
+    )
+    total = 0
+    for offset in range(0, len(eligible), MAX_PILOT_RECORDS):
+        batch_size = min(MAX_PILOT_RECORDS, len(eligible) - offset)
+        total = run_pilot(
+            rows,
+            gold_ids=gold_ids,
+            max_records=batch_size,
+            skip_records=offset,
+            output_path=output_path,
+            diagnostics_path=diagnostics_path,
+            project_root=REPOSITORY_ROOT,
+            subscription_oauth_confirmed=True,
+            allow_full_cohort_checkpoint=True,
+            infer=infer,
+        )
+    output.write(f"Checkpoint records: {total}.\n")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -214,6 +333,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--confirm-report-transfer", action="store_true", required=True,
         help="Explicitly authorize sending eligible non-Gold report text to OpenAI for this run.",
     )
+
+    cohort = subparsers.add_parser(
+        "label-all", help="Label all eligible non-Gold rows in safe batches of at most 14."
+    )
+    cohort.add_argument("--train-csv", type=Path, required=True)
+    cohort.add_argument("--gold-exclusions", type=Path, required=True)
+    cohort.add_argument("--profile-id", required=True)
+    cohort.add_argument("--model", required=True)
+    cohort.add_argument("--output", type=Path, required=True,
+                        help="Fresh ignored checkpoint path; preserve it for explicit resume.")
+    cohort.add_argument("--diagnostics", type=Path, required=True,
+                        help="Distinct fresh payload-free diagnostics path.")
+    cohort.add_argument("--resume", action="store_true",
+                        help="Resume only the matching run using its existing two paths.")
+    cohort.add_argument(
+        "--confirm-siwc-oauth", action="store_true", required=True,
+        help="Confirm the selected account has granted SIWC plan use.",
+    )
+    cohort.add_argument(
+        "--confirm-report-transfer", action="store_true", required=True,
+        help="Confirm this authorized run may send eligible non-Gold report text to OpenAI.",
+    )
     return parser
 
 
@@ -234,6 +375,19 @@ def main(argv: Sequence[str] | None = None, *, output: TextIO | None = None) -> 
             )
         if args.command == "models":
             return list_models(profile_id=args.profile_id, output=output)
+        if args.command == "label-all":
+            return run_label_cohort(
+                train_csv=args.train_csv,
+                gold_exclusions=args.gold_exclusions,
+                profile_id=args.profile_id,
+                model=args.model,
+                output_path=args.output,
+                diagnostics_path=args.diagnostics,
+                confirm_siwc_oauth=args.confirm_siwc_oauth,
+                confirm_report_transfer=args.confirm_report_transfer,
+                resume=args.resume,
+                output=output,
+            )
         return run_label_pilot(
             train_csv=args.train_csv,
             gold_exclusions=args.gold_exclusions,
@@ -247,6 +401,12 @@ def main(argv: Sequence[str] | None = None, *, output: TextIO | None = None) -> 
             diagnostics_path=args.diagnostics,
             output=output,
         )
+    except KeyboardInterrupt:
+        (output or sys.stderr).write(
+            "Full-cohort labeling interrupted. The validated checkpoint is preserved; "
+            "resume explicitly with the same output and diagnostics paths.\n"
+        )
+        return 130
     except (AuthError, LabelingError, OSError) as exc:
         # Auth and runner exceptions contain only fixed/sanitized diagnostics.
         message = str(exc)

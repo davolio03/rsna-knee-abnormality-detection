@@ -470,6 +470,206 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
                 ])
         self.assertNotIn("PRIVATE_TOKEN", error_output.getvalue())
 
+    def test_label_all_chunks_entire_eligible_cohort_into_requests_of_at_most_14(self):
+        gold = {f"synthetic-gold-{index}" for index in range(58)}
+        rows = [{"StudyInstanceUID": f"synthetic-{index}", "Report": "synthetic report",
+                 **{target: "" for target in LABEL_COLUMNS}}
+                for index in range(31)]
+        rows.append({"StudyInstanceUID": "synthetic-gold-0", "Report": "synthetic gold report",
+                     **{target: "" for target in LABEL_COLUMNS}})
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = root / "data" / "outputs"
+            outputs.mkdir(parents=True)
+            output_path = outputs / "full-cohort.jsonl"
+            diagnostics_path = outputs / "full-diagnostics.jsonl"
+            args = [
+                "label-all", "--train-csv", "synthetic-train.csv", "--gold-exclusions", "synthetic-gold.csv",
+                "--profile-id", "synthetic-profile", "--model", "gpt-6-luna",
+                "--output", str(output_path), "--diagnostics", str(diagnostics_path),
+                "--confirm-siwc-oauth", "--confirm-report-transfer",
+            ]
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "_read_rows", return_value=rows), \
+                    patch.object(cli, "_read_gold_ids", return_value=gold), \
+                    patch.object(cli, "_create_authenticator", return_value=object()), \
+                    patch.object(cli, "SIWCResponsesInfer", return_value=object()), \
+                    patch.object(cli, "run_pilot", side_effect=[14, 28, 31]) as run_pilot:
+                result = cli.main(args, output=output)
+
+        self.assertEqual(result, 0)
+        self.assertEqual([call.kwargs["max_records"] for call in run_pilot.call_args_list], [14, 14, 3])
+        self.assertEqual([call.kwargs["skip_records"] for call in run_pilot.call_args_list], [0, 14, 28])
+        self.assertTrue(all(call.kwargs["allow_full_cohort_checkpoint"] is True
+                            for call in run_pilot.call_args_list))
+        self.assertEqual(len({call.kwargs["output_path"] for call in run_pilot.call_args_list}), 1)
+        self.assertEqual(len({call.kwargs["diagnostics_path"] for call in run_pilot.call_args_list}), 1)
+        self.assertIn("Eligible non-Gold records: 31", output.getvalue())
+
+    def test_label_all_requires_fresh_paths_or_explicit_resume_before_input_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = root / "data" / "outputs"
+            outputs.mkdir(parents=True)
+            output_path = outputs / "cohort.jsonl"
+            diagnostics_path = outputs / "cohort-diagnostics.jsonl"
+            output_path.write_text("SYNTHETIC_CHECKPOINT", encoding="utf-8")
+            diagnostics_path.write_text("", encoding="utf-8")
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "_read_rows") as read_rows, \
+                    patch.object(cli, "_read_gold_ids") as read_gold, \
+                    patch.object(cli, "_create_authenticator") as create_auth:
+                with self.assertRaisesRegex(cli.LabelingError, "fresh output and diagnostics paths"):
+                    cli.run_label_cohort(
+                        train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                        profile_id="synthetic-profile", model="gpt-6-luna",
+                        output_path=output_path, diagnostics_path=diagnostics_path,
+                        confirm_siwc_oauth=True, confirm_report_transfer=True,
+                    )
+            read_rows.assert_not_called()
+            read_gold.assert_not_called()
+            create_auth.assert_not_called()
+            self.assertEqual(output_path.read_text(encoding="utf-8"), "SYNTHETIC_CHECKPOINT")
+            self.assertEqual(diagnostics_path.read_text(encoding="utf-8"), "")
+
+    def test_label_all_requires_distinct_paths_inside_ignored_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = root / "data" / "outputs"
+            outputs.mkdir(parents=True)
+            with patch.object(cli, "REPOSITORY_ROOT", root):
+                with self.assertRaisesRegex(cli.LabelingError, "must be distinct"):
+                    cli.run_label_cohort(
+                        train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                        profile_id="synthetic-profile", model="gpt-6-luna",
+                        output_path=outputs / "same.jsonl", diagnostics_path=outputs / "same.jsonl",
+                        confirm_siwc_oauth=True, confirm_report_transfer=True,
+                    )
+
+    def test_label_all_fails_closed_when_exact_gold_exclusion_set_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = root / "data" / "outputs"
+            outputs.mkdir(parents=True)
+            output_path = outputs / "cohort.jsonl"
+            diagnostics_path = outputs / "cohort-diagnostics.jsonl"
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "_read_rows", return_value=[]), \
+                    patch.object(cli, "_read_gold_ids", return_value={f"gold-{i}" for i in range(57)}), \
+                    patch.object(cli, "_create_authenticator") as create_auth, \
+                    patch.object(cli, "run_pilot") as run_pilot:
+                with self.assertRaisesRegex(cli.LabelingError, "exactly 58 unique IDs"):
+                    cli.run_label_cohort(
+                        train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                        profile_id="synthetic-profile", model="gpt-6-luna",
+                        output_path=output_path, diagnostics_path=diagnostics_path,
+                        confirm_siwc_oauth=True, confirm_report_transfer=True,
+                    )
+            create_auth.assert_not_called()
+            run_pilot.assert_not_called()
+            self.assertFalse(output_path.exists())
+            self.assertFalse(diagnostics_path.exists())
+
+    def test_label_all_stops_after_provider_denial_and_never_attempts_later_batches(self):
+        gold = {f"synthetic-gold-{index}" for index in range(58)}
+        rows = [{"StudyInstanceUID": f"synthetic-{index}", "Report": "synthetic report",
+                 **{target: "" for target in LABEL_COLUMNS}}
+                for index in range(29)]
+        denial = cli.LabelingError("Provider denied the request.", cause_code="usage_limit",
+                                   http_status=429, provider_error_code="subscription_sharing_usage_limit_exceeded")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = root / "data" / "outputs"
+            outputs.mkdir(parents=True)
+            output_path = outputs / "cohort.jsonl"
+            diagnostics_path = outputs / "cohort-diagnostics.jsonl"
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "_read_rows", return_value=rows), \
+                    patch.object(cli, "_read_gold_ids", return_value=gold), \
+                    patch.object(cli, "_create_authenticator", return_value=object()), \
+                    patch.object(cli, "SIWCResponsesInfer", return_value=object()), \
+                    patch.object(cli, "run_pilot", side_effect=[14, denial]) as run_pilot:
+                with self.assertRaisesRegex(cli.LabelingError, "Provider denied"):
+                    cli.run_label_cohort(
+                        train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                        profile_id="synthetic-profile", model="gpt-6-luna",
+                        output_path=output_path, diagnostics_path=diagnostics_path,
+                        confirm_siwc_oauth=True, confirm_report_transfer=True,
+                    )
+            self.assertEqual(run_pilot.call_count, 2)
+
+    def test_label_all_resumes_only_with_explicit_resume_and_safely_handles_interrupt(self):
+        gold = {f"synthetic-gold-{index}" for index in range(58)}
+        rows = [{"StudyInstanceUID": "synthetic-study", "Report": "synthetic report",
+                 **{target: "" for target in LABEL_COLUMNS}}]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = root / "data" / "outputs"
+            outputs.mkdir(parents=True)
+            output_path = outputs / "cohort.jsonl"
+            diagnostics_path = outputs / "cohort-diagnostics.jsonl"
+            output_path.write_text("SYNTHETIC_CHECKPOINT", encoding="utf-8")
+            diagnostics_path.write_text("", encoding="utf-8")
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "_read_rows", return_value=rows), \
+                    patch.object(cli, "_read_gold_ids", return_value=gold), \
+                    patch.object(cli, "_create_authenticator", return_value=object()), \
+                    patch.object(cli, "SIWCResponsesInfer", return_value=object()), \
+                    patch.object(cli, "run_pilot", side_effect=KeyboardInterrupt) as run_pilot:
+                with self.assertRaises(KeyboardInterrupt):
+                    cli.run_label_cohort(
+                        train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                        profile_id="synthetic-profile", model="gpt-6-luna",
+                        output_path=output_path, diagnostics_path=diagnostics_path,
+                        confirm_siwc_oauth=True, confirm_report_transfer=True, resume=True,
+                    )
+            self.assertEqual(run_pilot.call_count, 1)
+            self.assertTrue(run_pilot.call_args.kwargs["allow_full_cohort_checkpoint"])
+            self.assertEqual(output_path.read_text(encoding="utf-8"), "SYNTHETIC_CHECKPOINT")
+            self.assertEqual(diagnostics_path.read_text(encoding="utf-8"), "")
+
+    def test_label_all_refuses_resume_after_recorded_provider_usage_denial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = root / "data" / "outputs"
+            outputs.mkdir(parents=True)
+            output_path = outputs / "cohort.jsonl"
+            diagnostics_path = outputs / "cohort-diagnostics.jsonl"
+            output_path.write_text("", encoding="utf-8")
+            diagnostics_path.write_text(json.dumps({
+                "event": "attempt_failed", "cause_code": "quota_error", "http_status": 429,
+                "provider_error_code": "subscription_sharing_usage_limit_exceeded",
+            }) + "\n", encoding="utf-8")
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "_read_rows") as read_rows, \
+                    patch.object(cli, "_read_gold_ids") as read_gold, \
+                    patch.object(cli, "_create_authenticator") as create_auth:
+                with self.assertRaisesRegex(cli.LabelingError, "provider usage denial"):
+                    cli.run_label_cohort(
+                        train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                        profile_id="synthetic-profile", model="gpt-6-luna",
+                        output_path=output_path, diagnostics_path=diagnostics_path,
+                        confirm_siwc_oauth=True, confirm_report_transfer=True, resume=True,
+                    )
+            read_rows.assert_not_called()
+            read_gold.assert_not_called()
+            create_auth.assert_not_called()
+
+    def test_label_all_cli_returns_interrupted_status_without_traceback(self):
+        output = io.StringIO()
+        with patch.object(cli, "run_label_cohort", side_effect=KeyboardInterrupt):
+            result = cli.main([
+                "label-all", "--train-csv", "synthetic.csv", "--gold-exclusions", "synthetic-gold.csv",
+                "--profile-id", "synthetic-profile", "--model", "gpt-6-luna",
+                "--output", "data/outputs/synthetic-cohort.jsonl",
+                "--diagnostics", "data/outputs/synthetic-diagnostics.jsonl", "--resume",
+                "--confirm-siwc-oauth", "--confirm-report-transfer",
+            ], output=output)
+        self.assertEqual(result, 130)
+        self.assertIn("checkpoint is preserved", output.getvalue())
+        self.assertNotIn("Traceback", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

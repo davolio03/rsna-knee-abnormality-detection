@@ -629,6 +629,33 @@ class SubscriptionLabelContractTests(unittest.TestCase):
                           output_path=output, project_root=root,
                           subscription_oauth_confirmed=True, infer=fake_infer)
 
+    def test_full_cohort_resume_accepts_validated_records_beyond_current_14_record_window(self):
+        rows = [{"StudyInstanceUID": f"synthetic-{index}", "Report": f"report-{index}",
+                 **{column: "" for column in LABEL_COLUMNS}} for index in range(16)]
+        prior = {column: {"label": False, "evidence": "synthetic", "uncertainty": 0.1}
+                 for column in LABEL_COLUMNS}
+        calls = []
+
+        def fake_infer(report):
+            calls.append(report)
+            return prior
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "cohort.jsonl"
+            output.parent.mkdir(parents=True)
+            output.write_text("".join(
+                json.dumps({"StudyInstanceUID": f"synthetic-{index}", "labels": prior}) + "\n"
+                for index in range(16)
+            ), encoding="utf-8")
+            result = run_pilot(
+                rows, gold_ids=gold_fixture(), skip_records=14, max_records=2,
+                output_path=output, project_root=root, subscription_oauth_confirmed=True,
+                allow_full_cohort_checkpoint=True, infer=fake_infer,
+            )
+            self.assertEqual(result, 16)
+            self.assertEqual(calls, [])
+
     def test_inference_prompt_names_all_target_classes(self):
         from rsna_knee.labels.subscription import codex_cli_infer
 

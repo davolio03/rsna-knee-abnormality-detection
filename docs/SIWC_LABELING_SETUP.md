@@ -34,6 +34,8 @@ python scripts\siwc_label_reports.py label --train-csv "<training-csv-path>" --g
 
 The `--gold-exclusions` CSV must have the sole header `StudyInstanceUID` and exactly 58 unique IDs. **Gold-58 reports are never labeled or sent through this SIWC path**; its IDs are used only to exclude matching rows. The runner also selects only eligible non-Gold rows with blank target fields, rejects duplicate study keys and invalid/blank reports, and requires an explicit batch size from 1 through 14. `--skip-records` defaults to 0; skip plus batch size may not exceed 14.
 
+For a fresh canary, override both C2 paths with new, distinct ignored paths that do not already exist. In particular, do not resume or overwrite the earlier 14-record checkpoint; its evidence guard makes it unsafe to reuse.
+
 By default, labels are written to `data/outputs/siwc-c2-report-labels.jsonl` and the payload-free diagnostics journal to `data/outputs/siwc-c2-pilot-diagnostics.jsonl`. These distinct ignored paths keep Candidate 2 output separate from the earlier generic SIWC pilot artifacts. Explicitly selecting either legacy default (`siwc-report-labels.jsonl` or `siwc-pilot-diagnostics.jsonl`) fails before input files or the saved account profile are accessed; use the two `--output` and `--diagnostics` paths above instead. Existing legacy files are not migrated or overwritten.
 
 The SIWC adapter uses the exact frozen Candidate 2 prompt from the comparison registry; it does not construct a parallel prompt/schema or coerce output. The label JSONL remains a resumable checkpoint and validates cohort membership, but this runner does not generally fingerprint prompt/model settings. When using explicit output overrides or changing the selected model, choose a new ignored path rather than assuming prior output is compatible. Optional output and diagnostics paths must remain under `data/outputs`.
@@ -41,6 +43,26 @@ The SIWC adapter uses the exact frozen Candidate 2 prompt from the comparison re
 For each target, non-empty evidence must occur literally in that row's source report. The runner rejects invalid fresh evidence before saving it and checks cached evidence before skipping completed records; on a mismatch it stops and preserves the existing output file. This is a provenance check only—it does not establish clinical correctness.
 
 When strict label validation rejects a non-boolean JSON label, safe diagnostics may include only `invalid_label_json_type` with one of `string`, `number`, `null`, `array`, `object`, or `other`. They never include the target name, raw value, report text, or runtime type name.
+
+## Full eligible non-Gold cohort
+
+The user has separately authorized this rollout: implement the scalable runner, perform a fresh canary, then label all eligible non-Gold rows. The implementation task itself performs no live provider calls; the canary and full run are separate later operations.
+
+Use `label-all` only for the explicitly authorized run. It validates the exact 58-ID Gold exclusion list, the training-row schema, duplicate study keys, and eligibility (all targets blank and report nonblank), then reports the eligible non-Gold count before constructing the authenticator or beginning inference. The selected model is fixed to the frozen Candidate 2 `gpt-6-luna` configuration. Gold-58 remains excluded.
+
+Choose fresh, distinct output and diagnostics paths under ignored `data/outputs/` that have never been used by a prior pilot. The command refuses existing paths unless `--resume` is explicit, rejects the old generic and C2 canary defaults, and never merges their contents. Each checkpoint record is schema-validated and atomically persisted; the diagnostics journal is payload-free. Processing uses sequential windows of at most 14 eligible rows, with one report per Responses request. Provider failures stop the run. A recorded usage denial blocks `--resume`; do not retry or bypass provider limits.
+
+```powershell
+python scripts\siwc_label_reports.py label-all --train-csv "<training-csv-path>" --gold-exclusions "<58-study-exclusion-csv-path>" --profile-id "<profile-id>" --model "gpt-6-luna" --output "data/outputs/siwc-c2-cohort-run01.jsonl" --diagnostics "data/outputs/siwc-c2-cohort-run01-diagnostics.jsonl" --confirm-siwc-oauth --confirm-report-transfer
+```
+
+The example paths are names to select only if they do not exist; choose a new unique pair for the fresh run. If the process is interrupted, resume only by repeating the same paths and adding `--resume`:
+
+```powershell
+python scripts\siwc_label_reports.py label-all --train-csv "<training-csv-path>" --gold-exclusions "<58-study-exclusion-csv-path>" --profile-id "<profile-id>" --model "gpt-6-luna" --output "data/outputs/siwc-c2-cohort-run01.jsonl" --diagnostics "data/outputs/siwc-c2-cohort-run01-diagnostics.jsonl" --resume --confirm-siwc-oauth --confirm-report-transfer
+```
+
+An interruption during an in-flight request leaves that row uncheckpointed. Explicit resume may submit that one unresolved row again if the provider completed the request but the client did not receive its response; the runner never retries automatically. Do not resume after a provider usage denial.
 
 ## Authorization and privacy boundary
 

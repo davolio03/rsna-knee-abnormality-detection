@@ -502,12 +502,17 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
               project_root: str | Path | None = None,
               subscription_oauth_confirmed: bool = False,
               skip_records: int = 0,
+              allow_full_cohort_checkpoint: bool = False,
               infer: Callable[[str], object] = codex_cli_infer) -> int:
     """Run/resume a small local pilot; outputs must stay under ignored data/outputs."""
     if isinstance(max_records, bool) or not isinstance(max_records, int) or not 1 <= max_records <= MAX_PILOT_RECORDS:
         raise LabelingError("max_records must be explicitly between 1 and 14.")
+    if type(allow_full_cohort_checkpoint) is not bool:
+        raise LabelingError("Full-cohort checkpoint mode must be an explicit boolean.")
     if (isinstance(skip_records, bool) or not isinstance(skip_records, int)
-            or skip_records < 0 or skip_records + max_records > MAX_PILOT_RECORDS):
+            or skip_records < 0
+            or (skip_records + max_records > MAX_PILOT_RECORDS
+                and not allow_full_cohort_checkpoint)):
         raise LabelingError("skip_records and max_records must total no more than 14.")
     if subscription_oauth_confirmed is not True:
         raise LabelingError("Confirm ChatGPT subscription OAuth before running a pilot.")
@@ -527,14 +532,15 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
     destination.parent.mkdir(parents=True, exist_ok=True)
     records = _load_records(destination)
     completed = {record[STUDY_COLUMN] for record in records}
-    current_ids = {str(row[STUDY_COLUMN]).strip() for row in eligible[:selected_end]}
+    checkpoint_rows = eligible if allow_full_cohort_checkpoint else eligible[:selected_end]
+    current_ids = {str(row[STUDY_COLUMN]).strip() for row in checkpoint_rows}
     if not completed.issubset(current_ids):
         raise LabelingError("Existing output does not match the current eligible cohort.")
     validate_source_evidence = getattr(infer, "validate_source_evidence", None)
     if callable(validate_source_evidence):
         source_reports = {
             str(row[STUDY_COLUMN]).strip(): str(row[REPORT_COLUMN])
-            for row in eligible[:selected_end]
+            for row in checkpoint_rows
         }
         for record in records:
             validate_source_evidence(record["labels"], source_reports[record[STUDY_COLUMN]])
