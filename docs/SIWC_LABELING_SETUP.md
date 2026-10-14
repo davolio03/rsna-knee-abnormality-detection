@@ -34,7 +34,11 @@ python scripts\siwc_label_reports.py label --train-csv "<training-csv-path>" --g
 
 The `--gold-exclusions` CSV must have the sole header `StudyInstanceUID` and exactly 58 unique IDs. **Gold-58 reports are never labeled or sent through this SIWC path**; its IDs are used only to exclude matching rows. The runner also selects only eligible non-Gold rows with blank target fields, rejects duplicate study keys and invalid/blank reports, and requires an explicit batch size from 1 through 14. `--skip-records` defaults to 0; skip plus batch size may not exceed 14.
 
-By default, labels are written to `data/outputs/siwc-report-labels.jsonl` and the payload-free diagnostics journal to `data/outputs/siwc-pilot-diagnostics.jsonl`. Both locations are ignored local output paths, not publication destinations. The label JSONL is also the resumable checkpoint: completed study IDs are skipped on a matching cohort, while an output inconsistent with the selected eligible cohort fails closed. Optional `--output` and `--diagnostics` values must remain under `data/outputs`.
+By default, labels are written to `data/outputs/siwc-c2-report-labels.jsonl` and the payload-free diagnostics journal to `data/outputs/siwc-c2-pilot-diagnostics.jsonl`. These distinct ignored paths keep Candidate 2 output separate from the earlier generic SIWC pilot artifacts. Explicitly selecting either legacy default (`siwc-report-labels.jsonl` or `siwc-pilot-diagnostics.jsonl`) fails before input files or the saved account profile are accessed; use the two `--output` and `--diagnostics` paths above instead. Existing legacy files are not migrated or overwritten.
+
+The SIWC adapter uses the exact frozen Candidate 2 prompt from the comparison registry; it does not construct a parallel prompt/schema or coerce output. The label JSONL remains a resumable checkpoint and validates cohort membership, but this runner does not generally fingerprint prompt/model settings. When using explicit output overrides or changing the selected model, choose a new ignored path rather than assuming prior output is compatible. Optional output and diagnostics paths must remain under `data/outputs`.
+
+When strict label validation rejects a non-boolean JSON label, safe diagnostics may include only `invalid_label_json_type` with one of `string`, `number`, `null`, `array`, `object`, or `other`. They never include the target name, raw value, report text, or runtime type name.
 
 ## Authorization and privacy boundary
 

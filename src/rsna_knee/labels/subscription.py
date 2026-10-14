@@ -77,6 +77,7 @@ _SAFE_SIWC_BODY_SHAPES = {
 _SAFE_REQUEST_ID = re.compile(r"^req_[A-Za-z0-9_-]{1,120}$")
 _SAFE_STREAM_TEXT_SOURCES = {"completed", "deltas", "none"}
 _SAFE_STREAM_FORMATS = {"empty", "json_invalid", "fenced", "json_valid", "refusal"}
+_SAFE_JSON_VALUE_TYPES = {"string", "number", "null", "array", "object", "other"}
 
 
 _FAILURE_PATTERNS = (
@@ -106,7 +107,8 @@ class LabelingError(ValueError):
                  stream_final_chars: int | None = None,
                  stream_text_source: str | None = None,
                  stream_refusal: bool | None = None,
-                 stream_format: str | None = None):
+                 stream_format: str | None = None,
+                 invalid_label_json_type: str | None = None):
         super().__init__(message)
         self.stage = stage
         self.cause_code = cause_code if cause_code in _CAUSE_EXPLANATIONS else "unknown"
@@ -133,10 +135,28 @@ class LabelingError(ValueError):
         self.stream_refusal = stream_refusal if type(stream_refusal) is bool else None
         self.stream_format = (stream_format if isinstance(stream_format, str)
                               and stream_format in _SAFE_STREAM_FORMATS else None)
+        self.invalid_label_json_type = (
+            invalid_label_json_type if isinstance(invalid_label_json_type, str)
+            and invalid_label_json_type in _SAFE_JSON_VALUE_TYPES else None
+        )
 
 
 def _safe_stream_char_count(value: object) -> int | None:
     return value if type(value) is int and 0 <= value <= 2_147_483_647 else None
+
+
+def _json_value_type(value: object) -> str:
+    if isinstance(value, str):
+        return "string"
+    if type(value) in (int, float):
+        return "number"
+    if value is None:
+        return "null"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return "other"
 
 
 def _classify_cli_failure(stdout: str, stderr: str) -> str:
@@ -305,7 +325,8 @@ def validate_label_result(value: object) -> dict[str, dict[str, object]]:
         label, evidence, uncertainty = (target["label"], target["evidence"], target["uncertainty"])
         if type(label) is not bool:
             raise LabelingError("Model target label must be a JSON boolean.",
-                                cause_code="label_type_invalid")
+                                cause_code="label_type_invalid",
+                                invalid_label_json_type=_json_value_type(label))
         if not isinstance(evidence, str):
             raise LabelingError("Model target evidence must be a string.",
                                 cause_code="evidence_type_invalid")
@@ -571,6 +592,10 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
                 record["request_id"] = request_id
             for key, valid in _safe_stream_diagnostics(exc).items():
                 record[key] = valid
+            invalid_label_json_type = getattr(exc, "invalid_label_json_type", None)
+            if (isinstance(invalid_label_json_type, str)
+                    and invalid_label_json_type in _SAFE_JSON_VALUE_TYPES):
+                record["invalid_label_json_type"] = invalid_label_json_type
             try:
                 journal.append(record)
             except LabelingError:
@@ -586,6 +611,7 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
                     ("provider_error_param", record.get("provider_error_param")),
                     ("provider_body_shape", record.get("provider_body_shape")),
                     ("request_id", record.get("request_id")),
+                    ("invalid_label_json_type", record.get("invalid_label_json_type")),
                 ) if value is not None
             )
             if diagnostic_context:
@@ -604,6 +630,7 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
                 stream_text_source=record.get("stream_text_source"),
                 stream_refusal=record.get("stream_refusal"),
                 stream_format=record.get("stream_format"),
+                invalid_label_json_type=record.get("invalid_label_json_type"),
             ) from None
         progress["completed"] += 1
         elapsed_ms = max(0, int((time.monotonic() - started_at) * 1000))

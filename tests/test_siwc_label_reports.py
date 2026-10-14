@@ -25,16 +25,19 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
             stream_text_source="none",
             stream_refusal=False,
             stream_format="json_invalid",
+            invalid_label_json_type="object",
         )
         self.assertEqual(
             cli.safe_provider_diagnostics(safe),
             "stream_completed=False stream_delta_chars=42 stream_final_chars=0 "
-            "stream_text_source=none stream_refusal=False stream_format=json_invalid",
+            "stream_text_source=none stream_refusal=False stream_format=json_invalid "
+            "invalid_label_json_type=object",
         )
         malicious = SimpleNamespace(
             stream_completed="PRIVATE_CANARY", stream_delta_chars=True,
             stream_final_chars=-1, stream_text_source="PRIVATE_CANARY",
             stream_refusal="PRIVATE_CANARY", stream_format="PRIVATE_CANARY",
+            invalid_label_json_type="PRIVATE_CANARY",
         )
         self.assertEqual(cli.safe_provider_diagnostics(malicious), "")
 
@@ -300,6 +303,52 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
         self.assertIs(failed["stream_refusal"], False)
         self.assertEqual(failed["stream_format"], "empty")
 
+    def test_cli_and_journal_render_only_invalid_label_json_type_category(self):
+        rows = [{"StudyInstanceUID": "synthetic-study", "Report": "SYNTHETIC_REPORT_CANARY",
+                 **{target: "" for target in LABEL_COLUMNS}}]
+        gold_ids = {f"synthetic-gold-{index}" for index in range(58)}
+
+        def fail_with_safe_validation_error(_report):
+            error = cli.LabelingError("PRIVATE_VALUE_CANARY PRIVATE_REPORT_CANARY")
+            error.stage = "response_validation"
+            error.cause_code = "label_type_invalid"
+            error.invalid_label_json_type = "object"
+            error.stream_completed = True
+            error.stream_format = "json_valid"
+            raise error
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_path = root / "data" / "outputs" / "c2.jsonl"
+            diagnostics_path = root / "data" / "outputs" / "c2-diagnostics.jsonl"
+            args = [
+                "label", "--train-csv", "synthetic.csv", "--gold-exclusions", "synthetic-gold.csv",
+                "--profile-id", "synthetic-profile", "--model", "gpt-6-luna", "--max-records", "1",
+                "--output", str(output_path), "--diagnostics", str(diagnostics_path),
+                "--confirm-siwc-oauth", "--confirm-report-transfer",
+            ]
+            stderr = io.StringIO()
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "_read_rows", return_value=rows), \
+                    patch.object(cli, "_read_gold_ids", return_value=gold_ids), \
+                    patch.object(cli, "_create_authenticator", return_value=object()), \
+                    patch.object(cli, "SIWCResponsesInfer", return_value=fail_with_safe_validation_error), \
+                    patch("sys.stderr", stderr), self.assertRaises(SystemExit):
+                cli.main(args)
+
+            rendered = stderr.getvalue()
+            journal_text = diagnostics_path.read_text(encoding="utf-8")
+            records = [json.loads(line) for line in journal_text.splitlines()]
+
+        self.assertIn("invalid_label_json_type=object", rendered)
+        self.assertEqual(rendered.count("invalid_label_json_type=object"), 1)
+        self.assertNotIn("PRIVATE_VALUE_CANARY", rendered)
+        self.assertNotIn("PRIVATE_REPORT_CANARY", rendered)
+        failed = next(record for record in records if record["event"] == "attempt_failed")
+        self.assertEqual(failed["invalid_label_json_type"], "object")
+        self.assertNotIn("PRIVATE_VALUE_CANARY", journal_text)
+        self.assertNotIn("PRIVATE_REPORT_CANARY", journal_text)
+
     def test_label_requires_both_explicit_confirmation_flags(self):
         args = [
             "label", "--train-csv", "synthetic.csv", "--gold-exclusions", "synthetic.csv",
@@ -373,6 +422,41 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
                 )
         read_rows.assert_not_called()
         read_gold.assert_not_called()
+
+    def test_legacy_defaults_fail_before_private_input_or_profile_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = root / "data" / "outputs"
+            outputs.mkdir(parents=True)
+            legacy_output = outputs / "siwc-report-labels.jsonl"
+            legacy_diagnostics = outputs / "siwc-pilot-diagnostics.jsonl"
+            legacy_output.write_text("SYNTHETIC_LEGACY_OUTPUT\n", encoding="utf-8")
+            legacy_diagnostics.write_text("SYNTHETIC_LEGACY_DIAGNOSTICS\n", encoding="utf-8")
+            old_output_bytes = legacy_output.read_bytes()
+            old_diagnostic_bytes = legacy_diagnostics.read_bytes()
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "_read_rows") as read_rows, \
+                    patch.object(cli, "_read_gold_ids") as read_gold, \
+                    patch.object(cli, "_create_authenticator") as create_auth:
+                with self.assertRaisesRegex(cli.LabelingError, "siwc-c2-report-labels.jsonl"):
+                    cli.run_label_pilot(
+                        train_csv=Path("PRIVATE_INPUT.csv"),
+                        gold_exclusions=Path("PRIVATE_GOLD.csv"),
+                        profile_id="synthetic-profile", model="gpt-6-luna", max_records=1,
+                        confirm_siwc_oauth=True, confirm_report_transfer=True,
+                        output_path=legacy_output, diagnostics_path=legacy_diagnostics,
+                    )
+            read_rows.assert_not_called()
+            read_gold.assert_not_called()
+            create_auth.assert_not_called()
+            self.assertEqual(legacy_output.read_bytes(), old_output_bytes)
+            self.assertEqual(legacy_diagnostics.read_bytes(), old_diagnostic_bytes)
+
+    def test_c2_defaults_are_separate_from_generic_pilot_paths(self):
+        self.assertEqual(cli.DEFAULT_OUTPUT.name, "siwc-c2-report-labels.jsonl")
+        self.assertEqual(cli.DEFAULT_DIAGNOSTICS.name, "siwc-c2-pilot-diagnostics.jsonl")
+        self.assertNotEqual(cli.DEFAULT_OUTPUT.name, "siwc-report-labels.jsonl")
+        self.assertNotEqual(cli.DEFAULT_DIAGNOSTICS.name, "siwc-pilot-diagnostics.jsonl")
 
     def test_label_rejects_token_cli_argument(self):
         error_output = io.StringIO()

@@ -96,6 +96,31 @@ class SubscriptionLabelContractTests(unittest.TestCase):
             self.assertNotIn("SECRET_TOKEN", journal_text)
             self.assertNotIn("PRIVATE_CANARY", journal_text)
 
+    def test_invalid_label_json_type_is_allowlisted_in_journal_and_wrapper(self):
+        rows = [{"StudyInstanceUID": "synthetic-study", "Report": "SYNTHETIC_REPORT_CANARY",
+                 **{column: "" for column in LABEL_COLUMNS}}]
+        invalid = {column: {"label": False, "evidence": "synthetic", "uncertainty": 0.2}
+                   for column in LABEL_COLUMNS}
+        invalid[LABEL_COLUMNS[0]]["label"] = {"secret": "PRIVATE_VALUE_CANARY"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            journal = root / "data" / "outputs" / "diagnostics.jsonl"
+            output = root / "data" / "outputs" / "labels.jsonl"
+            with self.assertRaises(LabelingError) as raised:
+                run_pilot(rows, gold_ids=gold_fixture(), max_records=1,
+                          output_path=output, diagnostics_path=journal, project_root=root,
+                          subscription_oauth_confirmed=True, infer=lambda _report: invalid)
+            records = [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines()]
+
+        failed = next(record for record in records if record["event"] == "attempt_failed")
+        self.assertEqual(failed["invalid_label_json_type"], "object")
+        self.assertEqual(raised.exception.invalid_label_json_type, "object")
+        self.assertIn("invalid_label_json_type=object", str(raised.exception))
+        for text in (json.dumps(invalid), "PRIVATE_VALUE_CANARY", LABEL_COLUMNS[0]):
+            self.assertNotIn(text, json.dumps(records))
+            self.assertNotIn(text, str(raised.exception))
+
     def test_failure_classifier_uses_fixed_safe_causes_and_unknown_fallback(self):
         from rsna_knee.labels.subscription import _classify_cli_failure
 
@@ -317,6 +342,20 @@ class SubscriptionLabelContractTests(unittest.TestCase):
                 validate_label_result(response)
             self.assertEqual(raised.exception.cause_code, expected_reason)
             self.assertNotIn("PRIVATE_TARGET_CANARY", str(raised.exception))
+
+    def test_invalid_label_json_type_categories_are_fixed_and_payload_free(self):
+        categories = (("PRIVATE_VALUE_CANARY", "string"), (2, "number"),
+                      (None, "null"), (["PRIVATE_VALUE_CANARY"], "array"),
+                      ({"private": "PRIVATE_VALUE_CANARY"}, "object"), (object(), "other"))
+        for value, expected in categories:
+            result = {column: {"label": False, "evidence": "synthetic", "uncertainty": 0.2}
+                      for column in LABEL_COLUMNS}
+            result[LABEL_COLUMNS[0]]["label"] = value
+            with self.subTest(expected=expected), self.assertRaises(LabelingError) as raised:
+                validate_label_result(result)
+            self.assertEqual(raised.exception.invalid_label_json_type, expected)
+            self.assertNotIn("PRIVATE_VALUE_CANARY", str(raised.exception))
+            self.assertNotIn(LABEL_COLUMNS[0], str(raised.exception))
 
     def test_overlong_evidence_warns_without_truncation_at_201_characters(self):
         import warnings

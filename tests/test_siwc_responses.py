@@ -10,9 +10,10 @@ from unittest.mock import Mock, patch
 import httpx
 from openai import OpenAI
 
-from rsna_knee.labels.siwc_responses import SIWCResponsesInfer, _build_label_prompt
+from rsna_knee.labels.siwc_responses import SIWCResponsesInfer
 from rsna_knee.labels.siwc_auth import SIWCAuthenticator
 from rsna_knee.labels.subscription import LABEL_COLUMNS, LabelingError, run_pilot
+from rsna_knee.labels.prompt_comparison import build_candidate_prompt
 
 
 def valid_result():
@@ -126,7 +127,7 @@ class SIWCResponsesTests(unittest.TestCase):
 
     def test_real_sdk_serializes_documented_message_array_for_inference(self):
         requests = []
-        expected_prompt = _build_label_prompt(self.report_canary)
+        expected_prompt = build_candidate_prompt("candidate_2", self.report_canary)
         result_text = json.dumps(valid_result())
 
         def handler(request):
@@ -294,6 +295,23 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertEqual(raised.exception.stream_format, "json_valid")
         self.assertNotIn("PRIVATE_TARGET_CANARY", str(raised.exception))
 
+    def test_invalid_label_types_expose_only_allowlisted_json_type(self):
+        for invalid, expected in (("PRIVATE_VALUE_CANARY", "string"), (7, "number"),
+                                  (None, "null"), (["PRIVATE_VALUE_CANARY"], "array"),
+                                  ({"secret": "PRIVATE_VALUE_CANARY"}, "object")):
+            with self.subTest(expected=expected):
+                payload = valid_result()
+                payload[LABEL_COLUMNS[0]]["label"] = invalid
+                events = [self._completed_sse_event(text=json.dumps(payload))]
+                with self.assertRaises(LabelingError) as raised:
+                    self.make_sdk_infer(self._sse_handler(events))(self.report_canary)
+                self.assertEqual(raised.exception.cause_code, "label_type_invalid")
+                self.assertEqual(raised.exception.invalid_label_json_type, expected)
+                self.assertEqual(raised.exception.stream_completed, True)
+                self.assertEqual(raised.exception.stream_format, "json_valid")
+                self.assertNotIn("PRIVATE_VALUE_CANARY", str(raised.exception))
+                self.assertNotIn(LABEL_COLUMNS[0], str(raised.exception))
+
     def test_real_sdk_refusal_delta_is_rejected_even_when_final_has_valid_json(self):
         events = [
             {"type": "response.refusal.delta", "sequence_number": 0,
@@ -323,7 +341,7 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertFalse(kwargs["store"])
         self.assertTrue(kwargs["stream"])
         self.assertEqual(kwargs["input"], [{
-            "role": "user", "content": _build_label_prompt(self.report_canary),
+            "role": "user", "content": build_candidate_prompt("candidate_2", self.report_canary),
         }])
         self.assertNotIn("reasoning_effort", kwargs)
 

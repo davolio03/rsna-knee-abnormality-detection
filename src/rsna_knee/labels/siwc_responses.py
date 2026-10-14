@@ -7,8 +7,8 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from rsna_knee.labels.siwc_auth import AuthError, SIWCAuthenticator
+from rsna_knee.labels.prompt_comparison import build_candidate_prompt
 from rsna_knee.labels.subscription import (
-    LABEL_COLUMNS,
     LabelingError,
     _SAFE_REQUEST_ID,
     _SAFE_SIWC_BODY_SHAPES,
@@ -16,6 +16,7 @@ from rsna_knee.labels.subscription import (
     _SAFE_SIWC_ERROR_PARAMS,
     _SAFE_STREAM_FORMATS,
     _SAFE_STREAM_TEXT_SOURCES,
+    _SAFE_JSON_VALUE_TYPES,
     validate_label_result,
 )
 
@@ -49,6 +50,8 @@ def safe_provider_diagnostics(error: object) -> str:
          lambda value: type(value) is bool),
         ("stream_format", getattr(error, "stream_format", None),
          lambda value: type(value) is str and value in _SAFE_STREAM_FORMATS),
+        ("invalid_label_json_type", getattr(error, "invalid_label_json_type", None),
+         lambda value: type(value) is str and value in _SAFE_JSON_VALUE_TYPES),
     )
     return " ".join(f"{name}={value}" for name, value, is_safe in values if is_safe(value))
 
@@ -164,7 +167,7 @@ class SIWCResponsesInfer:
                     "The requested model is not available to the selected account.",
                     stage="inference", cause_code="model_error",
                 )
-            prompt = _build_label_prompt(report)
+            prompt = build_candidate_prompt("candidate_2", report)
             stream = client.responses.create(
                 model=self._model,
                 input=[{"role": "user", "content": prompt}],
@@ -273,7 +276,8 @@ class SIWCResponsesInfer:
                                     cause_code=exc.cause_code,
                                     stream_completed=True, stream_delta_chars=delta_chars,
                                     stream_final_chars=final_chars, stream_text_source=selected_source,
-                                    stream_refusal=False, stream_format="json_valid") from None
+                                    stream_refusal=False, stream_format="json_valid",
+                                    invalid_label_json_type=exc.invalid_label_json_type) from None
         except LabelingError:
             raise
         except Exception as exc:
@@ -297,22 +301,6 @@ class SIWCResponsesInfer:
             and item.get("slug") == self._model
             for item in models
         )
-
-
-def _build_label_prompt(report: str) -> str:
-    targets = "\n".join(f"- {column}" for column in LABEL_COLUMNS)
-    schema = {
-        column: {"label": "boolean", "evidence": "string", "uncertainty": "number from 0 to 1"}
-        for column in LABEL_COLUMNS
-    }
-    return (
-        "Extract provisional binary findings for these targets:\n"
-        f"TARGETS:\n{targets}\n\n"
-        "Return only one JSON object matching this target schema: "
-        f"{json.dumps(schema, separators=(',', ':'))}. Evidence must be a short exact report "
-        "excerpt (maximum 200 characters); use an empty excerpt when unsupported. Do not add keys.\n\n"
-        f"REPORT:\n{report}"
-    )
 
 
 def _provider_error(message: str, error: object, *, response: object = None,

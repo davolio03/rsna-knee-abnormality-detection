@@ -34,8 +34,8 @@ from label_reports import _read_gold_ids, _read_rows  # noqa: E402
 
 DEFAULT_CALLBACK_PORT = 1455
 DEFAULT_TIMEOUT_SECONDS = 180
-DEFAULT_OUTPUT = REPOSITORY_ROOT / "data" / "outputs" / "siwc-report-labels.jsonl"
-DEFAULT_DIAGNOSTICS = REPOSITORY_ROOT / "data" / "outputs" / "siwc-pilot-diagnostics.jsonl"
+DEFAULT_OUTPUT = REPOSITORY_ROOT / "data" / "outputs" / "siwc-c2-report-labels.jsonl"
+DEFAULT_DIAGNOSTICS = REPOSITORY_ROOT / "data" / "outputs" / "siwc-c2-pilot-diagnostics.jsonl"
 
 
 def _callback_handler_type(port: int):
@@ -149,6 +149,16 @@ def run_label_pilot(*, train_csv: Path, gold_exclusions: Path,
     if (isinstance(skip_records, bool) or not isinstance(skip_records, int)
             or skip_records < 0 or skip_records + max_records > MAX_PILOT_RECORDS):
         raise LabelingError("skip_records and max_records must total no more than 14.")
+    legacy_paths = {
+        (REPOSITORY_ROOT / "data" / "outputs" / "siwc-report-labels.jsonl").resolve(),
+        (REPOSITORY_ROOT / "data" / "outputs" / "siwc-pilot-diagnostics.jsonl").resolve(),
+    }
+    if Path(output_path).resolve() in legacy_paths or Path(diagnostics_path).resolve() in legacy_paths:
+        raise LabelingError(
+            "The legacy SIWC pilot path is protected to prevent mixing prompt strategies. "
+            "Use --output data/outputs/siwc-c2-report-labels.jsonl and "
+            "--diagnostics data/outputs/siwc-c2-pilot-diagnostics.jsonl instead."
+        )
     rows = _read_rows(train_csv)
     gold_ids = _read_gold_ids(gold_exclusions)
     infer = SIWCResponsesInfer(
