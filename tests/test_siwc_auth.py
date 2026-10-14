@@ -1,3 +1,4 @@
+import builtins
 import json
 import hashlib
 import sys
@@ -27,6 +28,7 @@ from rsna_knee.labels.siwc_auth import (
     KeyringCredentialStore,
     SIWCAuthenticator,
     _AuthlibOAuthClient,
+    _verify_openai_id_token,
     load_or_create_host_id,
 )
 
@@ -669,8 +671,12 @@ class SIWCTest(unittest.TestCase):
             redirect_uri="http://127.0.0.1:1455/auth/callback", random_value=lambda n: b"B" * n,
         )
         request = self.auth.begin_sign_in()
-        with self.assertRaises(AuthError):
+        with self.assertRaises(AuthError) as raised:
             self.complete(request)
+        self.assertEqual(
+            raised.exception._diagnostics,
+            {"failure_category": "identity_claims_invalid"},
+        )
         self.assertFalse(self.store.values)
 
     def test_reauthentication_must_preserve_verified_account_identity(self):
@@ -930,6 +936,201 @@ class SIWCTest(unittest.TestCase):
         with self.assertRaises(AuthError):
             self.complete(self.auth.begin_sign_in())
         self.assertFalse(self.store.values)
+
+    def test_id_token_verifier_classifies_jwks_fetch_failure_without_leaking_values(self):
+        token_canary = "JWT-PRIVATE-CANARY"
+        url_canary = "https://private.invalid/jwks?secret=URL-CANARY"
+        exception_canary = "PRIVATE-EXCEPTION-CANARY"
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=RuntimeError(f"{exception_canary} {url_canary}"),
+        ):
+            with self.assertRaises(AuthError) as raised:
+                _verify_openai_id_token(token_canary, "client-secret", "nonce-secret")
+
+        self.assertEqual(
+            raised.exception._diagnostics,
+            {"failure_category": "jwks_fetch_failed"},
+        )
+        self.assertIn("failure category: jwks_fetch_failed", str(raised.exception))
+        for canary in (token_canary, url_canary, exception_canary, "client-secret", "nonce-secret"):
+            self.assertNotIn(canary, str(raised.exception))
+            self.assertNotIn(canary, repr(raised.exception._diagnostics))
+
+    def test_id_token_verifier_classifies_malformed_jwks_without_leaking_body(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"keys":"JWKS-BODY-CANARY"}'
+
+        with patch("urllib.request.urlopen", return_value=Response()):
+            with self.assertRaises(AuthError) as raised:
+                _verify_openai_id_token("JWT-CANARY", "client", "nonce")
+
+        self.assertEqual(
+            raised.exception._diagnostics,
+            {"failure_category": "jwks_document_invalid"},
+        )
+        self.assertIn("failure category: jwks_document_invalid", str(raised.exception))
+        for canary in ("JWKS-BODY-CANARY", "JWT-CANARY", "client", "nonce"):
+            self.assertNotIn(canary, str(raised.exception))
+            self.assertNotIn(canary, repr(raised.exception._diagnostics))
+
+    def test_id_token_verifier_classifies_token_verification_rejection_safely(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"keys":[{"kty":"RSA","kid":"synthetic"}]}'
+
+        jose = ModuleType("authlib.jose")
+
+        class RejectingJWT:
+            def __init__(self, algorithms):
+                self.algorithms = algorithms
+
+            def decode(self, token, jwks, *, claims_options):
+                raise ValueError("JWT-PRIVATE-CANARY URL-PRIVATE-CANARY")
+
+        jose.JsonWebToken = RejectingJWT
+        with patch.dict(sys.modules, {"authlib.jose": jose}):
+            with patch("urllib.request.urlopen", return_value=Response()):
+                with self.assertRaises(AuthError) as raised:
+                    _verify_openai_id_token("JWT-CANARY", "client", "nonce")
+
+        self.assertEqual(
+            raised.exception._diagnostics,
+            {"failure_category": "identity_token_verification_failed"},
+        )
+        self.assertIn(
+            "failure category: identity_token_verification_failed",
+            str(raised.exception),
+        )
+        for canary in ("JWT-PRIVATE-CANARY", "URL-PRIVATE-CANARY", "JWT-CANARY", "client", "nonce"):
+            self.assertNotIn(canary, str(raised.exception))
+            self.assertNotIn(canary, repr(raised.exception._diagnostics))
+
+    def test_id_token_verifier_classifies_claim_validation_failure_separately(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"keys":[{"kty":"RSA","kid":"synthetic"}]}'
+
+        class InvalidClaims(dict):
+            def validate(self, *, now):
+                raise ValueError("CLAIM-EXCEPTION-CANARY CLAIM-VALUE-CANARY")
+
+        jose = ModuleType("authlib.jose")
+
+        class DecodingJWT:
+            def __init__(self, algorithms):
+                self.algorithms = algorithms
+
+            def decode(self, token, jwks, *, claims_options):
+                return InvalidClaims({"iss": "claim-private", "sub": "synthetic"})
+
+        jose.JsonWebToken = DecodingJWT
+        with patch.dict(sys.modules, {"authlib.jose": jose}):
+            with patch("urllib.request.urlopen", return_value=Response()):
+                with self.assertRaises(AuthError) as raised:
+                    _verify_openai_id_token("CLAIM-TOKEN-CANARY", "client", "nonce")
+
+        self.assertEqual(
+            raised.exception._diagnostics,
+            {"failure_category": "identity_claims_invalid"},
+        )
+        self.assertIn("failure category: identity_claims_invalid", str(raised.exception))
+        for canary in (
+            "CLAIM-EXCEPTION-CANARY", "CLAIM-VALUE-CANARY",
+            "CLAIM-TOKEN-CANARY", "claim-private", "client", "nonce",
+        ):
+            self.assertNotIn(canary, str(raised.exception))
+            self.assertNotIn(canary, repr(raised.exception._diagnostics))
+
+    def test_id_token_verifier_accepts_verified_claims(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"keys":[{"kty":"RSA","kid":"synthetic"}]}'
+
+        class Claims(dict):
+            def validate(self, *, now):
+                self.validated_at = now
+
+        expected = {
+            "iss": "https://auth.openai.com",
+            "sub": "synthetic-subject",
+            "aud": "synthetic-client",
+            "nonce": "synthetic-nonce",
+        }
+        jose = ModuleType("authlib.jose")
+
+        class AcceptingJWT:
+            def __init__(self, algorithms):
+                self.algorithms = algorithms
+
+            def decode(self, token, jwks, *, claims_options):
+                self.token = token
+                self.jwks = jwks
+                self.claims_options = claims_options
+                return Claims(expected)
+
+        jose.JsonWebToken = AcceptingJWT
+        with patch.dict(sys.modules, {"authlib.jose": jose}):
+            with patch("urllib.request.urlopen", return_value=Response()):
+                result = _verify_openai_id_token(
+                    "synthetic-token", "synthetic-client", "synthetic-nonce"
+                )
+
+        self.assertEqual(result, expected)
+
+    def test_id_token_verifier_unavailable_import_is_classified_without_leaks(self):
+        token_canary = "IMPORT-TOKEN-CANARY"
+        exception_canary = "IMPORT-EXCEPTION-CANARY"
+        original_import = builtins.__import__
+
+        def fail_authlib_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "authlib.jose":
+                raise RuntimeError(exception_canary)
+            return original_import(name, globals, locals, fromlist, level)
+
+        network = Mock()
+        with patch("builtins.__import__", side_effect=fail_authlib_import):
+            with patch("urllib.request.urlopen", network):
+                with self.assertRaises(AuthError) as raised:
+                    _verify_openai_id_token(token_canary, "IMPORT-CLIENT-CANARY", None)
+
+        self.assertEqual(
+            raised.exception._diagnostics,
+            {"failure_category": "identity_verifier_unavailable"},
+        )
+        self.assertIn(
+            "failure category: identity_verifier_unavailable",
+            str(raised.exception),
+        )
+        for canary in (token_canary, exception_canary, "IMPORT-CLIENT-CANARY"):
+            self.assertNotIn(canary, str(raised.exception))
+            self.assertNotIn(canary, repr(raised.exception._diagnostics))
+        network.assert_not_called()
 
 
 if __name__ == "__main__":

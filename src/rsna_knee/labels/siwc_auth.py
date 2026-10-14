@@ -56,6 +56,9 @@ _PERSISTED_CREDENTIAL_FIELDS = frozenset({
 _SAFE_OAUTH_FAILURE_CATEGORIES = {
     "exchange_timeout", "exchange_connection_error", "exchange_tls_error",
     "exchange_invalid_json_response", "unknown_exchange_error",
+    "jwks_fetch_failed", "jwks_document_invalid",
+    "identity_verifier_unavailable", "identity_token_verification_failed",
+    "identity_claims_invalid",
 }
 _SAFE_OAUTH_EXCEPTION_FAMILIES = {"authlib", "requests", "urllib3", "stdlib", "other"}
 
@@ -403,9 +406,38 @@ def _verify_openai_id_token(token: str, client_id: str,
     try:
         from authlib.jose import JsonWebToken
         from urllib.request import urlopen
+    except Exception:
+        raise AuthError(
+            "The identity token could not be validated.",
+            _diagnostics={"failure_category": "identity_verifier_unavailable"},
+        ) from None
 
+    try:
         with urlopen(JWKS_ENDPOINT, timeout=10) as response:
-            jwks = json.loads(response.read().decode("utf-8"))
+            jwks_bytes = response.read()
+    except Exception:
+        raise AuthError(
+            "The identity token could not be validated.",
+            _diagnostics={"failure_category": "jwks_fetch_failed"},
+        ) from None
+
+    try:
+        jwks = json.loads(jwks_bytes.decode("utf-8"))
+    except Exception:
+        raise AuthError(
+            "The identity token could not be validated.",
+            _diagnostics={"failure_category": "jwks_document_invalid"},
+        ) from None
+    if (not isinstance(jwks, dict) or not isinstance(jwks.get("keys"), list)
+            or not jwks["keys"]
+            or any(not isinstance(key, dict) or not isinstance(key.get("kty"), str)
+                   for key in jwks["keys"])):
+        raise AuthError(
+            "The identity token could not be validated.",
+            _diagnostics={"failure_category": "jwks_document_invalid"},
+        )
+
+    try:
         claim_rules = {
             "iss": {"essential": True, "value": ISSUER},
             "aud": {"essential": True, "value": client_id},
@@ -416,10 +448,28 @@ def _verify_openai_id_token(token: str, client_id: str,
             "RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
             "ES256", "ES384", "ES512",
         ]).decode(token, jwks, claims_options=claim_rules)
+    except Exception:
+        raise AuthError(
+            "The identity token could not be validated.",
+            _diagnostics={
+                "failure_category": "identity_token_verification_failed",
+            },
+        ) from None
+
+    try:
         claims.validate(now=int(time.time()))
+    except Exception:
+        raise AuthError(
+            "The identity token could not be validated.",
+            _diagnostics={"failure_category": "identity_claims_invalid"},
+        ) from None
+    try:
         return dict(claims)
     except Exception:
-        raise AuthError("The identity token could not be validated.") from None
+        raise AuthError(
+            "The identity token could not be validated.",
+            _diagnostics={"failure_category": "identity_claims_invalid"},
+        ) from None
 
 
 class SIWCAuthenticator:
@@ -623,7 +673,12 @@ class SIWCAuthenticator:
         except AuthError:
             raise
         except Exception:
-            raise AuthError("The identity token could not be validated.") from None
+            raise AuthError(
+                "The identity token could not be validated.",
+                _diagnostics={
+                    "failure_category": "identity_token_verification_failed",
+                },
+            ) from None
         audience = claims.get("aud")
         audience_matches = (audience == client_id if isinstance(audience, str)
                             else isinstance(audience, (list, tuple)) and client_id in audience)
@@ -635,7 +690,10 @@ class SIWCAuthenticator:
                 or not isinstance(claims.get("iat"), (int, float))
                 or float(claims["iat"]) > self._clock() + 5
                 or not isinstance(claims.get("sub"), str) or not claims.get("sub")):
-            raise AuthError("The identity token could not be validated.")
+            raise AuthError(
+                "The identity token could not be validated.",
+                _diagnostics={"failure_category": "identity_claims_invalid"},
+            )
         subject = str(claims["sub"])
         if expected_subject is not None and subject != expected_subject:
             raise AuthError("The sign-in identity did not match the selected account.")
