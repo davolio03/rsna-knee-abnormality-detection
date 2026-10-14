@@ -78,8 +78,8 @@ def _classify_evidence_mismatch(evidence: str, report: object) -> str:
     return "no_literal_match"
 
 
-def _unique_whitespace_source_span(evidence: str, report: str) -> str | None:
-    """Return one exact source span for an identical token sequence, if unique."""
+def _earliest_whitespace_source_span(evidence: str, report: str) -> str | None:
+    """Return the earliest exact source span for an identical token sequence."""
     evidence_tokens = [match.group() for match in re.finditer(r"\S+", evidence)]
     if not evidence_tokens:
         return None
@@ -87,31 +87,27 @@ def _unique_whitespace_source_span(evidence: str, report: str) -> str | None:
                      for match in re.finditer(r"\S+", report)]
     if len(evidence_tokens) > len(report_tokens):
         return None
-    matched_span = None
     width = len(evidence_tokens)
     for start in range(len(report_tokens) - width + 1):
         if any(report_tokens[start + offset][0] != token
                for offset, token in enumerate(evidence_tokens)):
             continue
-        if matched_span is not None:
-            return None
-        matched_span = (report_tokens[start][1], report_tokens[start + width - 1][2])
-    if matched_span is None:
-        return None
-    span_start, span_end = matched_span
-    return report[span_start:span_end]
+        span_start = report_tokens[start][1]
+        span_end = report_tokens[start + width - 1][2]
+        return report[span_start:span_end]
+    return None
 
 
 def _recover_fresh_whitespace_evidence(
     result: Mapping[str, Mapping[str, object]], report: str,
 ) -> Mapping[str, Mapping[str, object]]:
-    """Copy a result with unique whitespace-only evidence spans mapped to report text."""
+    """Copy a result with earliest whitespace-equivalent spans mapped to report text."""
     updates: dict[str, str] = {}
     for target_name, target in result.items():
         evidence = target["evidence"]
         if not evidence or evidence in report:
             continue
-        source_span = _unique_whitespace_source_span(evidence, report)
+        source_span = _earliest_whitespace_source_span(evidence, report)
         if source_span is None:
             return result
         updates[target_name] = source_span

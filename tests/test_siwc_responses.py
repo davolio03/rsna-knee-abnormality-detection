@@ -844,12 +844,37 @@ class SIWCResponsesTests(unittest.TestCase):
             self.assertEqual(result[target]["label"], original[target]["label"])
             self.assertEqual(result[target]["uncertainty"], original[target]["uncertainty"])
 
-    def test_fresh_inference_rejects_ambiguous_and_nonwhitespace_changes(self):
+    def test_fresh_inference_selects_earliest_duplicate_or_overlapping_span(self):
         cases = (
-            ("ACL\ntear", "ACL tear and ACL tear", "whitespace_only"),
+            ("ACL\ntear;", "prefix ACL  tear; then ACL\ttear;", "ACL  tear;"),
+            ("A\nA", "A  A A  A", "A  A"),
+        )
+        for evidence, report, expected in cases:
+            with self.subTest(expected=expected):
+                raw_result = valid_result()
+                for target in raw_result.values():
+                    target["evidence"] = ""
+                raw_result["ACL"]["evidence"] = evidence
+                original = json.loads(json.dumps(raw_result))
+                self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+                    type="response.completed",
+                    response=SimpleNamespace(output_text=json.dumps(raw_result)),
+                )])
+
+                result = self.make_infer()(report)
+
+                self.assertEqual(result["ACL"]["evidence"], expected)
+                self.assertEqual(raw_result, original)
+                for target in result:
+                    self.assertEqual(result[target]["label"], original[target]["label"])
+                    self.assertEqual(result[target]["uncertainty"], original[target]["uncertainty"])
+
+    def test_fresh_inference_rejects_partial_token_and_nonwhitespace_changes(self):
+        cases = (
             ("ACL injury", "ACL tear", "no_literal_match"),
             ("ACL TEAR", "ACL tear", "case_only"),
             ("ACL-tear", "ACL tear", "no_literal_match"),
+            ("ACL\ntear", "ACL  tears", "whitespace_only"),
             ("cafe\u0301", "caf\u00e9", "unicode_only"),
         )
         for evidence, report, mismatch_kind in cases:
