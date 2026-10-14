@@ -76,6 +76,18 @@ An interruption during an in-flight request leaves that row uncheckpointed. Expl
 - The CLI's required `--confirm-siwc-oauth` and `--confirm-report-transfer` flags record operator assertions only. Do not run until separate authorization for the specific data, destination/service, and operation is explicit and applicable rules have been checked.
 - This guide documents implementation constraints, not authorization. The single separately authorized E008 retry is summarized in `PROJECT_STATE.md` and `experiments/E008_siwc_evidence_whitespace_diagnostic.md`; no report/evidence/label text or credential is reproduced here.
 
+## Optional rejected-evidence capture
+
+The bounded `label` command supports an explicit `--capture-rejected-evidence` opt-in. It is off by default and unavailable on `label-all`. On the first fresh, schema-valid response rejected by the exact source-evidence guard, the CLI may create the single fixed file `data/private/siwc-rejected-evidence.json`. The JSON object contains only the rejected evidence string and its eligible-row offset; it does not include report text, study identifiers, target names, labels, provider response bodies, or credentials. Cached records, successful responses, and schema/provider failures are not captured.
+
+Capture accepts at most 16 KiB of UTF-8 evidence and never truncates. The destination is created exclusively; an existing file or unsafe path (including a symlink/reparse point or alias) is refused, and there is no arbitrary destination option. Capture-write failures do not replace the original validation error or change the checkpoint. Remove the file manually when no longer needed: it is not automatically expired or encrypted, and Git ignore rules are not a privacy or retention control. Treat its evidence as sensitive local data and do not share it.
+
+```powershell
+python scripts\siwc_label_reports.py label --train-csv "<training-csv-path>" --gold-exclusions "<58-study-exclusion-csv-path>" --profile-id "<profile-id>" --model "gpt-6-luna" --max-records 1 --confirm-siwc-oauth --confirm-report-transfer --capture-rejected-evidence
+```
+
+The flag affects only optional local capture after a fresh rejection; it does not relax literal evidence acceptance, authorize report transfer, or permit a retry. No live capture has been exercised.
+
 ## Official references
 
 - [Sign in with ChatGPT sign-in flow](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)

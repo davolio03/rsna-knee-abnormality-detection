@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import stat
 import subprocess
 import tempfile
 import time
@@ -82,6 +83,8 @@ _SAFE_JSON_VALUE_TYPES = {"string", "number", "null", "array", "object", "other"
 _SAFE_EVIDENCE_MISMATCH_KINDS = {
     "whitespace_only", "case_only", "unicode_only", "no_literal_match",
 }
+_MAX_REJECTED_EVIDENCE_BYTES = 16 * 1024
+_REJECTED_EVIDENCE_CAPTURE_NAME = "siwc-rejected-evidence.json"
 
 
 _FAILURE_PATTERNS = (
@@ -245,6 +248,110 @@ class _DiagnosticsJournal:
         except (OSError, ValueError):
             raise LabelingError("Diagnostics journal could not be safely written.",
                                 stage="journal_persist") from None
+
+
+class _RejectedEvidenceCapture:
+    """Write one explicitly requested rejected evidence value to a fixed slot."""
+
+    def __init__(self, root: str | Path):
+        self.root = Path(root).resolve()
+        self.path = self.root / "data" / "private" / _REJECTED_EVIDENCE_CAPTURE_NAME
+
+    @staticmethod
+    def _unsafe_path(path: Path) -> bool:
+        try:
+            details = path.lstat()
+        except FileNotFoundError:
+            return False
+        return (stat.S_ISLNK(details.st_mode)
+                or bool(getattr(details, "st_file_attributes", 0) & 0x400))
+
+    def prepare(self) -> bool:
+        """Create/validate only the fixed parent directory; refuse any existing slot."""
+        try:
+            data_dir = self.root / "data"
+            private_dir = data_dir / "private"
+            for directory in (data_dir, private_dir):
+                if self._unsafe_path(directory):
+                    return False
+                try:
+                    directory.mkdir()
+                except FileExistsError:
+                    pass
+                details = directory.lstat()
+                if (not stat.S_ISDIR(details.st_mode)
+                        or self._unsafe_path(directory)
+                        or directory.resolve() != directory):
+                    return False
+            if self.path.exists() or self._unsafe_path(self.path):
+                return False
+            return self.path.parent.resolve() == private_dir
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+    @staticmethod
+    def _encode_payload(evidence: str, eligible_offset: int) -> bytes | None:
+        if (type(evidence) is not str or not evidence
+                or type(eligible_offset) is not int or eligible_offset < 0):
+            return None
+        try:
+            encoded_evidence = evidence.encode("utf-8")
+            if len(encoded_evidence) > _MAX_REJECTED_EVIDENCE_BYTES:
+                return None
+            return json.dumps(
+                {"evidence": evidence, "eligible_offset": eligible_offset},
+                ensure_ascii=False, separators=(",", ":"),
+            ).encode("utf-8")
+        except (UnicodeError, TypeError, ValueError):
+            return None
+
+    def __call__(self, evidence: str, eligible_offset: int) -> bool:
+        payload = self._encode_payload(evidence, eligible_offset)
+        if payload is None:
+            return False
+        descriptor = None
+        identity = None
+        try:
+            if not self.prepare():
+                return False
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+            descriptor = os.open(self.path, flags, 0o600)
+            details = os.fstat(descriptor)
+            identity = (details.st_dev, details.st_ino)
+            if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+                raise OSError
+            if hasattr(os, "fchmod"):
+                os.fchmod(descriptor, 0o600)
+            written = 0
+            while written < len(payload):
+                count = os.write(descriptor, payload[written:])
+                if count <= 0:
+                    raise OSError
+                written += count
+            os.fsync(descriptor)
+            current = self.path.lstat()
+            if ((current.st_dev, current.st_ino) != identity
+                    or current.st_nlink != 1 or self._unsafe_path(self.path)):
+                raise OSError
+            os.close(descriptor)
+            descriptor = None
+            return True
+        except (OSError, ValueError, RuntimeError):
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            if identity is not None:
+                try:
+                    details = self.path.lstat()
+                    if ((details.st_dev, details.st_ino) == identity
+                            and details.st_nlink == 1):
+                        self.path.unlink()
+                except OSError:
+                    pass
+            return False
 
 
 def _safe_stream_diagnostics(error: object) -> dict[str, object]:
@@ -511,7 +618,8 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
               subscription_oauth_confirmed: bool = False,
               skip_records: int = 0,
               allow_full_cohort_checkpoint: bool = False,
-              infer: Callable[[str], object] = codex_cli_infer) -> int:
+              infer: Callable[[str], object] = codex_cli_infer,
+              rejected_evidence_capture: Callable[[str, int], object] | None = None) -> int:
     """Run/resume a small local pilot; outputs must stay under ignored data/outputs."""
     if isinstance(max_records, bool) or not isinstance(max_records, int) or not 1 <= max_records <= MAX_PILOT_RECORDS:
         raise LabelingError("max_records must be explicitly between 1 and 14.")
@@ -565,6 +673,16 @@ def run_pilot(rows: Iterable[Mapping[str, object]], *, gold_ids: Iterable[str] |
         try:
             if infer is codex_cli_infer:
                 raw_result = infer(str(row[REPORT_COLUMN]), subscription_oauth_confirmed=True)
+            elif rejected_evidence_capture is not None:
+                def capture_rejected(evidence: str) -> None:
+                    try:
+                        rejected_evidence_capture(evidence, attempt_offset)
+                    except Exception:
+                        # Capturing is best-effort and must not replace validation failure.
+                        pass
+
+                raw_result = infer(str(row[REPORT_COLUMN]),
+                                   on_rejected_evidence=capture_rejected)
             else:
                 raw_result = infer(str(row[REPORT_COLUMN]))
             result = validate_label_result(raw_result)

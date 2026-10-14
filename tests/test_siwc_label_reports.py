@@ -535,10 +535,63 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
         self.assertEqual(kwargs["skip_records"], 1)
         self.assertIs(kwargs["infer"], adapter)
         self.assertTrue(kwargs["subscription_oauth_confirmed"])
+        self.assertIsNone(kwargs["rejected_evidence_capture"])
         self.assertEqual(kwargs["project_root"], cli.REPOSITORY_ROOT)
         self.assertTrue(str(kwargs["output_path"]).startswith(str(cli.REPOSITORY_ROOT / "data" / "outputs")))
         self.assertTrue(str(kwargs["diagnostics_path"]).startswith(str(cli.REPOSITORY_ROOT / "data" / "outputs")))
         self.assertIn("Local SIWC pilot output records: 1", output.getvalue())
+
+    def test_rejected_evidence_capture_cli_flag_is_optin_and_fixed_destination(self):
+        args = ["label", "--train-csv", "synthetic.csv", "--gold-exclusions", "synthetic-gold.csv",
+                "--profile-id", "synthetic-profile", "--model", "gpt-6-luna", "--max-records", "1",
+                "--confirm-siwc-oauth", "--confirm-report-transfer"]
+        parsed_default = cli.build_parser().parse_args(args)
+        self.assertFalse(parsed_default.capture_rejected_evidence)
+        parsed_optin = cli.build_parser().parse_args(args + ["--capture-rejected-evidence"])
+        self.assertTrue(parsed_optin.capture_rejected_evidence)
+        self.assertEqual(cli.REJECTED_EVIDENCE_CAPTURE_PATH,
+                         cli.REPOSITORY_ROOT / "data" / "private" / "siwc-rejected-evidence.json")
+
+    def test_rejected_evidence_capture_cli_wires_only_fixed_private_sink(self):
+        args = ["label", "--train-csv", "synthetic.csv", "--gold-exclusions", "synthetic-gold.csv",
+                "--profile-id", "synthetic-profile", "--model", "gpt-6-luna", "--max-records", "1",
+                "--confirm-siwc-oauth", "--confirm-report-transfer", "--capture-rejected-evidence"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "REJECTED_EVIDENCE_CAPTURE_PATH",
+                                 root / "data" / "private" / "siwc-rejected-evidence.json"), \
+                    patch.object(cli, "_read_rows", return_value=()), \
+                    patch.object(cli, "_read_gold_ids", return_value=set()), \
+                    patch.object(cli, "_create_authenticator", return_value=object()), \
+                    patch.object(cli, "SIWCResponsesInfer", return_value=object()), \
+                    patch.object(cli, "run_pilot", return_value=0) as run_pilot:
+                self.assertEqual(cli.main(args, output=io.StringIO()), 0)
+            writer = run_pilot.call_args.kwargs["rejected_evidence_capture"]
+            self.assertEqual(writer.path,
+                             root / "data" / "private" / "siwc-rejected-evidence.json")
+
+    def test_capture_slot_preflight_refuses_existing_file_before_inputs_or_auth(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            capture_path = root / "data" / "private" / "siwc-rejected-evidence.json"
+            capture_path.parent.mkdir(parents=True)
+            capture_path.write_text("SYNTHETIC_EXISTING_CAPTURE", encoding="utf-8")
+            original = capture_path.read_bytes()
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "REJECTED_EVIDENCE_CAPTURE_PATH", capture_path), \
+                    patch.object(cli, "_read_rows") as read_rows, \
+                    patch.object(cli, "_create_authenticator") as create_auth:
+                with self.assertRaisesRegex(cli.LabelingError, "unsafe or already exists"):
+                    cli.run_label_pilot(
+                        train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                        profile_id="synthetic-profile", model="gpt-6-luna", max_records=1,
+                        confirm_siwc_oauth=True, confirm_report_transfer=True,
+                        capture_rejected_evidence=True,
+                    )
+            read_rows.assert_not_called()
+            create_auth.assert_not_called()
+            self.assertEqual(capture_path.read_bytes(), original)
 
     def test_label_rejects_batch_bounds_before_reading_inputs(self):
         with patch.object(cli, "_read_rows") as read_rows, \

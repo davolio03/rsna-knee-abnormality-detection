@@ -28,6 +28,7 @@ from rsna_knee.labels.siwc_responses import (  # noqa: E402
 from rsna_knee.labels.subscription import (  # noqa: E402
     MAX_PILOT_RECORDS,
     LabelingError,
+    _RejectedEvidenceCapture,
     eligible_reports,
     run_pilot,
 )
@@ -38,6 +39,7 @@ DEFAULT_CALLBACK_PORT = 1455
 DEFAULT_TIMEOUT_SECONDS = 180
 DEFAULT_OUTPUT = REPOSITORY_ROOT / "data" / "outputs" / "siwc-c2-report-labels.jsonl"
 DEFAULT_DIAGNOSTICS = REPOSITORY_ROOT / "data" / "outputs" / "siwc-c2-pilot-diagnostics.jsonl"
+REJECTED_EVIDENCE_CAPTURE_PATH = REPOSITORY_ROOT / "data" / "private" / "siwc-rejected-evidence.json"
 
 
 class SystemTrustError(RuntimeError):
@@ -163,6 +165,7 @@ def run_label_pilot(*, train_csv: Path, gold_exclusions: Path,
                     confirm_report_transfer: bool = False,
                     output_path: Path = DEFAULT_OUTPUT,
                     diagnostics_path: Path = DEFAULT_DIAGNOSTICS,
+                    capture_rejected_evidence: bool = False,
                     output: TextIO | None = None) -> int:
     if confirm_siwc_oauth is not True or confirm_report_transfer is not True:
         raise LabelingError(
@@ -172,6 +175,8 @@ def run_label_pilot(*, train_csv: Path, gold_exclusions: Path,
         raise LabelingError("A saved profile ID is required.", cause_code="auth_error")
     if not model.strip():
         raise LabelingError("An account-available model slug is required.", cause_code="model_error")
+    if type(capture_rejected_evidence) is not bool:
+        raise LabelingError("Rejected-evidence capture must be an explicit boolean.")
     if (isinstance(max_records, bool) or not isinstance(max_records, int)
             or not 1 <= max_records <= MAX_PILOT_RECORDS):
         raise LabelingError("max_records must be explicitly between 1 and 14.")
@@ -188,6 +193,15 @@ def run_label_pilot(*, train_csv: Path, gold_exclusions: Path,
             "Use --output data/outputs/siwc-c2-report-labels.jsonl and "
             "--diagnostics data/outputs/siwc-c2-pilot-diagnostics.jsonl instead."
         )
+    rejected_evidence_capture = None
+    if capture_rejected_evidence:
+        rejected_evidence_capture = _RejectedEvidenceCapture(REPOSITORY_ROOT)
+        if rejected_evidence_capture.path != REJECTED_EVIDENCE_CAPTURE_PATH:
+            raise LabelingError("Rejected-evidence capture destination is invalid.")
+        if not rejected_evidence_capture.prepare():
+            raise LabelingError(
+                "Rejected-evidence capture slot is unsafe or already exists."
+            )
     rows = _read_rows(train_csv)
     gold_ids = _read_gold_ids(gold_exclusions)
     infer = SIWCResponsesInfer(
@@ -206,6 +220,7 @@ def run_label_pilot(*, train_csv: Path, gold_exclusions: Path,
         # The CLI requires explicit provider and transfer confirmations first.
         subscription_oauth_confirmed=True,
         infer=infer,
+        rejected_evidence_capture=rejected_evidence_capture,
     )
     output = output or sys.stdout
     output.write(f"Local SIWC pilot output records: {total}\n")
@@ -353,6 +368,10 @@ def build_parser() -> argparse.ArgumentParser:
     label.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     label.add_argument("--diagnostics", type=Path, default=DEFAULT_DIAGNOSTICS)
     label.add_argument(
+        "--capture-rejected-evidence", action="store_true",
+        help="Opt in to one bounded local capture of rejected fresh evidence.",
+    )
+    label.add_argument(
         "--confirm-siwc-oauth", action="store_true", required=True,
         help="Explicitly confirm this selected ChatGPT account has granted plan-use permission.",
     )
@@ -427,6 +446,7 @@ def main(argv: Sequence[str] | None = None, *, output: TextIO | None = None) -> 
             confirm_report_transfer=args.confirm_report_transfer,
             output_path=args.output,
             diagnostics_path=args.diagnostics,
+            capture_rejected_evidence=args.capture_rejected_evidence,
             output=output,
         )
     except KeyboardInterrupt:

@@ -734,6 +734,68 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_UNGROUNDED_EVIDENCE", str(raised.exception))
         self.assertNotIn(self.report_canary, str(raised.exception))
 
+    def test_optin_capture_receives_only_rejected_fresh_evidence_and_never_leaks(self):
+        evidence = "PRIVATE_REJECTED_EVIDENCE_CANARY"
+        invalid = valid_result()
+        for target in invalid.values():
+            target["evidence"] = ""
+        invalid["ACL"]["evidence"] = evidence
+        invalid["MCL"]["evidence"] = "PRIVATE_SECOND_REJECTED_CANARY"
+        self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(output_text=json.dumps(invalid)),
+        )])
+        captured = []
+
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer()(self.report_canary, on_rejected_evidence=captured.append)
+
+        self.assertEqual(captured, [evidence])
+        self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
+        for rendered in (str(raised.exception), repr(raised.exception), repr(raised.exception.__dict__)):
+            self.assertNotIn(evidence, rendered)
+            self.assertNotIn("PRIVATE_SECOND_REJECTED_CANARY", rendered)
+            self.assertNotIn(self.report_canary, rendered)
+
+    def test_capture_callback_failure_does_not_replace_safe_validation_error(self):
+        evidence = "PRIVATE_CALLBACK_FAILURE_CANARY"
+        invalid = valid_result()
+        for target in invalid.values():
+            target["evidence"] = ""
+        invalid["ACL"]["evidence"] = evidence
+        self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(output_text=json.dumps(invalid)),
+        )])
+
+        def failing_capture(value):
+            raise RuntimeError(f"PRIVATE_WRITE_EXCEPTION:{value}")
+
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer()(self.report_canary, on_rejected_evidence=failing_capture)
+
+        self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
+        for rendered in (str(raised.exception), repr(raised.exception), repr(raised.exception.__dict__)):
+            self.assertNotIn(evidence, rendered)
+            self.assertNotIn("PRIVATE_WRITE_EXCEPTION", rendered)
+
+    def test_optin_capture_callback_is_not_called_for_accepted_fresh_output(self):
+        captured = []
+        result = self.make_infer()(self.report_canary,
+                                   on_rejected_evidence=captured.append)
+        self.assertEqual(result, valid_result())
+        self.assertEqual(captured, [])
+
+    def test_optin_capture_callback_is_not_called_for_schema_invalid_output(self):
+        self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(output_text=json.dumps({"ACL": "invalid"})),
+        )])
+        captured = []
+        with self.assertRaises(LabelingError):
+            self.make_infer()(self.report_canary, on_rejected_evidence=captured.append)
+        self.assertEqual(captured, [])
+
     def test_literal_evidence_mismatch_reports_only_static_category(self):
         cases = (
             ("prefix\n ACL tear", "prefix ACL tear", "whitespace_only"),

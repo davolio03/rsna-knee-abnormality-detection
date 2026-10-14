@@ -156,13 +156,17 @@ class SIWCResponsesInfer:
                                 cause_code="network_error") from None
         return OpenAI(**kwargs)
 
-    def __call__(self, report: str) -> dict[str, dict[str, object]]:
+    def __call__(self, report: str, *,
+                 on_rejected_evidence: Callable[[str], object] | None = None
+                 ) -> dict[str, dict[str, object]]:
         if not isinstance(report, str) or not report.strip():
             raise LabelingError("Report input is blank or invalid.")
         try:
             return self._authenticator.with_plan_access_token(
                 self._profile_id,
-                lambda access_token: self._infer_authorized(access_token, report),
+                lambda access_token: self._infer_authorized(
+                    access_token, report, on_rejected_evidence=on_rejected_evidence,
+                ),
             )
         except LabelingError:
             raise
@@ -195,7 +199,10 @@ class SIWCResponsesInfer:
                                 stage="inference", cause_code="network_error") from None
 
     @staticmethod
-    def validate_source_evidence(result: Mapping[str, Mapping[str, object]], report: str) -> None:
+    def validate_source_evidence(
+        result: Mapping[str, Mapping[str, object]], report: str, *,
+        on_rejected_evidence: Callable[[str], object] | None = None,
+    ) -> None:
         """Reject non-empty evidence not literally present in the exact report text."""
         if not isinstance(report, str):
             raise LabelingError("Responses evidence could not be checked against the source report.",
@@ -204,6 +211,12 @@ class SIWCResponsesInfer:
             evidence = target["evidence"]
             if evidence and evidence not in report:
                 mismatch_kind = _classify_evidence_mismatch(evidence, report)
+                if callable(on_rejected_evidence):
+                    try:
+                        on_rejected_evidence(evidence)
+                    except Exception:
+                        # Never let capture failure replace the safe validation error.
+                        pass
                 raise LabelingError("Responses evidence was not found in the source report.",
                                     stage="response_validation", cause_code="evidence_not_grounded",
                                     evidence_mismatch_kind=mismatch_kind)
@@ -239,8 +252,10 @@ class SIWCResponsesInfer:
                 except Exception:
                     pass
 
-    def _infer_authorized(self, access_token: str,
-                          report: str) -> dict[str, dict[str, object]]:
+    def _infer_authorized(
+        self, access_token: str, report: str, *,
+        on_rejected_evidence: Callable[[str], object] | None = None,
+    ) -> dict[str, dict[str, object]]:
         client = None
         try:
             client = self._client_factory(
@@ -358,7 +373,9 @@ class SIWCResponsesInfer:
             try:
                 result = validate_label_result(parsed)
                 result = _recover_fresh_whitespace_evidence(result, report)
-                self.validate_source_evidence(result, report)
+                self.validate_source_evidence(
+                    result, report, on_rejected_evidence=on_rejected_evidence,
+                )
                 return result
             except LabelingError as exc:
                 raise LabelingError("Responses output failed local label validation.",

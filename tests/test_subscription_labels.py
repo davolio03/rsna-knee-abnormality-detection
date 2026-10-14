@@ -156,6 +156,7 @@ class SubscriptionLabelContractTests(unittest.TestCase):
         payload = json.dumps({"StudyInstanceUID": "synthetic-study", "labels": cached}) + "\n"
         infer = Mock()
         infer.validate_source_evidence = SIWCResponsesInfer.validate_source_evidence
+        captured = []
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -165,12 +166,14 @@ class SubscriptionLabelContractTests(unittest.TestCase):
             with self.assertRaises(LabelingError) as raised:
                 run_pilot(rows, gold_ids=gold_fixture(), max_records=1,
                           output_path=output, diagnostics_path=root / "data" / "outputs" / "diagnostics.jsonl",
-                          project_root=root, subscription_oauth_confirmed=True, infer=infer)
+                          project_root=root, subscription_oauth_confirmed=True, infer=infer,
+                          rejected_evidence_capture=lambda evidence, offset: captured.append((evidence, offset)))
             after = output.read_text(encoding="utf-8")
 
         infer.assert_not_called()
         self.assertEqual(after, payload)
         self.assertEqual(raised.exception.evidence_mismatch_kind, "whitespace_only")
+        self.assertEqual(captured, [])
 
     def test_failure_classifier_uses_fixed_safe_causes_and_unknown_fallback(self):
         from rsna_knee.labels.subscription import _classify_cli_failure
@@ -224,6 +227,114 @@ class SubscriptionLabelContractTests(unittest.TestCase):
                           output_path=output, diagnostics_path=output, project_root=root,
                           subscription_oauth_confirmed=True,
                           infer=lambda report: {})
+
+    def test_optin_capture_writer_is_one_slot_bounded_and_payload_minimal(self):
+        from rsna_knee.labels.subscription import _RejectedEvidenceCapture
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            capture = _RejectedEvidenceCapture(root)
+            evidence = "synthetic evidence é"
+            self.assertTrue(capture(evidence, 7))
+            payload = json.loads(capture.path.read_text(encoding="utf-8"))
+            self.assertEqual(payload, {"evidence": evidence, "eligible_offset": 7})
+            original = capture.path.read_bytes()
+            self.assertFalse(capture("SECOND_SYNTHETIC_EVIDENCE", 8))
+            self.assertEqual(capture.path.read_bytes(), original)
+
+    def test_optin_capture_writer_refuses_oversize_and_write_errors_without_payload(self):
+        from rsna_knee.labels.subscription import _RejectedEvidenceCapture
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            capture = _RejectedEvidenceCapture(root)
+            self.assertFalse(capture("x" * (16 * 1024 + 1), 0))
+            self.assertFalse(capture.path.exists())
+            with patch("rsna_knee.labels.subscription.os.open", side_effect=OSError("PRIVATE_CANARY")):
+                self.assertFalse(capture("safe synthetic evidence", 0))
+            self.assertFalse(capture.path.exists())
+
+        with tempfile.TemporaryDirectory() as directory:
+            exact_limit = _RejectedEvidenceCapture(Path(directory))
+            evidence = "é" * (16 * 1024 // len("é".encode("utf-8")))
+            self.assertEqual(len(evidence.encode("utf-8")), 16 * 1024)
+            self.assertTrue(exact_limit(evidence, 0))
+        with tempfile.TemporaryDirectory() as directory:
+            over_limit = _RejectedEvidenceCapture(Path(directory))
+            self.assertFalse(over_limit("é" * (16 * 1024 // 2 + 1), 0))
+            self.assertFalse(over_limit.path.exists())
+
+    def test_optin_capture_writer_refuses_existing_slot_and_directory_alias(self):
+        from rsna_knee.labels.subscription import _RejectedEvidenceCapture
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            capture = _RejectedEvidenceCapture(root)
+            self.assertTrue(capture.prepare())
+            capture.path.write_text("SYNTHETIC_PREEXISTING", encoding="utf-8")
+            self.assertFalse(capture.prepare())
+            self.assertFalse(capture("replacement", 0))
+            self.assertEqual(capture.path.read_text(encoding="utf-8"), "SYNTHETIC_PREEXISTING")
+
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as target:
+            root = Path(directory)
+            (root / "data").mkdir()
+            try:
+                os.symlink(target, root / "data" / "private", target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("Directory symlinks are unavailable in this environment.")
+            self.assertFalse(_RejectedEvidenceCapture(root).prepare())
+
+    def test_optin_capture_writer_rejects_hardlink_at_fixed_slot(self):
+        from rsna_knee.labels.subscription import _RejectedEvidenceCapture
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            capture = _RejectedEvidenceCapture(root)
+            capture.path.parent.mkdir(parents=True)
+            original = root / "outside.json"
+            original.write_text("SYNTHETIC_HARDLINK_TARGET", encoding="utf-8")
+            try:
+                os.link(original, capture.path)
+            except (OSError, NotImplementedError):
+                self.skipTest("Hard links are unavailable in this environment.")
+            self.assertFalse(capture.prepare())
+            self.assertFalse(capture("replacement", 0))
+            self.assertEqual(original.read_text(encoding="utf-8"), "SYNTHETIC_HARDLINK_TARGET")
+
+    def test_runner_optin_capture_receives_eligible_offset_and_preserves_checkpoint(self):
+        rows = [{"StudyInstanceUID": f"synthetic-{i}", "Report": "synthetic report",
+                 **{target: "" for target in LABEL_COLUMNS}} for i in range(4)]
+        cached = {target: {"label": False, "evidence": "", "uncertainty": 0.2}
+                  for target in LABEL_COLUMNS}
+        calls = []
+
+        def infer(_report, *, on_rejected_evidence):
+            on_rejected_evidence("PRIVATE_EVIDENCE_CANARY")
+            raise LabelingError("Responses evidence was not found in the source report.",
+                                stage="response_validation", cause_code="evidence_not_grounded",
+                                evidence_mismatch_kind="no_literal_match")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            output.parent.mkdir(parents=True)
+            output.write_text(json.dumps({"StudyInstanceUID": "synthetic-0", "labels": cached}) + "\n",
+                              encoding="utf-8")
+            before = output.read_bytes()
+            with self.assertRaises(LabelingError) as raised:
+                run_pilot(
+                    rows, gold_ids=gold_fixture(), max_records=2, skip_records=2,
+                    output_path=output,
+                    diagnostics_path=root / "data" / "outputs" / "diagnostics.jsonl",
+                    project_root=root, subscription_oauth_confirmed=True, infer=infer,
+                    rejected_evidence_capture=lambda evidence, offset: calls.append((evidence, offset)),
+                )
+            self.assertEqual(output.read_bytes(), before)
+            journal_text = (root / "data" / "outputs" / "diagnostics.jsonl").read_text(encoding="utf-8")
+            self.assertNotIn("PRIVATE_EVIDENCE_CANARY", journal_text)
+            self.assertNotIn("PRIVATE_EVIDENCE_CANARY", str(raised.exception))
+        self.assertEqual(calls, [("PRIVATE_EVIDENCE_CANARY", 2)])
 
     def test_journal_start_failure_stops_before_inference(self):
         rows = [{"StudyInstanceUID": "synthetic-a", "Report": "synthetic report",
