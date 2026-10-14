@@ -2,7 +2,7 @@
 
 ## Latest SIWC canary window (2026-10-14)
 
-The parent-executed, explicitly authorized sequential window started two cases, completed one, and failed one (exit 2 in 35.61 seconds); nine of the 11 planned cases were not attempted. The checkpoint advanced from three to four records, and the prior three records were byte-for-byte unchanged. The first window case succeeded. The next case at offset 4 failed with the safe diagnostic `no_literal_match`; this category does not establish hallucination or identify what differed. The safe journal reports `stream_completed=true`; refusal or JSON-format details were not recorded. No retry or further case was launched. The canary remains incomplete: one failed and nine unattempted cases remain, and execution alone establishes no label quality, evidence relevance, or clinical validity. See E010. E008 and E009 below remain historical records.
+After E010's failed offset-4 attempt, one separately authorized fresh invocation ran with local rejected-evidence capture enabled. It exited 0 in 24.47 seconds (1 started, 1 completed, 0 failed); the checkpoint advanced from four to five records, and the prior four records were byte-for-byte unchanged. No safe mismatch category was emitted, and the fixed capture file was absent. This does not establish whether the response matched literally or whether the recovery/capture path ran; the earlier failure remains unexplained. Nine of 14 cases remain unattempted, so the canary is incomplete. No cause, evidence-relevance, label-quality, or clinical-validity conclusion follows. See E011; E008-E010 remain historical records.
 
 - **Last updated:** 2026-10-14
 - **Current phase:** Phase 1 - Dataset Understanding / EDA
