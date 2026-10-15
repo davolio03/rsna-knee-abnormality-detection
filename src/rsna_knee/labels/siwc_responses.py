@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import unicodedata
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -65,52 +64,130 @@ def safe_provider_diagnostics(error: object) -> str:
     return " ".join(f"{name}={value}" for name, value, is_safe in values if is_safe(value))
 
 
+def _normalized_evidence_with_offsets(
+    text: str, *, ignore_case: bool,
+) -> tuple[str, list[int], list[int]]:
+    """Normalize case and whitespace while mapping every output character to source offsets."""
+    normalized: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    index = 0
+    while index < len(text):
+        if text[index].isspace():
+            run_start = index
+            while index < len(text) and text[index].isspace():
+                index += 1
+            if normalized and index < len(text):
+                normalized.append(" ")
+                starts.append(run_start)
+                ends.append(index)
+            continue
+
+        token_start = index
+        while index < len(text) and not text[index].isspace():
+            index += 1
+        token = text[token_start:index]
+        lowered = token.lower() if ignore_case else token
+        source_widths = [len(character.lower()) if ignore_case else 1 for character in token]
+        if sum(source_widths) == len(lowered):
+            output_start = 0
+            for offset, width in enumerate(source_widths):
+                for character in lowered[output_start:output_start + width]:
+                    normalized.append(character)
+                    starts.append(token_start + offset)
+                    ends.append(token_start + offset + 1)
+                output_start += width
+        else:
+            # Keep contextual mappings conservative: a partial token match will
+            # fail source-candidate equality instead of producing a bad span.
+            for character in lowered:
+                normalized.append(character)
+                starts.append(token_start)
+                ends.append(index)
+    return "".join(normalized), starts, ends
+
+
+def _is_evidence_word_character(character: str) -> bool:
+    category = unicodedata.category(character)
+    return character == "_" or category[0] in {"L", "N", "M"}
+
+
+def _earliest_boundary_aware_source_span(
+    evidence: str, report: str, *, ignore_case: bool,
+) -> str | None:
+    """Find the earliest normalized substring span without splitting source characters or words."""
+    if not isinstance(evidence, str) or not isinstance(report, str):
+        return None
+    needle, _, _ = _normalized_evidence_with_offsets(evidence, ignore_case=ignore_case)
+    haystack, source_starts, source_ends = _normalized_evidence_with_offsets(
+        report, ignore_case=ignore_case,
+    )
+    if not needle:
+        return None
+
+    edge = 0
+    while True:
+        found = haystack.find(needle, edge)
+        if found < 0:
+            return None
+        match_end = found + len(needle)
+        source_start = source_starts[found]
+        source_end = source_ends[match_end - 1]
+
+        # A lowercased source character can expand (for example, U+0130).
+        # Never return a span that captures only part of that source character.
+        starts_inside_expansion = (
+            found > 0
+            and source_starts[found - 1] == source_start
+            and source_ends[found - 1] == source_ends[found]
+        )
+        ends_inside_expansion = (
+            match_end < len(haystack)
+            and source_starts[match_end] == source_starts[match_end - 1]
+            and source_ends[match_end] == source_end
+        )
+
+        before_is_word = source_start > 0 and _is_evidence_word_character(report[source_start - 1])
+        after_is_word = source_end < len(report) and _is_evidence_word_character(report[source_end])
+        starts_with_word = _is_evidence_word_character(evidence.lstrip()[0])
+        ends_with_word = _is_evidence_word_character(evidence.rstrip()[-1])
+        if (not starts_inside_expansion and not ends_inside_expansion
+                and not (starts_with_word and before_is_word)
+                and not (ends_with_word and after_is_word)):
+            source_span = report[source_start:source_end]
+            candidate, _, _ = _normalized_evidence_with_offsets(
+                source_span, ignore_case=ignore_case,
+            )
+            if candidate == needle:
+                return source_span
+        edge = found + 1
+
+
 def _classify_evidence_mismatch(evidence: str, report: object) -> str:
-    """Describe a failed literal check without normalizing acceptance."""
+    """Classify only a boundary-valid case/whitespace match after literal rejection."""
     if not isinstance(report, str):
         return "no_literal_match"
-    if (normalized := " ".join(evidence.split())) and normalized in " ".join(report.split()):
+    if _earliest_boundary_aware_source_span(evidence, report, ignore_case=False) is not None:
         return "whitespace_only"
-    if (folded := evidence.casefold()) and folded in report.casefold():
+    if _earliest_boundary_aware_source_span(evidence, report, ignore_case=True) is not None:
         return "case_only"
     if (canonical := unicodedata.normalize("NFC", evidence)) and canonical in unicodedata.normalize("NFC", report):
         return "unicode_only"
     return "no_literal_match"
 
 
-def _earliest_case_insensitive_source_span(evidence: str, report: str) -> str | None:
-    """Return the earliest source span for an exact lowercased token sequence."""
-    evidence_tokens = [match.group().lower() for match in re.finditer(r"\S+", evidence)]
-    if not evidence_tokens:
-        return None
-    report_tokens = [(match.group(), match.group().lower(), match.start(), match.end())
-                     for match in re.finditer(r"\S+", report)]
-    if len(evidence_tokens) > len(report_tokens):
-        return None
-    width = len(evidence_tokens)
-    for start in range(len(report_tokens) - width + 1):
-        if any(report_tokens[start + offset][1] != token
-               for offset, token in enumerate(evidence_tokens)):
-            continue
-        span_start = report_tokens[start][2]
-        span_end = report_tokens[start + width - 1][3]
-        return report[span_start:span_end]
-    return None
-
-
-def _recover_fresh_case_insensitive_evidence(
+def _recover_fresh_boundary_aware_evidence(
     result: Mapping[str, Mapping[str, object]], report: str,
 ) -> Mapping[str, Mapping[str, object]]:
-    """Copy a result with earliest case-insensitive token spans mapped to report text."""
+    """Copy a result with each recoverable fresh evidence span mapped to exact report text."""
     updates: dict[str, str] = {}
     for target_name, target in result.items():
         evidence = target["evidence"]
         if not evidence or evidence in report:
             continue
-        source_span = _earliest_case_insensitive_source_span(evidence, report)
-        if source_span is None:
-            return result
-        updates[target_name] = source_span
+        source_span = _earliest_boundary_aware_source_span(evidence, report, ignore_case=True)
+        if source_span is not None:
+            updates[target_name] = source_span
     if not updates:
         return result
     recovered: dict[str, dict[str, object]] = {
@@ -368,7 +445,7 @@ class SIWCResponsesInfer:
                                     stream_refusal=False, stream_format=format_class) from None
             try:
                 result = validate_label_result(parsed)
-                result = _recover_fresh_case_insensitive_evidence(result, report)
+                result = _recover_fresh_boundary_aware_evidence(result, report)
                 self.validate_source_evidence(
                     result, report, on_rejected_evidence=on_rejected_evidence,
                 )
