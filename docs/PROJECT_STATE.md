@@ -1,5 +1,15 @@
 # Project State
 
+## Training-readiness audit of 500 silver labels (2026-10-16)
+
+The local aggregate audit is complete; see [E021](../experiments/E021_500_study_training_readiness_audit.md). All 500 unique records match the ordered non-Gold eligible prefix, and all 6,000 target items and 4,374 nonempty literal-source citations pass validation. This verifies structure/source integrity, not clinical label correctness or evidence relevance. The cohort is not randomly sampled and contains 64 legacy, 408 v1, zero v2 and 28 v3 records; prompt-era differences are confounded by order.
+
+All 12 targets retain both classes across the declared three-/five-fold diagnostic configurations (seeds 17/42/123), including normalized-report-group sensitivity. Fracture is sparse: 24 positives overall, 4-5 per five-fold validation or eight per three-fold validation. Seven normalized repeated-report groups contain 19 studies; study-only allocation separates 5-6 groups across folds, while group allocation separates none. These are possible dependencies, not proven patient or MRI duplicates; patient independence is unknown. Synovitis has empty evidence for 423 of 433 negative labels, a review priority rather than demonstrated label errors.
+
+Metadata/report-length proxies are descriptively similar to the remaining 3,849 eligible studies, but do not establish clinical, patient, scanner/site or language representativeness. No candidate image files were found under local `data`; Kaggle image availability is not negated by this local observation. The historical 50-study geometry characterization does not verify decoding/preprocessing for this cohort.
+
+**Next step:** Resolve image access/preprocessing and label-quality/dependency checks, then define a development split outside Gold-58 and train a first baseline with learning curves. The audit supports conditional pilot feasibility, not final sample sufficiency, automatic uncertainty filtering or a blanket need for more labels. No final split, training, further inference or cohort expansion occurred. Independent recomputation verified aggregate counts and all 48 folds' arithmetic; two of 12 allocation configurations were independently replayed exactly. Ignored local HTML/JSON reports hold the full aggregate detail; they are not published predictions. Earlier sections below remain historical snapshots.
+
 ## SIWC target reached: 500/500 (2026-10-16)
 
 The parent-monitored run reached 500 saved non-Gold records using verified v3 source `2a5e9db`. Auto028 advanced 472 to 484 and stopped on an invalid evidence reference; auto029 advanced 484 to 498 and stopped similarly; auto030 advanced 498 to 500 and exited 0. Each invocation preserved its previous checkpoint prefix. The job is completed and no owned provider process remains active. Independent audit passed: 500 unique ordered-prefix records from 4,349 eligible studies, with all 58 Gold studies excluded; all 500 records passed the actual loader and all 6,000 target evidence checks. This is operational completion, not clinical-quality validation.
