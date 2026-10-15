@@ -1,5 +1,9 @@
 # Project State
 
+## Latest SIWC full-cohort run01 status (2026-10-15)
+
+One explicitly authorized full-cohort `label-all` invocation was launched with a new isolated run01 output and checkpoint; it did not import or resume the canary. At the first safe post-launch inspection, private job metadata reported the process as running, with 3 started, 2 completed, 0 failed, and 2 checkpoint records. This is a launch-time snapshot, not a current-status guarantee. The run targets 4,349 eligible non-Gold rows with sequential windows of 14, zero retries, and checkpointing after each completed case. The prior-runtime estimate of about 29 hours 34 minutes is variable and not a completion promise; sleep or runtime termination may interrupt the managed session. Check observed job status before any separately authorized resume; do not automatically restart an in-flight row. Operational progress does not establish label quality, evidence relevance, or clinical validity. See E015.
+
 ## Latest SIWC canary status (2026-10-15)
 
 One authorized final-case invocation after D013 exited 0 in 23.01 seconds: started 1, completed 1, failed 0. The checkpoint advanced from 13 to 14; the prior 13 records' byte-line hashes and the existing E012 capture artifact hash were unchanged. Capture opt-in was off to preserve the existing capture slot, and no safe mismatch category was emitted. This successful response does not prove that D013 recovery executed. The canary now has 14 saved records across multiple attempts and policy revisions, not 14 consecutive first-attempt successes; no label-quality, evidence-relevance, or clinical-validity conclusion follows. The full cohort was not launched in this bounded invocation. See E014.
