@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unicodedata
+from bisect import bisect_right
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -122,6 +123,88 @@ def _is_evidence_word_character(character: str) -> bool:
     return character == "_" or category[0] in {"L", "N", "M"}
 
 
+def _evidence_word_spans(text: str, *, offset: int = 0) -> list[tuple[str, int, int]]:
+    spans: list[tuple[str, int, int]] = []
+    start: int | None = None
+    for index, character in enumerate(text):
+        if _is_evidence_word_character(character):
+            if start is None:
+                start = index
+        elif start is not None:
+            spans.append((text[start:index], offset + start, offset + index))
+            start = None
+    if start is not None:
+        spans.append((text[start:], offset + start, offset + len(text)))
+    return spans
+
+
+def _unique_minimal_context_source_span(evidence: str, report: str) -> str | None:
+    """Recover a unique minimal ordered word window within one sentence/line."""
+    query_terms = [
+        "".join(_evidence_case_key(character) for character in term)
+        for term, _, _ in _evidence_word_spans(evidence)
+    ]
+    if len(query_terms) < 2:
+        return None
+
+    candidate_spans: dict[tuple[int, int], int] = {}
+    matching_segments = 0
+    segment_start = 0
+    boundaries = {".", "!", "?", "\r", "\n"}
+    segment_ranges = []
+    for index, character in enumerate(report):
+        if character in boundaries:
+            if segment_start < index:
+                segment_ranges.append((segment_start, index))
+            segment_start = index + 1
+    if segment_start < len(report):
+        segment_ranges.append((segment_start, len(report)))
+
+    for segment_start, segment_end in segment_ranges:
+        segment = report[segment_start:segment_end]
+        source_words = _evidence_word_spans(segment, offset=segment_start)
+        keys = [
+            "".join(_evidence_case_key(character) for character in word)
+            for word, _, _ in source_words
+        ]
+        positions: dict[str, list[int]] = {}
+        for word_index, key in enumerate(keys):
+            positions.setdefault(key, []).append(word_index)
+
+        segment_spans: dict[tuple[int, int], int] = {}
+        for first_index in positions.get(query_terms[0], []):
+            last_index = first_index
+            for query_term in query_terms[1:]:
+                term_positions = positions.get(query_term, [])
+                next_position = bisect_right(term_positions, last_index)
+                if next_position == len(term_positions):
+                    break
+                last_index = term_positions[next_position]
+            else:
+                # Earliest completion is the shortest window for this start.
+                # Keep zero-gap candidates: filtering them first could admit
+                # a longer, misleading window instead of rejecting the minimum.
+                source_start = source_words[first_index][1]
+                source_end = source_words[last_index][2]
+                segment_spans[(source_start, source_end)] = last_index - first_index + 1
+
+        if segment_spans:
+            matching_segments += 1
+            if matching_segments > 1:
+                return None
+            candidate_spans.update(segment_spans)
+
+    if not candidate_spans:
+        return None
+    minimum_word_count = min(candidate_spans.values())
+    minimal_spans = [span for span, count in candidate_spans.items()
+                     if count == minimum_word_count]
+    if len(minimal_spans) != 1 or minimum_word_count <= len(query_terms):
+        return None
+    source_start, source_end = minimal_spans[0]
+    return report[source_start:source_end]
+
+
 def _earliest_boundary_aware_source_span(
     evidence: str, report: str, *, ignore_case: bool,
 ) -> str | None:
@@ -196,6 +279,8 @@ def _recover_fresh_boundary_aware_evidence(
         if not evidence or evidence in report:
             continue
         source_span = _earliest_boundary_aware_source_span(evidence, report, ignore_case=True)
+        if source_span is None:
+            source_span = _unique_minimal_context_source_span(evidence, report)
         if source_span is not None:
             updates[target_name] = source_span
     if not updates:

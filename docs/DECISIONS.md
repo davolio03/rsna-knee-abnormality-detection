@@ -1,8 +1,8 @@
-# Decision Log
+﻿# Decision Log
 
 This log contains durable project decisions, not untested hypotheses. Source provenance is explicit; decisions based on bootstrap context are not presented as independently verified competition rules.
 
-## D001 — Project workflow
+## D001 â€” Project workflow
 
 - **Date:** 2026-10-01
 - **Status:** Accepted
@@ -12,7 +12,7 @@ This log contains durable project decisions, not untested hypotheses. Source pro
 - **Consequences:** Follow repository-specific guidance together with the installed ODD workflow; this repository does not duplicate orchestration machinery.
 - **Revisit when:** The user explicitly changes the workflow or the environment makes the current workflow unavailable.
 
-## D002 — Repository as durable source of truth
+## D002 â€” Repository as durable source of truth
 
 - **Date:** 2026-10-01
 - **Status:** Accepted
@@ -22,7 +22,7 @@ This log contains durable project decisions, not untested hypotheses. Source pro
 - **Consequences:** Store durable decisions and experiment evidence in repository files; treat memory as supplementary.
 - **Revisit when:** Repository persistence or collaboration requirements materially change.
 
-## D003 — Scientific experiment discipline
+## D003 â€” Scientific experiment discipline
 
 - **Date:** 2026-10-01
 - **Status:** Accepted
@@ -41,7 +41,7 @@ This log contains durable project decisions, not untested hypotheses. Source pro
 - **Evidence / source:** Explicit user protocol decisions recorded 2026-10-11. The aggregate-only feasibility screen recorded in `PROJECT_STATE.md` reports positive and negative representation for all 12 targets in every configured outer and inner validation fold; MCL is sparse (9 positives overall; 2 in each inner validation fold). No candidate IDs, label values, or fold memberships are recorded here.
 - **Consequences:** Aggregate fold feasibility is established for the configured split, but does not establish metric precision, label validity, or clinical validity. Preserve study-level grouping and all applicable competition licensing, external-service, and data-privacy constraints; confirm subscription entitlement for the exact model/effort and report-transfer permissibility before any run. Outer-fold evidence must not guide prompt iteration. Do not treat nested cross-validation as an untouched final test set.
 - **Revisit when:** The user changes the policy, fold feasibility cannot be established, or verified dataset evidence changes the assumed candidate set or label provenance.
-## D005 — Hardware-aware development
+## D005 â€” Hardware-aware development
 
 - **Date:** 2026-10-01
 - **Status:** Accepted; hardware unverified
@@ -51,7 +51,7 @@ This log contains durable project decisions, not untested hypotheses. Source pro
 - **Consequences:** Record memory/runtime costs and avoid assuming larger models are better.
 - **Revisit when:** The available local or competition compute environment changes.
 
-## D006 — LLM report processing is a candidate technique
+## D006 â€” LLM report processing is a candidate technique
 
 - **Date:** 2026-10-01
 - **Status:** Host evidence verified 2026-10-02; conditional host permission only. The user approved and froze the Gold-58 prompt candidates and nested study-level protocol on 2026-10-11. Gold-58 remains excluded from ordinary labeling and is not authorized for training. On 2026-10-14, after reviewing the SIWC-specific terms, the user authorized a bounded local SIWC non-Gold labeling run; sign-in completed with ChatGPT plan use enabled. The user has now separately authorized a scalable runner, then a fresh canary, then all eligible non-Gold inferences. The scalable implementation is pending local verification; this authorization does not claim that the fresh canary or full-cohort run has occurred.
@@ -61,7 +61,7 @@ This log contains durable project decisions, not untested hypotheses. Source pro
 - **Consequences:** The SIWC permission is narrowly for the authenticated user's expressly authorized, local non-Gold labeling run; send only eligible non-Gold training reports, keep results in ignored local outputs, and use the required `store=false`, `stream=true`, and completed-response checks. The scalable runner may process the full preflighted eligible non-Gold cohort across multiple sequential windows, with no more than 14 records in a window/request batch. Use fresh, distinct output/checkpoint and payload-free diagnostics paths; resume only from the explicitly selected matching paths and validated checkpoint, while preserving the earlier 14-record output untouched. Stop on provider-denied or usage-limit errors; do not retry or bypass provider limits. Gold-58 must remain excluded. This does not authorize distribution of reports or derived artifacts, public deployment, or use of Gold-58 for training/model selection; preserve applicable competition, privacy, and licensing requirements. Keep the separate Gold-58 Codex CLI comparison on hold pending clarification of that route's terms and the remaining external-data conditions. No conclusion is made that the MIRA derivative-work restriction or winner-license ambiguity is resolved.
 - **Revisit when:** OpenAI changes the SIWC terms or usage limits, the user's authorization or intended cohort changes, the Codex CLI route receives applicable terms clarification, or organizers clarify the MIRA/winner-license questions.
 
-## D007 — Use Codex CLI for a bounded subscription-label pilot
+## D007 â€” Use Codex CLI for a bounded subscription-label pilot
 
 - **Date:** 2026-10-10
 - **Status:** Pilot route selected and locally implemented; no report transmission or feasibility result claimed.
@@ -157,11 +157,21 @@ This log contains durable project decisions, not untested hypotheses. Source pro
 
 - **Date:** 2026-10-15
 - **Status:** Strict-TDD implementation verified locally: Responses 55/55 and CLI 45/45 pass; subscription ran 42 tests with the known Windows child-timeout failure and one symlink skip; full suite ran 241 tests with 239 passing, the same known failure, and one skip. `py_compile` and `git diff --check` pass. Independent review and the parent focused check passed. A separate read-only local probe confirmed that the retained fragment now maps to an exact source substring; it does not validate the full discarded response. No provider request was made for this fix.
-- **Decision:** Extend the shared fresh evidence matcher to normalize each source codepoint with `casefold()` only when that result is exactly one codepoint; otherwise use the existing conservative lowercase mapping. This permits one-codepoint Unicode caseless equivalences such as Greek small mu/micro sign and Greek sigma/final sigma, while multi-codepoint folds such as `ß` to `ss` remain distinct. Recovery must still pass the same word-boundary/source-span checks and stores the exact original report substring. Exact literal evidence and cached records remain unchanged.
+- **Decision:** Extend the shared fresh evidence matcher to normalize each source codepoint with `casefold()` only when that result is exactly one codepoint; otherwise use the existing conservative lowercase mapping. This permits one-codepoint Unicode caseless equivalences such as Greek small mu/micro sign and Greek sigma/final sigma, while multi-codepoint folds such as `ÃŸ` to `ss` remain distinct. Recovery must still pass the same word-boundary/source-span checks and stores the exact original report substring. Exact literal evidence and cached records remain unchanged.
 - **Rationale:** The first bounded diagnostic capture showed one character-level Unicode caseless difference, not a token, spacing, punctuation, or paraphrase difference. A per-character equivalence rule addresses that class without introducing compatibility normalization or semantic matching.
 - **Evidence / source:** Synthetic tests exercise Greek mu/micro-sign, sigma/final-sigma, sharp-S expansion rejection, unchanged accent behavior, and exact source-span recovery. No private quote or report text is used as a test fixture. The captured attempt's runtime status remains 15/500; no inference retry is implied by this local implementation.
 - **Consequences:** The rule applies only to fresh evidence recovery/classification. It does not use NFKC/NFC for acceptance, remove accents or punctuation, alter token order, permit partial characters/words, modify labels/uncertainty/prompt/model/schema, relax cached validation, or change capture, checkpoint, Gold exclusion, usage-denial, or retry behavior. This is a character-equivalence policy, not a claim about clinical relevance or label quality.
 - **Revisit when:** A source-span regression shows any multi-codepoint fold or partial-character match being accepted, or a fresh response remains rejected despite these exact boundaries.
+
+## D018 - Recover a unique minimal source-context window for fresh evidence
+
+- **Date:** 2026-10-15
+- **Status:** Strict-TDD implementation verified locally: Responses 60/60 and CLI 45/45 pass; subscription ran 42 tests with the known Windows child-timeout failure and one symlink skip; full suite ran 246 tests with 244 passing, the same known failure, and one skip. `py_compile` and `git diff --check` pass. Independent review passed Responses 60/60, CLI 45/45 and eight additional synthetic probes; the parent spot check passed Responses 60/60. A separate read-only private-fragment probe restored an exact contiguous source excerpt, not a complete discarded response. No provider call was performed for this implementation.
+- **Decision:** Only after exact-literal acceptance and the existing D015/D017 source-span matcher fail, consider fresh evidence with at least two lexical terms. Match the entire terms in their original order, using only the approved per-codepoint caseless keys, inside exactly one matching source sentence/line segment split at `.`, `!`, `?`, CR, or LF. Reject if more than one segment contains the ordered terms, even if one window is shorter. Select a unique minimum covering window by source-word count over all candidates, including zero-gap windows; ties remain rejected. Only after selecting that minimum require at least one intervening source word; a zero-gap minimum must not be replaced by a longer window. Restore the full original report substring from the first matched word through the last, preserving all intervening words, spacing, and punctuation.
+- **Rationale:** The bounded responses repeatedly assembled exact words from a single source sentence while omitting intervening context. If the omitted content is discarded or evidence is simply accepted, the result can reverse meaning. Copying the unique complete source window preserves that context while refusing ambiguous or ungrounded output.
+- **Evidence / source:** Synthetic tests cover a unique window with intervening terms/punctuation, retained context words, selecting a uniquely shorter window within one segment, multiple matching segments with unequal window lengths, ties, a zero-gap minimum followed by a longer gapped window, punctuation-only gaps, sentence and line boundaries, reversed order, partial terms, stemming, and one-term evidence. Ambiguous output still reaches the exact validation failure and optional rejected-evidence callback; no partial target set is accepted. No raw report or captured quote is used as a fixture.
+- **Consequences:** This is a narrow fresh-response recovery rule, not an evidence-acceptance bypass: the returned evidence is the exact contiguous source span and must still pass the unchanged literal guard. Exact literals, cached records, label/uncertainty values, prompts, schema, C2/Luna selection, capture/journal behavior, checkpoint scope, provider denial safeguards, Gold exclusions, and zero automatic retries remain unchanged. No synonym, stemming, reordering, partial-word, paraphrase, semantic, or multi-segment matching is permitted. Contextual matching does not establish clinical relevance or label quality.
+- **Revisit when:** A unique-window tie is ever admitted, context is omitted from the stored evidence, or matching crosses a sentence/line delimiter.
 
 ## D016 - Extend opt-in rejected-evidence capture to bounded cohorts
 

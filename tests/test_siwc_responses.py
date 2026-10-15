@@ -13,6 +13,7 @@ from openai import OpenAI
 from rsna_knee.labels.siwc_responses import (
     SIWCResponsesInfer,
     _recover_fresh_boundary_aware_evidence,
+    _unique_minimal_context_source_span,
 )
 from rsna_knee.labels.siwc_auth import AuthError, SIWCAuthenticator
 from rsna_knee.labels.subscription import LABEL_COLUMNS, LabelingError, run_pilot
@@ -843,6 +844,101 @@ class SIWCResponsesTests(unittest.TestCase):
         for target in result:
             self.assertEqual(result[target]["label"], original[target]["label"])
             self.assertEqual(result[target]["uncertainty"], original[target]["uncertainty"])
+
+    def test_fresh_inference_recovers_unique_context_window_without_dropping_words(self):
+        raw_result = valid_result()
+        for target in raw_result.values():
+            target["evidence"] = ""
+        raw_result["ACL"]["evidence"] = "alpha omega"
+        original = json.loads(json.dumps(raw_result))
+        report = "prefix alpha, not beta omega suffix"
+
+        recovered = _recover_fresh_boundary_aware_evidence(raw_result, report)
+
+        self.assertEqual(recovered["ACL"]["evidence"], "alpha, not beta omega")
+        self.assertIn("not", recovered["ACL"]["evidence"])
+        self.assertEqual(raw_result, original)
+        self.make_infer().validate_source_evidence(recovered, report)
+
+        self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(output_text=json.dumps(raw_result)),
+        )])
+        captured = []
+        inferred = self.make_infer()(report, on_rejected_evidence=captured.append)
+        self.assertEqual(inferred["ACL"]["evidence"], "alpha, not beta omega")
+        self.assertEqual(captured, [])
+        self.assertEqual(raw_result, original)
+
+    def test_context_recovery_rejects_matches_in_multiple_segments(self):
+        self.assertIsNone(_unique_minimal_context_source_span(
+            "alpha omega", "alpha one two omega. alpha beta omega",
+        ))
+
+    def test_context_recovery_rejects_zero_gap_true_minimum(self):
+        self.assertIsNone(_unique_minimal_context_source_span(
+            "alpha omega", "alpha, omega beta omega",
+        ))
+
+    def test_context_recovery_selects_unique_minimum_within_one_segment(self):
+        result = valid_result()
+        for target in result.values():
+            target["evidence"] = ""
+        result["ACL"]["evidence"] = "alpha omega"
+        report = "alpha one two omega; alpha beta omega"
+
+        recovered = _recover_fresh_boundary_aware_evidence(result, report)
+
+        self.assertEqual(recovered["ACL"]["evidence"], "alpha beta omega")
+        self.assertNotIn("one two", recovered["ACL"]["evidence"])
+        self.make_infer().validate_source_evidence(recovered, report)
+
+
+    def test_context_recovery_rejects_ambiguous_or_unbounded_windows(self):
+        cases = (
+            ("alpha omega", "alpha beta omega; alpha gamma omega"),
+            ("alpha omega", "alpha, omega"),
+            ("alpha omega", "alpha. beta omega"),
+            ("alpha omega", "alpha one two omega. alpha beta omega"),
+            ("alpha omega", "alpha! beta omega"),
+            ("alpha omega", "alpha? beta omega"),
+            ("alpha omega", "alpha\r\nbeta omega"),
+            ("alpha omega", "alpha, omega beta omega"),
+            ("alpha omega", "omega beta alpha"),
+            ("alpha omega", "alphabet beta omega"),
+            ("running omega", "run beta omega"),
+            ("alpha;", "alpha beta"),
+        )
+        for evidence, report in cases:
+            with self.subTest(report=report):
+                result = valid_result()
+                for target in result.values():
+                    target["evidence"] = ""
+                result["ACL"]["evidence"] = evidence
+                original = json.loads(json.dumps(result))
+
+                recovered = _recover_fresh_boundary_aware_evidence(result, report)
+
+                self.assertEqual(recovered["ACL"]["evidence"], evidence)
+                self.assertEqual(result, original)
+                with self.assertRaises(LabelingError):
+                    self.make_infer().validate_source_evidence(recovered, report)
+
+        evidence = "alpha omega"
+        report = "alpha beta omega; alpha gamma omega"
+        result = valid_result()
+        for target in result.values():
+            target["evidence"] = ""
+        result["ACL"]["evidence"] = evidence
+        self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(output_text=json.dumps(result)),
+        )])
+        captured = []
+        with self.assertRaises(LabelingError) as raised:
+            self.make_infer()(report, on_rejected_evidence=captured.append)
+        self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
+        self.assertEqual(captured, [evidence])
 
     def test_fresh_inference_selects_earliest_duplicate_or_overlapping_span(self):
         cases = (
