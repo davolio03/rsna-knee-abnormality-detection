@@ -917,6 +917,27 @@ class SIWCResponsesTests(unittest.TestCase):
 
                 self.assertEqual(raised.exception.evidence_mismatch_kind, mismatch_kind)
 
+    def test_single_codepoint_caseless_equivalences_recover_exact_source_spans(self):
+        cases = (
+            ("synthetic \u03bc evidence", "prefix synthetic \u00b5 evidence suffix"),
+            ("synthetic \u03c3 evidence", "prefix synthetic \u03c2 evidence suffix"),
+            ("synthetic \u00df evidence", "prefix synthetic \u1e9e evidence suffix"),
+        )
+        for evidence, report in cases:
+            with self.subTest(evidence_codepoint=ord(evidence[10])):
+                result = valid_result()
+                for target in result.values():
+                    target["evidence"] = ""
+                result["ACL"]["evidence"] = evidence
+                original = json.loads(json.dumps(result))
+
+                recovered = _recover_fresh_boundary_aware_evidence(result, report)
+                self.assertEqual(recovered["ACL"]["evidence"], report[len("prefix "):-len(" suffix")])
+                self.assertEqual(result, original)
+                with self.assertRaises(LabelingError) as raised:
+                    self.make_infer().validate_source_evidence(result, report)
+                self.assertEqual(raised.exception.evidence_mismatch_kind, "case_only")
+
     def test_fresh_inference_rejects_partial_token_and_nonwhitespace_changes(self):
         cases = (
             ("ACL injury", "ACL tear", "no_literal_match"),

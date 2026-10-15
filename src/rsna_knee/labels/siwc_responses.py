@@ -64,6 +64,12 @@ def safe_provider_diagnostics(error: object) -> str:
     return " ".join(f"{name}={value}" for name, value, is_safe in values if is_safe(value))
 
 
+def _evidence_case_key(character: str) -> str:
+    """Use single-codepoint caseless equivalences without fold expansions."""
+    folded = character.casefold()
+    return folded if len(folded) == 1 else character.lower()
+
+
 def _normalized_evidence_with_offsets(
     text: str, *, ignore_case: bool,
 ) -> tuple[str, list[int], list[int]]:
@@ -87,8 +93,12 @@ def _normalized_evidence_with_offsets(
         while index < len(text) and not text[index].isspace():
             index += 1
         token = text[token_start:index]
-        lowered = token.lower() if ignore_case else token
-        source_widths = [len(character.lower()) if ignore_case else 1 for character in token]
+        normalized_characters = [
+            _evidence_case_key(character) if ignore_case else character
+            for character in token
+        ]
+        lowered = "".join(normalized_characters)
+        source_widths = [len(character) for character in normalized_characters]
         if sum(source_widths) == len(lowered):
             output_start = 0
             for offset, width in enumerate(source_widths):
