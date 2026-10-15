@@ -74,6 +74,14 @@ Example: resume a compatible checkpoint to a total of 500 records, including cac
 python scripts\siwc_label_reports.py label-all --train-csv "<training-csv-path>" --gold-exclusions "<58-study-exclusion-csv-path>" --profile-id "<profile-id>" --model "gpt-6-luna" --output "data/outputs/siwc-c2-cohort-run01.jsonl" --diagnostics "data/outputs/siwc-c2-cohort-run01-diagnostics.jsonl" --resume --limit 500 --confirm-siwc-oauth --confirm-report-transfer
 ```
 
+To inspect only the safe aggregate job fields in the current job metadata, use PowerShell:
+
+```powershell
+Get-Content data\outputs\siwc-c2-cohort-run01-job.json | ConvertFrom-Json | Select-Object status,checkpoint_records,target_records,exit_code
+```
+
+Do not print the full metadata object or private journal/output contents. `target_records` is the configured bound; the eligible-cohort count is intentionally not included in this status view.
+
 An interruption during an in-flight request leaves that row uncheckpointed. Explicit resume may submit that one unresolved row again if the provider completed the request but the client did not receive its response; the runner never retries automatically. Do not resume after a provider usage denial.
 
 ## Authorization and privacy boundary
