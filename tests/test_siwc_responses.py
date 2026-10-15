@@ -12,7 +12,7 @@ from openai import OpenAI
 
 from rsna_knee.labels.siwc_responses import (
     SIWCResponsesInfer,
-    _recover_fresh_whitespace_evidence,
+    _recover_fresh_case_insensitive_evidence,
 )
 from rsna_knee.labels.siwc_auth import AuthError, SIWCAuthenticator
 from rsna_knee.labels.subscription import LABEL_COLUMNS, LabelingError, run_pilot
@@ -826,7 +826,7 @@ class SIWCResponsesTests(unittest.TestCase):
         result["ACL"]["evidence"] = "ACL tear"
         self.make_infer().validate_source_evidence(result, "Report: ACL tear.")
 
-    def test_fresh_inference_recovers_unique_whitespace_span_as_source_literal(self):
+    def test_fresh_inference_recovers_whitespace_span_as_source_literal(self):
         raw_result = valid_result()
         raw_result["ACL"]["evidence"] = "ACL\n\ttear;"
         serialized = json.dumps(raw_result)
@@ -869,10 +869,57 @@ class SIWCResponsesTests(unittest.TestCase):
                     self.assertEqual(result[target]["label"], original[target]["label"])
                     self.assertEqual(result[target]["uncertainty"], original[target]["uncertainty"])
 
+    def test_fresh_inference_recovers_case_insensitive_tokens_to_earliest_source_span(self):
+        cases = (
+            ("acl TEAR", "prefix ACL tear then AcL TeaR", "ACL tear"),
+            ("\u00c1CL\nTear;", "\u00e1cl  TEAR; second \u00c1CL\tTear;", "\u00e1cl  TEAR;"),
+        )
+        for evidence, report, expected in cases:
+            with self.subTest(expected=expected):
+                raw_result = valid_result()
+                for target in raw_result.values():
+                    target["evidence"] = ""
+                raw_result["ACL"]["evidence"] = evidence
+                original = json.loads(json.dumps(raw_result))
+                self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+                    type="response.completed",
+                    response=SimpleNamespace(output_text=json.dumps(raw_result)),
+                )])
+                captured = []
+
+                result = self.make_infer()(report, on_rejected_evidence=captured.append)
+
+                self.assertEqual(result["ACL"]["evidence"], expected)
+                self.assertEqual(captured, [])
+                self.assertEqual(raw_result, original)
+                for target in result:
+                    self.assertEqual(result[target]["label"], original[target]["label"])
+                    self.assertEqual(result[target]["uncertainty"], original[target]["uncertainty"])
+
+    def test_case_recovery_rejects_casefold_expansion_and_accent_changes(self):
+        cases = (
+            ("Stra\u00dfe", "STRASSE", "case_only"),
+            ("caf\u00e9", "cafe", "no_literal_match"),
+        )
+        for evidence, report, mismatch_kind in cases:
+            with self.subTest(mismatch_kind=mismatch_kind):
+                raw_result = valid_result()
+                for target in raw_result.values():
+                    target["evidence"] = ""
+                raw_result["ACL"]["evidence"] = evidence
+                self.client.responses.create.return_value = FakeStream([SimpleNamespace(
+                    type="response.completed",
+                    response=SimpleNamespace(output_text=json.dumps(raw_result)),
+                )])
+
+                with self.assertRaises(LabelingError) as raised:
+                    self.make_infer()(report)
+
+                self.assertEqual(raised.exception.evidence_mismatch_kind, mismatch_kind)
+
     def test_fresh_inference_rejects_partial_token_and_nonwhitespace_changes(self):
         cases = (
             ("ACL injury", "ACL tear", "no_literal_match"),
-            ("ACL TEAR", "ACL tear", "case_only"),
             ("ACL-tear", "ACL tear", "no_literal_match"),
             ("ACL\ntear", "ACL  tears", "whitespace_only"),
             ("cafe\u0301", "caf\u00e9", "unicode_only"),
@@ -906,17 +953,17 @@ class SIWCResponsesTests(unittest.TestCase):
 
         self.assertEqual(accepted["ACL"]["evidence"], "ACL tear")
 
-    def test_whitespace_recovery_returns_copy_and_never_partially_mutates(self):
+    def test_case_insensitive_recovery_returns_copy_and_never_partially_mutates(self):
         result = valid_result()
         result["ACL"]["evidence"] = "ACL\ntear;"
-        recovered = _recover_fresh_whitespace_evidence(result, "ACL  tear; synthetic evidence")
+        recovered = _recover_fresh_case_insensitive_evidence(result, "ACL  tear; synthetic evidence")
         self.assertIsNot(recovered, result)
         self.assertIsNot(recovered["ACL"], result["ACL"])
         self.assertEqual(recovered["ACL"]["evidence"], "ACL  tear;")
         self.assertEqual(result["ACL"]["evidence"], "ACL\ntear;")
 
         result["MCL"]["evidence"] = "missing\ttext"
-        rejected = _recover_fresh_whitespace_evidence(result, "ACL  tear; synthetic evidence")
+        rejected = _recover_fresh_case_insensitive_evidence(result, "ACL  tear; synthetic evidence")
         self.assertIs(rejected, result)
         self.assertEqual(result["ACL"]["evidence"], "ACL\ntear;")
         self.assertEqual(result["MCL"]["evidence"], "missing\ttext")

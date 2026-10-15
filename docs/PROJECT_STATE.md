@@ -4,7 +4,9 @@
 
 One authorized two-case resume after D012 exited 2 in 39.70 seconds: started 2, completed 1, failed 1. The checkpoint advanced from 12 to 13, and the prior 12 records' byte-line hashes were unchanged. The existing E012 capture artifact remained unchanged; capture opt-in was off, so no new rejected evidence was retained. The failure at eligible offset 13 carried the safe category `case_only`; this static case-fold substring category does not reveal the actual quote or establish its quality. The completed case does not prove D012 recovery executed. The canary remains incomplete at 13 of 14 records, with one failed and none unattempted; no full-cohort run or retry occurred. See E013.
 
-D012 policy and code are unchanged. This bounded result neither validates the E012 full response nor provides evidence that the new whitespace branch ran. No label-quality, evidence-relevance, or clinical-validity conclusion follows.
+D012 policy and code are unchanged for the historical REP-02 run. This bounded result neither validates the E012 full response nor provides evidence that the D012 whitespace branch ran. No label-quality, evidence-relevance, or clinical-validity conclusion follows.
+
+As of 2026-10-15, D013 extends only fresh-response token comparison to per-token Python `str.lower()` while preserving the earliest exact original source span. Focused synthetic regression tests and independent correctness/privacy verification passed locally. The full suite retains one known Windows child-cleanup failure and one unavailable directory-symlink test. REP-02 was run before D013 and does not validate this update. Cached validation and exact literal acceptance are unchanged; the canary remains 13/14 with one failed case.
 
 ## Prior SIWC canary window (2026-10-14)
 

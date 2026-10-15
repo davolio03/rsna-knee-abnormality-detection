@@ -78,36 +78,36 @@ def _classify_evidence_mismatch(evidence: str, report: object) -> str:
     return "no_literal_match"
 
 
-def _earliest_whitespace_source_span(evidence: str, report: str) -> str | None:
-    """Return the earliest exact source span for an identical token sequence."""
-    evidence_tokens = [match.group() for match in re.finditer(r"\S+", evidence)]
+def _earliest_case_insensitive_source_span(evidence: str, report: str) -> str | None:
+    """Return the earliest source span for an exact lowercased token sequence."""
+    evidence_tokens = [match.group().lower() for match in re.finditer(r"\S+", evidence)]
     if not evidence_tokens:
         return None
-    report_tokens = [(match.group(), match.start(), match.end())
+    report_tokens = [(match.group(), match.group().lower(), match.start(), match.end())
                      for match in re.finditer(r"\S+", report)]
     if len(evidence_tokens) > len(report_tokens):
         return None
     width = len(evidence_tokens)
     for start in range(len(report_tokens) - width + 1):
-        if any(report_tokens[start + offset][0] != token
+        if any(report_tokens[start + offset][1] != token
                for offset, token in enumerate(evidence_tokens)):
             continue
-        span_start = report_tokens[start][1]
-        span_end = report_tokens[start + width - 1][2]
+        span_start = report_tokens[start][2]
+        span_end = report_tokens[start + width - 1][3]
         return report[span_start:span_end]
     return None
 
 
-def _recover_fresh_whitespace_evidence(
+def _recover_fresh_case_insensitive_evidence(
     result: Mapping[str, Mapping[str, object]], report: str,
 ) -> Mapping[str, Mapping[str, object]]:
-    """Copy a result with earliest whitespace-equivalent spans mapped to report text."""
+    """Copy a result with earliest case-insensitive token spans mapped to report text."""
     updates: dict[str, str] = {}
     for target_name, target in result.items():
         evidence = target["evidence"]
         if not evidence or evidence in report:
             continue
-        source_span = _earliest_whitespace_source_span(evidence, report)
+        source_span = _earliest_case_insensitive_source_span(evidence, report)
         if source_span is None:
             return result
         updates[target_name] = source_span
@@ -368,7 +368,7 @@ class SIWCResponsesInfer:
                                     stream_refusal=False, stream_format=format_class) from None
             try:
                 result = validate_label_result(parsed)
-                result = _recover_fresh_whitespace_evidence(result, report)
+                result = _recover_fresh_case_insensitive_evidence(result, report)
                 self.validate_source_evidence(
                     result, report, on_rejected_evidence=on_rejected_evidence,
                 )
