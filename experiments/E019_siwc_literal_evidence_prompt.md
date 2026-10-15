@@ -1,5 +1,15 @@
 # E019 - SIWC literal-evidence prompt revision
 
+## Current revision: v2 spelling preservation (2026-10-15)
+
+- **Baseline / parent-owned runtime evidence:** Version1 in source0bcdce2 advanced64?139?225?239?357?378?440?471?472 saved non-Gold records across monitored invocations and diagnosed resumes. One stop was HTTP504 at471 without a capture; the other reported stops were source-evidence rejections. Two subsequent v1 relabels at472 made no progress. Prior prefixes and private capture history were preserved according to parent monitoring. These outcomes are operational, not clinical-quality measurements; comprehensive per-attempt timing/quality metrics are not reported here.
+- **Hypothesis / changed variable:** Version2 explicitly prohibits spelling, grammar and apparent-source-typo correction, illustrated with synthetic nonmedical text only; a shorter still-relevant contiguous original excerpt is permitted when copying is difficult. Expected mechanism: reduce source-word edits during generation without broadening acceptance. V1 JSON-escape guidance and D008 length preference remain; labels/model/schema/frozenGold prompts/D018/strictvalidator are unchanged.
+- **Protocol / provenance:** Strict-TDD synthetic instruction and append-only recognized boundary-history tests; full checks, independent review and parent spot check before local commit/live use. Preserve the existing v1 boundary64 and append v2 at472 before authentication. Mixed final scope, if completed:64 legacy,408 v1,28 v2. No new Gold-58 evaluation or homogeneous prompt-quality claim.
+- **Offline verification:** Observed RED before production: Responses61 with one missing-spelling-instruction failure; CLI47 with one v1?v2 migration failure. GREEN Responses61/61, CLI47/47, frozen promptcomparison15/15. Full249:247 passed, known Windows timeout-cleanup failure and one symlink skip; compilation/diff checks passed. Synthetic request/journal harness only. Independent review/parent check remain pending.
+- **Status / result:** Local implementation verified as above. V2 has not been used live; 472/500 remains the parent-reported checkpoint. No improved completion rate, latency or clinical accuracy is claimed. D021 records the decision; parent owns live execution, captures and final audit.
+
+## Original v1 setup and implementation snapshot (historical)
+
 - **Date:** 2026-10-15
 - **Status:** Local implementation; independent verification and live run pending.
 - **Baseline:** E018 terminal checkpoint 64/500; D018 source recovery, legacy frozen Candidate 2, `gpt-6-luna`, exact Gold-58 exclusions, existing checkpoint prefix, zero SDK retries and total-500 scope.

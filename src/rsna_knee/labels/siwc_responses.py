@@ -31,7 +31,7 @@ from rsna_knee.labels.subscription import (
 RESPONSES_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_SIWC_MODEL = "gpt-6-luna"
 
-SIWC_PROMPT_VERSION = "c2-literal-evidence-v1"
+SIWC_PROMPT_VERSION = "c2-literal-evidence-v2"
 _LITERAL_EVIDENCE_INSTRUCTIONS = (
     "\n\nLiteral evidence serialization (" + SIWC_PROMPT_VERSION + "):\n"
     "For every relevant evidence passage, copy one contiguous verbatim substring "
@@ -39,6 +39,11 @@ _LITERAL_EVIDENCE_INSTRUCTIONS = (
     "Preserve backslashes, apostrophes, quotation marks, punctuation, numbers, "
     "spacing and letter case exactly. Do not repair encoding or interpret source "
     "escape sequences. Do not append a period or other characters. "
+    "Do not correct spelling, grammar or apparent source typos, even if they look "
+    "wrong. Synthetic example: if REPORT says \"alpha teest beta\", copy \"alpha teest "
+    "beta\", not \"alpha test beta\". If a passage is difficult to copy, choose a "
+    "shorter still-relevant contiguous excerpt from REPORT, preserving its exact "
+    "characters; do not replace it with empty evidence when relevant evidence exists. "
     "Serialize as valid JSON: encode each source backslash as \\\\ and escape "
     "quotation marks/newlines as JSON requires. JSON escaping is serialization "
     "only: the JSON-decoded evidence must equal the original source substring. "

@@ -1,5 +1,9 @@
 # Project State
 
+## SIWC spelling-preservation revision at472 (2026-10-15)
+
+Parent-monitored v1 execution advanced the saved non-Gold prefix from64 to472/500. Repeated evidence at472 modified a source word and punctuation; two bounded v1 relabels made no progress. D021 now adds `c2-literal-evidence-v2` spelling/grammar/apparent-typo preservation instructions and a narrow append-only v1?v2 boundary history. Source, frozen Gold-58 Candidate2, labels/model/schema and evidence acceptance remain unchanged. Local verification is in progress; independent review and v2 live continuation are pending. Preserve the original64 legacy records and408 v1 records; expected v2 boundary472 does not yet establish any new saved result. Runtime completion is not clinical-quality evidence. See E019 for revision history.
+
 ## Authorized SIWC literal-evidence prompt revision (2026-10-15)
 
 The user authorized a prompt clarification and continuation toward 500 total. D020 adds the SIWC-only `c2-literal-evidence-v1` instructions before REPORT, preserving source characters and separating JSON escaping from decoded evidence. Strict validation and D018 recovery are unchanged; frozen E007/Gold-58 prompts are not modified. A safe idempotent journal boundary will identify the first new-prompt offset (planned: 64); the existing 64 records remain legacy C2. Local implementation is under verification, with independent review and live continuation pending. No provider request or target advancement is claimed for this change. The previous terminal stop below remains historical evidence. See E019.

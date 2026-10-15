@@ -330,15 +330,22 @@ def _validate_prompt_boundary(diagnostics_path: Path, *, checkpoint_count: int) 
                if entry.get("event") == "prompt_boundary"]
     if not markers:
         return True
-    if len(markers) != 1:
-        raise LabelingError("Stored prompt boundary is invalid; refusing to resume.")
-    marker = markers[0]
-    if (set(marker) != {"event", "prompt_version", "start_offset"}
-            or marker.get("prompt_version") != SIWC_PROMPT_VERSION
-            or type(marker.get("start_offset")) is not int
-            or not 0 <= marker["start_offset"] <= checkpoint_count):
-        raise LabelingError("Stored prompt boundary is incompatible; refusing to resume.")
-    return False
+    # This is the complete supported history, not a dynamic prompt registry.
+    revisions = ("c2-literal-evidence-v1", SIWC_PROMPT_VERSION)
+    prior_revision = -1
+    prior_offset = 0
+    for marker in markers:
+        version = marker.get("prompt_version")
+        offset = marker.get("start_offset")
+        if (set(marker) != {"event", "prompt_version", "start_offset"}
+                or version not in revisions or type(offset) is not int
+                or not prior_offset <= offset <= checkpoint_count):
+            raise LabelingError("Stored prompt boundary is incompatible; refusing to resume.")
+        revision = revisions.index(version)
+        if revision <= prior_revision:
+            raise LabelingError("Stored prompt boundary is invalid; refusing to resume.")
+        prior_revision, prior_offset = revision, offset
+    return markers[-1]["prompt_version"] != SIWC_PROMPT_VERSION
 
 
 def _record_prompt_boundary(diagnostics_path: Path, output_path: Path, *,

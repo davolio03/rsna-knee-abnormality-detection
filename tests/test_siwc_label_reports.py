@@ -966,26 +966,58 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
                                  original_journal)
 
     def test_prompt_boundary_migration_is_idempotent_and_preserves_offset(self):
+        old = {"event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v1",
+               "start_offset": 64}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "data" / "outputs").mkdir(parents=True)
             path = root / "data" / "outputs" / "diagnostics.jsonl"
             output_path = root / "data" / "outputs" / "labels.jsonl"
+            path.write_text(json.dumps(old) + "\n", encoding="utf-8")
             with patch.object(cli, "REPOSITORY_ROOT", root):
-                self.assertTrue(cli._validate_prompt_boundary(path, checkpoint_count=64))
-                cli._record_prompt_boundary(path, output_path, checkpoint_count=64)
+                self.assertTrue(cli._validate_prompt_boundary(path, checkpoint_count=472))
+                cli._record_prompt_boundary(path, output_path, checkpoint_count=472)
                 before = path.read_bytes()
-                self.assertFalse(cli._validate_prompt_boundary(path, checkpoint_count=70))
+                self.assertFalse(cli._validate_prompt_boundary(path, checkpoint_count=480))
             self.assertEqual(path.read_bytes(), before)
-            self.assertEqual(json.loads(before), {
-                "event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v1",
-                "start_offset": 64,
+            self.assertEqual([json.loads(line) for line in before.splitlines()], [old, {
+                "event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v2",
+                "start_offset": 472,
+            }])
+            current = {"event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v2",
+                       "start_offset": 472}
+            for bad in ([old, {**current, "start_offset": 63}],
+                        [current, {**old, "start_offset": 472}], [old, current, current]):
+                path.write_text("".join(json.dumps(x) + "\n" for x in bad), encoding="utf-8")
+                before = path.read_bytes()
+                with self.assertRaises(cli.LabelingError):
+                    cli._validate_prompt_boundary(path, checkpoint_count=480)
+                self.assertEqual(path.read_bytes(), before)
+            path.write_text(json.dumps(old) + "\n" + json.dumps({
+                **current, "start_offset": 64,
+            }) + "\n", encoding="utf-8")
+            self.assertFalse(cli._validate_prompt_boundary(path, checkpoint_count=64))
+            path.unlink()
+            self.assertTrue(cli._validate_prompt_boundary(path, checkpoint_count=64))
+            with patch.object(cli, "REPOSITORY_ROOT", root):
+                self.assertTrue(cli._validate_prompt_boundary(path, checkpoint_count=0))
+                cli._record_prompt_boundary(path, output_path, checkpoint_count=0)
+                self.assertFalse(cli._validate_prompt_boundary(path, checkpoint_count=1))
+            self.assertEqual(json.loads(path.read_text()), {
+                "event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v2",
+                "start_offset": 0,
             })
 
     def test_prompt_boundary_rejects_conflicting_or_malformed_before_auth_or_write(self):
         valid = {"event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v1",
                  "start_offset": 0}
+        current = {**valid, "prompt_version": "c2-literal-evidence-v2"}
         variants = [[{**valid, "prompt_version": "other"}], [valid, valid],
+                    [current, current], [current, valid], [valid, current, valid],
+                    [{**valid, "start_offset": 1}, current],
+                    [{**current, "start_offset": True}],
+                    [{**current, "start_offset": 1}],
+                    [{**current, "extra": "unsafe"}],
                     [{**valid, "start_offset": True}], [{**valid, "start_offset": -1}],
                     [{**valid, "start_offset": 1}], [{**valid, "extra": "unsafe"}],
                     [{"event": "prompt_boundary"}]]
