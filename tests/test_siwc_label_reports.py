@@ -973,18 +973,19 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
             (root / "data" / "outputs").mkdir(parents=True)
             path = root / "data" / "outputs" / "diagnostics.jsonl"
             output_path = root / "data" / "outputs" / "labels.jsonl"
-            path.write_text(json.dumps(old) + "\n", encoding="utf-8")
+            middle = {**old, "prompt_version": "c2-literal-evidence-v2", "start_offset": 472}
+            path.write_text(json.dumps(old) + "\n" + json.dumps(middle) + "\n", encoding="utf-8")
             with patch.object(cli, "REPOSITORY_ROOT", root):
                 self.assertTrue(cli._validate_prompt_boundary(path, checkpoint_count=472))
                 cli._record_prompt_boundary(path, output_path, checkpoint_count=472)
                 before = path.read_bytes()
                 self.assertFalse(cli._validate_prompt_boundary(path, checkpoint_count=480))
             self.assertEqual(path.read_bytes(), before)
-            self.assertEqual([json.loads(line) for line in before.splitlines()], [old, {
-                "event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v2",
+            self.assertEqual([json.loads(line) for line in before.splitlines()], [old, middle, {
+                "event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v3",
                 "start_offset": 472,
             }])
-            current = {"event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v2",
+            current = {"event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v3",
                        "start_offset": 472}
             for bad in ([old, {**current, "start_offset": 63}],
                         [current, {**old, "start_offset": 472}], [old, current, current]):
@@ -1004,14 +1005,14 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
                 cli._record_prompt_boundary(path, output_path, checkpoint_count=0)
                 self.assertFalse(cli._validate_prompt_boundary(path, checkpoint_count=1))
             self.assertEqual(json.loads(path.read_text()), {
-                "event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v2",
+                "event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v3",
                 "start_offset": 0,
             })
 
     def test_prompt_boundary_rejects_conflicting_or_malformed_before_auth_or_write(self):
         valid = {"event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v1",
                  "start_offset": 0}
-        current = {**valid, "prompt_version": "c2-literal-evidence-v2"}
+        current = {**valid, "prompt_version": "c2-literal-evidence-v3"}
         variants = [[{**valid, "prompt_version": "other"}], [valid, valid],
                     [current, current], [current, valid], [valid, current, valid],
                     [{**valid, "start_offset": 1}, current],

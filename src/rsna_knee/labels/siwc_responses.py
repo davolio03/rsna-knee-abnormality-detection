@@ -16,6 +16,7 @@ from rsna_knee.labels.siwc_auth import (
 from rsna_knee.labels.prompt_comparison import build_candidate_prompt
 from rsna_knee.labels.subscription import (
     LabelingError,
+    LABEL_COLUMNS,
     _SAFE_REQUEST_ID,
     _SAFE_SIWC_BODY_SHAPES,
     _SAFE_SIWC_ERROR_CODES,
@@ -31,40 +32,75 @@ from rsna_knee.labels.subscription import (
 RESPONSES_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_SIWC_MODEL = "gpt-6-luna"
 
-SIWC_PROMPT_VERSION = "c2-literal-evidence-v2"
-_LITERAL_EVIDENCE_INSTRUCTIONS = (
-    "\n\nLiteral evidence serialization (" + SIWC_PROMPT_VERSION + "):\n"
-    "For every relevant evidence passage, copy one contiguous verbatim substring "
-    "of REPORT. Do not join separated passages or omit words inside the excerpt. "
-    "Preserve backslashes, apostrophes, quotation marks, punctuation, numbers, "
-    "spacing and letter case exactly. Do not repair encoding or interpret source "
-    "escape sequences. Do not append a period or other characters. "
-    "Do not correct spelling, grammar or apparent source typos, even if they look "
-    "wrong. Synthetic example: if REPORT says \"alpha teest beta\", copy \"alpha teest "
-    "beta\", not \"alpha test beta\". If a passage is difficult to copy, choose a "
-    "shorter still-relevant contiguous excerpt from REPORT, preserving its exact "
-    "characters; do not replace it with empty evidence when relevant evidence exists. "
-    "Serialize as valid JSON: encode each source backslash as \\\\ and escape "
-    "quotation marks/newlines as JSON requires. JSON escaping is serialization "
-    "only: the JSON-decoded evidence must equal the original source substring. "
-    "Before answering, check that every nonempty JSON-decoded evidence string "
-    "occurs literally in REPORT. The earlier 200-character guidance is a preference, "
-    "not a hard maximum: prefer a concise excerpt around 200 characters. Retain a "
-    "longer literal excerpt when necessary. Do not truncate or rewrite evidence "
-    "merely to fit that preference. This overrides the earlier maximum. Use empty "
-    "evidence only when no relevant supporting or contradicting passage exists. "
-    "Do not use empty evidence to evade copying or validation requirements. "
-    "Keep the existing label, uncertainty definition and output schema unchanged."
+SIWC_PROMPT_VERSION = "c2-literal-evidence-v3"
+_FRAGMENT_INSTRUCTIONS = (
+    "\n\nSource-fragment selection (" + SIWC_PROMPT_VERSION + "):\n"
+    "The following WIRE output instructions override the earlier evidence:string "
+    "and 200-character maximum instructions; target definitions, binary-label "
+    "decisions and the probability-of-error uncertainty definition are unchanged. "
+    "Return only one JSON object with exactly the listed targets, each mapped to "
+    "{label:boolean, evidence_id:string|null, uncertainty:number from 0 to 1}. "
+    "Do not return an evidence field or free-text quotation. First locate the "
+    "relevant supporting or contradicting passage in the complete original REPORT, "
+    "then select its ID from SOURCE_FRAGMENTS_JSON. Select one entire original "
+    "nonblank source line; never invent an ID. Use null only when no relevant "
+    "supporting or contradicting passage exists, never to avoid a difficult quote. "
+    "The code copies the selected original line unchanged, including source typos, "
+    "punctuation, numbers, whitespace and line endings; do not correct spelling, "
+    "grammar or encoding. There is no hard evidence-length cap: a one-line REPORT "
+    "has one whole-report fragment, which may be long. Fragment selection does not "
+    "change the clinical labeling rules. REPORT remains the complete context."
 )
 
 
-def build_siwc_prompt(report: str) -> str:
-    """Derive a SIWC-only serialization revision without changing frozen E007."""
+def _source_line_catalogue(report: str) -> dict[str, str]:
+    """Index nonblank original line slices without normalizing their contents."""
+    return {f"line_{index:06d}": line
+            for index, line in enumerate(
+                (line for line in report.splitlines(keepends=True) if line.strip()), 1)}
+
+
+def _fragment_request(report: str) -> tuple[str, dict[str, str]]:
     base = build_candidate_prompt("candidate_2", report)
     instructions, marker, copied_report = base.partition("\n\nREPORT:\n")
     if not marker or copied_report != report:
         raise ValueError("SIWC prompt template is incompatible")
-    return instructions + _LITERAL_EVIDENCE_INSTRUCTIONS + marker + copied_report
+    catalogue = _source_line_catalogue(report)
+    prompt = (instructions + _FRAGMENT_INSTRUCTIONS + "\n\nSOURCE_FRAGMENTS_JSON:\n"
+              + json.dumps(catalogue, ensure_ascii=True) + marker + copied_report)
+    return prompt, catalogue
+
+
+def build_siwc_prompt(report: str) -> str:
+    """Build the SIWC-only request; the frozen E007 registry remains unchanged."""
+    return _fragment_request(report)[0]
+
+
+def _resolve_fragment_result(value: object, catalogue: Mapping[str, str]) -> dict[str, dict[str, object]]:
+    """Resolve only this request's source IDs into the unchanged public schema."""
+    if not isinstance(value, dict) or set(value) != set(LABEL_COLUMNS):
+        raise LabelingError("Model result must contain exactly the 12 target fields.",
+                            cause_code="target_set_invalid")
+    resolved = {}
+    for column in LABEL_COLUMNS:
+        item = value[column]
+        if not isinstance(item, dict) or set(item) != {"label", "evidence_id", "uncertainty"}:
+            raise LabelingError("Model target has an invalid fragment structure.",
+                                cause_code="item_shape_invalid")
+        evidence_id = item["evidence_id"]
+        if evidence_id is None:
+            evidence = ""
+        elif type(evidence_id) is not str:
+            raise LabelingError("Model evidence ID must be a string or null.",
+                                cause_code="evidence_type_invalid")
+        elif evidence_id not in catalogue:
+            raise LabelingError("Model evidence ID is not in the current source catalogue.",
+                                cause_code="evidence_not_grounded")
+        else:
+            evidence = catalogue[evidence_id]
+        resolved[column] = {"label": item["label"], "evidence": evidence,
+                            "uncertainty": item["uncertainty"]}
+    return validate_label_result(resolved)
 
 
 def safe_provider_diagnostics(error: object) -> str:
@@ -472,7 +508,7 @@ class SIWCResponsesInfer:
                     "The requested model is not available to the selected account.",
                     stage="inference", cause_code="model_error",
                 )
-            prompt = build_siwc_prompt(report)
+            prompt, catalogue = _fragment_request(report)
             stream = client.responses.create(
                 model=self._model,
                 input=[{"role": "user", "content": prompt}],
@@ -574,8 +610,7 @@ class SIWCResponsesInfer:
                                     stream_final_chars=final_chars, stream_text_source=selected_source,
                                     stream_refusal=False, stream_format=format_class) from None
             try:
-                result = validate_label_result(parsed)
-                result = _recover_fresh_boundary_aware_evidence(result, report)
+                result = _resolve_fragment_result(parsed, catalogue)
                 self.validate_source_evidence(
                     result, report, on_rejected_evidence=on_rejected_evidence,
                 )

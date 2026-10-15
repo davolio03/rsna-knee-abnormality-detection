@@ -14,19 +14,26 @@ from rsna_knee.labels.siwc_responses import (
     SIWCResponsesInfer,
     build_siwc_prompt,
     SIWC_PROMPT_VERSION,
+    _source_line_catalogue,
+    _resolve_fragment_result,
     _recover_fresh_boundary_aware_evidence,
     _unique_minimal_context_source_span,
 )
 from rsna_knee.labels.siwc_auth import AuthError, SIWCAuthenticator
-from rsna_knee.labels.subscription import LABEL_COLUMNS, LabelingError, run_pilot
+from rsna_knee.labels.subscription import LABEL_COLUMNS, LabelingError, run_pilot, validate_label_result
 from rsna_knee.labels.prompt_comparison import build_candidate_prompt
 
 
 def valid_result():
     return {
-        target: {"label": False, "evidence": "synthetic evidence", "uncertainty": 0.25}
+        target: {"label": False, "evidence": "", "uncertainty": 0.25}
         for target in LABEL_COLUMNS
     }
+
+
+def valid_wire_result():
+    return {target: {"label": False, "evidence_id": None, "uncertainty": 0.25}
+            for target in LABEL_COLUMNS}
 
 
 class FakeAuthorizedProfile:
@@ -65,7 +72,7 @@ class FakeStream:
 class SIWCResponsesTests(unittest.TestCase):
     def setUp(self):
         self.report_canary = "PRIVATE_REPORT_CANARY synthetic evidence"
-        self.result_text = json.dumps(valid_result())
+        self.result_text = json.dumps(valid_wire_result())
         self.completed = SimpleNamespace(
             type="response.completed",
             response=SimpleNamespace(output_text=self.result_text),
@@ -86,6 +93,19 @@ class SIWCResponsesTests(unittest.TestCase):
             client_factory=self.client_factory,
         )
 
+    def make_legacy_helper(self):
+        """Exercise retained D018 helpers and runner guards; not a v3 inference path."""
+        def recover(report, *, on_rejected_evidence=None):
+            stream = self.client.responses.create.return_value
+            parsed = json.loads(stream.events[-1].response.output_text)
+            result = _recover_fresh_boundary_aware_evidence(validate_label_result(parsed), report)
+            SIWCResponsesInfer.validate_source_evidence(
+                result, report, on_rejected_evidence=on_rejected_evidence,
+            )
+            return result
+        recover.validate_source_evidence = SIWCResponsesInfer.validate_source_evidence
+        return recover
+
     def make_sdk_infer(self, handler, *, model="gpt-6-luna"):
         def client_factory(**kwargs):
             return OpenAI(
@@ -99,6 +119,96 @@ class SIWCResponsesTests(unittest.TestCase):
             model=model,
             client_factory=client_factory,
         )
+
+    def test_fragment_catalogue_preserves_original_nonblank_line_slices(self):
+        report = " \r\n alpha teest \\\' 2/4 \"q\"\r\n\t\n beta 17\n"
+        catalogue = _source_line_catalogue(report)
+        self.assertEqual(catalogue, {
+            "line_000001": " alpha teest \\\' 2/4 \"q\"\r\n",
+            "line_000002": " beta 17\n",
+        })
+        self.assertEqual(_source_line_catalogue(report), catalogue)
+        wire = {target: {"label": False, "evidence_id": "line_000001", "uncertainty": 0.25}
+                for target in LABEL_COLUMNS}
+        original = json.loads(json.dumps(wire))
+        resolved = _resolve_fragment_result(wire, catalogue)
+        self.assertEqual(resolved["ACL"]["evidence"], catalogue["line_000001"])
+        self.assertEqual(wire, original)
+        SIWCResponsesInfer.validate_source_evidence(resolved, report)
+        other = _source_line_catalogue("another call\n")
+        self.assertEqual(_resolve_fragment_result(wire, other)["ACL"]["evidence"], "another call\n")
+        wire["ACL"]["evidence_id"] = "line_000002"
+        with self.assertRaises(LabelingError):
+            _resolve_fragment_result(wire, other)
+
+    def test_fragment_wire_rejects_bad_ids_shapes_and_values_atomically(self):
+        catalogue = _source_line_catalogue("alpha teest 2/4\n")
+        good = {target: {"label": False, "evidence_id": None, "uncertainty": 0.25}
+                for target in LABEL_COLUMNS}
+        variants = []
+        for bad_id in (True, False, 0, 1, -1, 1.0, [], {}, "", "-1", "line_999999"):
+            bad = json.loads(json.dumps(good))
+            bad[LABEL_COLUMNS[-1]]["evidence_id"] = bad_id
+            variants.append(bad)
+        for field, value in (("label", 1), ("label", "false"), ("uncertainty", True),
+                             ("uncertainty", "0.2"), ("uncertainty", -1), ("uncertainty", 2)):
+            bad = json.loads(json.dumps(good))
+            bad[LABEL_COLUMNS[-1]][field] = value
+            variants.append(bad)
+        for shape in ({"label": False, "evidence": "alpha", "uncertainty": 0.2},
+                      {"label": False, "evidence_id": None},
+                      {**good["ACL"], "extra": 1}):
+            bad = json.loads(json.dumps(good)); bad[LABEL_COLUMNS[-1]] = shape
+            variants.append(bad)
+        variants.extend(({"ACL": good["ACL"]}, {**good, "extra": good["ACL"]}, [], None))
+        for wire in variants:
+            with self.subTest(wire_shape=type(wire).__name__):
+                before = json.dumps(wire)
+                with self.assertRaises(LabelingError):
+                    _resolve_fragment_result(wire, catalogue)
+                self.assertEqual(json.dumps(wire), before)
+        self.assertEqual(_resolve_fragment_result(good, catalogue)["ACL"]["evidence"], "")
+
+    def test_fragment_inference_copies_long_whole_line_and_is_call_local(self):
+        wire = valid_wire_result()
+        wire["ACL"]["evidence_id"] = "line_000001"
+        self.completed.response.output_text = json.dumps(wire)
+        infer = self.make_infer()
+        first = "alpha teest \\\' 2/4 \"q\" " + "context " * 45
+        with self.assertWarns(UserWarning):
+            resolved = infer(first)
+        self.assertEqual(resolved["ACL"]["evidence"], first)
+        self.assertEqual(resolved["ACL"]["label"], False)
+        second = "beta 17\r\n"
+        self.assertEqual(infer(second)["ACL"]["evidence"], second)
+        self.assertEqual(wire["ACL"]["evidence_id"], "line_000001")
+
+    def test_fragment_unknown_id_rejects_entire_record_without_capture_or_partial_save(self):
+        wire = valid_wire_result()
+        wire["ACL"]["evidence_id"] = "line_000001"
+        wire[LABEL_COLUMNS[-1]]["evidence_id"] = "PRIVATE_UNKNOWN_FRAGMENT"
+        before = json.dumps(wire)
+        self.completed.response.output_text = before
+        captured = []
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "outputs" / "labels.jsonl"
+            journal = root / "data" / "outputs" / "diagnostics.jsonl"
+            with self.assertRaises(LabelingError) as raised:
+                run_pilot(
+                    [{"StudyInstanceUID": "synthetic-study", "Report": self.report_canary,
+                      **{target: "" for target in LABEL_COLUMNS}}],
+                    gold_ids={f"synthetic-gold-{i}" for i in range(58)}, max_records=1,
+                    output_path=output, diagnostics_path=journal, project_root=root,
+                    subscription_oauth_confirmed=True, infer=self.make_infer(),
+                    rejected_evidence_capture=lambda evidence, offset: captured.append((evidence, offset)),
+                )
+            self.assertFalse(output.exists())
+            self.assertNotIn("PRIVATE_UNKNOWN_FRAGMENT", journal.read_text())
+        self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
+        self.assertNotIn("PRIVATE_UNKNOWN_FRAGMENT", str(raised.exception))
+        self.assertEqual(json.dumps(wire), before)
+        self.assertEqual(captured, [])
 
     def test_real_sdk_model_listing_parses_synthetic_http_response(self):
         requests = []
@@ -154,7 +264,7 @@ class SIWCResponsesTests(unittest.TestCase):
 
     def test_real_sdk_serializes_documented_message_array_for_inference(self):
         requests = []
-        result_text = json.dumps(valid_result())
+        result_text = json.dumps(valid_wire_result())
 
         def handler(request):
             if request.url.path == "/v1/models":
@@ -192,47 +302,42 @@ class SIWCResponsesTests(unittest.TestCase):
         instructions, marker, report = sent_prompt.partition("\n\nREPORT:\n")
         self.assertEqual(marker, "\n\nREPORT:\n")
         self.assertEqual(report, self.report_canary)
-        self.assertIn("contiguous verbatim substring", instructions)
-        self.assertIn("JSON-decoded evidence", instructions)
-        self.assertIn("Do not repair encoding", instructions)
+        self.assertIn("evidence_id:string|null", instructions)
+        self.assertIn("SOURCE_FRAGMENTS_JSON", instructions)
+        self.assertIn("do not correct spelling", instructions)
+        sent_catalogue = json.loads(instructions.partition("\n\nSOURCE_FRAGMENTS_JSON:\n")[2])
+        self.assertEqual(sent_catalogue, {"line_000001": self.report_canary})
         self.assertIsInstance(payload["input"], list)
         self.assertFalse(payload["store"])
         self.assertTrue(payload["stream"])
         self.assertNotIn("system", [item.get("role") for item in payload["input"]])
 
-    def test_siwc_literal_prompt_preserves_source_and_frozen_candidate(self):
-        report = "alpha \\\' beta \"gamma\"\n\nREPORT:\ndelta 2/4"
+    def test_siwc_fragment_prompt_preserves_source_and_frozen_candidate(self):
+        report = "alpha teest \\\' 2/4 \"q\"\r\n\nREPORT:\nbeta"
         original = build_candidate_prompt("candidate_2", report)
         revised = build_siwc_prompt(report)
         instructions, marker, copied = revised.partition("\n\nREPORT:\n")
         self.assertEqual(copied, report)
-        self.assertEqual(json.loads(json.dumps({"evidence": report}))["evidence"], report)
-        response = valid_result()
-        for item in response.values():
-            item["evidence"] = report
-        self.completed.response.output_text = json.dumps(response)
-        self.assertEqual(self.make_infer()(report), response)
-        self.assertIn("Do not append a period", instructions)
-        self.assertIn("Do not join separated passages", instructions)
-        self.assertIn("Do not use empty evidence to evade", instructions)
-        self.assertIn("Do not correct spelling, grammar or apparent source typos", instructions)
-        self.assertEqual(SIWC_PROMPT_VERSION, "c2-literal-evidence-v2")
-        self.assertIn('copy "alpha teest beta", not "alpha test beta"', instructions)
-        self.assertIn("shorter still-relevant contiguous excerpt", instructions)
-        self.assertIn("200-character guidance is a preference, not a hard maximum", instructions)
-        self.assertIn("longer literal excerpt when necessary", instructions)
-        self.assertIn("Do not truncate or rewrite evidence merely to fit", instructions)
-        self.assertNotIn("is at most 200 characters", instructions)
-        base_instructions = original.partition(marker)[0]
-        self.assertTrue(instructions.startswith(base_instructions))
+        self.assertEqual(SIWC_PROMPT_VERSION, "c2-literal-evidence-v3")
+        self.assertIn("evidence_id:string|null", instructions)
+        self.assertIn("override the earlier evidence:string", instructions)
+        self.assertIn("There is no hard evidence-length cap", instructions)
+        self.assertIn("never to avoid a difficult quote", instructions)
+        catalogue = json.loads(instructions.partition("\n\nSOURCE_FRAGMENTS_JSON:\n")[2])
+        self.assertEqual(catalogue, {"line_000001": "alpha teest \\\' 2/4 \"q\"\r\n",
+                                     "line_000002": "REPORT:\n", "line_000003": "beta"})
         self.assertEqual(build_candidate_prompt("candidate_2", report), original)
-        self.assertNotIn("Literal evidence serialization", original)
-        for changed in (report + ".", report.replace("\\", "")):
-            with self.subTest(changed=changed):
-                result = valid_result()
-                result[LABEL_COLUMNS[0]]["evidence"] = changed
-                with self.assertRaises(LabelingError):
-                    SIWCResponsesInfer.validate_source_evidence(result, report)
+        self.assertNotIn("Source-fragment selection", original)
+        response = valid_wire_result()
+        response["ACL"]["evidence_id"] = "line_000001"
+        self.completed.response.output_text = json.dumps(response)
+        with patch("rsna_knee.labels.siwc_responses._recover_fresh_boundary_aware_evidence",
+                   side_effect=AssertionError("fresh v3 must not use fuzzy quote recovery")):
+            resolved = self.make_infer()(report)
+        self.assertEqual(resolved["ACL"]["evidence"], catalogue["line_000001"])
+        self.assertEqual(resolved["MCL"]["evidence"], "")
+        self.assertNotIn("evidence_id", resolved["ACL"])
+
 
     def _sse_handler(self, events):
         def handler(request):
@@ -367,7 +472,7 @@ class SIWCResponsesTests(unittest.TestCase):
                                   (None, "null"), (["PRIVATE_VALUE_CANARY"], "array"),
                                   ({"secret": "PRIVATE_VALUE_CANARY"}, "object")):
             with self.subTest(expected=expected):
-                payload = valid_result()
+                payload = valid_wire_result()
                 payload[LABEL_COLUMNS[0]]["label"] = invalid
                 events = [self._completed_sse_event(text=json.dumps(payload))]
                 with self.assertRaises(LabelingError) as raised:
@@ -410,7 +515,7 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertEqual(kwargs["input"][0]["role"], "user")
         instructions, _, report = kwargs["input"][0]["content"].partition("\n\nREPORT:\n")
         self.assertEqual(report, self.report_canary)
-        self.assertIn("contiguous verbatim substring", instructions)
+        self.assertIn("evidence_id:string|null", instructions)
         self.assertNotIn("reasoning_effort", kwargs)
 
     def test_requested_model_missing_from_account_fails_before_inference(self):
@@ -762,7 +867,7 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertEqual(self.client.responses.create.call_count, 1)
 
-    def test_nonempty_evidence_must_be_literal_source_substring(self):
+    def test_legacy_helper_nonempty_evidence_must_be_literal_source_substring(self):
         invalid = valid_result()
         invalid["ACL"]["evidence"] = "PRIVATE_UNGROUNDED_EVIDENCE"
         self.client.responses.create.return_value = FakeStream([SimpleNamespace(
@@ -771,14 +876,14 @@ class SIWCResponsesTests(unittest.TestCase):
         )])
 
         with self.assertRaises(LabelingError) as raised:
-            self.make_infer()(self.report_canary)
+            self.make_legacy_helper()(self.report_canary)
 
         self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
         self.assertEqual(raised.exception.evidence_mismatch_kind, "no_literal_match")
         self.assertNotIn("PRIVATE_UNGROUNDED_EVIDENCE", str(raised.exception))
         self.assertNotIn(self.report_canary, str(raised.exception))
 
-    def test_optin_capture_receives_only_rejected_fresh_evidence_and_never_leaks(self):
+    def test_legacy_helper_optin_capture_receives_only_rejected_evidence_and_never_leaks(self):
         evidence = "PRIVATE_REJECTED_EVIDENCE_CANARY"
         invalid = valid_result()
         for target in invalid.values():
@@ -792,7 +897,7 @@ class SIWCResponsesTests(unittest.TestCase):
         captured = []
 
         with self.assertRaises(LabelingError) as raised:
-            self.make_infer()(self.report_canary, on_rejected_evidence=captured.append)
+            self.make_legacy_helper()(self.report_canary, on_rejected_evidence=captured.append)
 
         self.assertEqual(captured, [evidence])
         self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
@@ -801,7 +906,7 @@ class SIWCResponsesTests(unittest.TestCase):
             self.assertNotIn("PRIVATE_SECOND_REJECTED_CANARY", rendered)
             self.assertNotIn(self.report_canary, rendered)
 
-    def test_capture_callback_failure_does_not_replace_safe_validation_error(self):
+    def test_legacy_helper_capture_callback_failure_does_not_replace_safe_validation_error(self):
         evidence = "PRIVATE_CALLBACK_FAILURE_CANARY"
         invalid = valid_result()
         for target in invalid.values():
@@ -816,7 +921,7 @@ class SIWCResponsesTests(unittest.TestCase):
             raise RuntimeError(f"PRIVATE_WRITE_EXCEPTION:{value}")
 
         with self.assertRaises(LabelingError) as raised:
-            self.make_infer()(self.report_canary, on_rejected_evidence=failing_capture)
+            self.make_legacy_helper()(self.report_canary, on_rejected_evidence=failing_capture)
 
         self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
         for rendered in (str(raised.exception), repr(raised.exception), repr(raised.exception.__dict__)):
@@ -870,7 +975,7 @@ class SIWCResponsesTests(unittest.TestCase):
         result["ACL"]["evidence"] = "ACL tear"
         self.make_infer().validate_source_evidence(result, "Report: ACL tear.")
 
-    def test_fresh_inference_recovers_whitespace_span_as_source_literal(self):
+    def test_legacy_helper_recovers_whitespace_span_as_source_literal(self):
         raw_result = valid_result()
         raw_result["ACL"]["evidence"] = "ACL\n\ttear;"
         serialized = json.dumps(raw_result)
@@ -879,7 +984,7 @@ class SIWCResponsesTests(unittest.TestCase):
             response=SimpleNamespace(output_text=serialized),
         )])
 
-        result = self.make_infer()("Report says ACL  tear; synthetic evidence")
+        result = self.make_legacy_helper()("Report says ACL  tear; synthetic evidence")
 
         self.assertEqual(result["ACL"]["evidence"], "ACL  tear;")
         original = json.loads(serialized)
@@ -888,7 +993,7 @@ class SIWCResponsesTests(unittest.TestCase):
             self.assertEqual(result[target]["label"], original[target]["label"])
             self.assertEqual(result[target]["uncertainty"], original[target]["uncertainty"])
 
-    def test_fresh_inference_recovers_unique_context_window_without_dropping_words(self):
+    def test_legacy_helper_recovers_unique_context_window_without_dropping_words(self):
         raw_result = valid_result()
         for target in raw_result.values():
             target["evidence"] = ""
@@ -901,14 +1006,14 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertEqual(recovered["ACL"]["evidence"], "alpha, not beta omega")
         self.assertIn("not", recovered["ACL"]["evidence"])
         self.assertEqual(raw_result, original)
-        self.make_infer().validate_source_evidence(recovered, report)
+        self.make_legacy_helper().validate_source_evidence(recovered, report)
 
         self.client.responses.create.return_value = FakeStream([SimpleNamespace(
             type="response.completed",
             response=SimpleNamespace(output_text=json.dumps(raw_result)),
         )])
         captured = []
-        inferred = self.make_infer()(report, on_rejected_evidence=captured.append)
+        inferred = self.make_legacy_helper()(report, on_rejected_evidence=captured.append)
         self.assertEqual(inferred["ACL"]["evidence"], "alpha, not beta omega")
         self.assertEqual(captured, [])
         self.assertEqual(raw_result, original)
@@ -937,7 +1042,7 @@ class SIWCResponsesTests(unittest.TestCase):
         self.make_infer().validate_source_evidence(recovered, report)
 
 
-    def test_context_recovery_rejects_ambiguous_or_unbounded_windows(self):
+    def test_legacy_helper_context_recovery_rejects_ambiguous_or_unbounded_windows(self):
         cases = (
             ("alpha omega", "alpha beta omega; alpha gamma omega"),
             ("alpha omega", "alpha, omega"),
@@ -965,7 +1070,7 @@ class SIWCResponsesTests(unittest.TestCase):
                 self.assertEqual(recovered["ACL"]["evidence"], evidence)
                 self.assertEqual(result, original)
                 with self.assertRaises(LabelingError):
-                    self.make_infer().validate_source_evidence(recovered, report)
+                    self.make_legacy_helper().validate_source_evidence(recovered, report)
 
         evidence = "alpha omega"
         report = "alpha beta omega; alpha gamma omega"
@@ -979,11 +1084,11 @@ class SIWCResponsesTests(unittest.TestCase):
         )])
         captured = []
         with self.assertRaises(LabelingError) as raised:
-            self.make_infer()(report, on_rejected_evidence=captured.append)
+            self.make_legacy_helper()(report, on_rejected_evidence=captured.append)
         self.assertEqual(raised.exception.cause_code, "evidence_not_grounded")
         self.assertEqual(captured, [evidence])
 
-    def test_fresh_inference_selects_earliest_duplicate_or_overlapping_span(self):
+    def test_legacy_helper_selects_earliest_duplicate_or_overlapping_span(self):
         cases = (
             ("ACL\ntear;", "prefix ACL  tear; then ACL\ttear;", "ACL  tear;"),
             ("A\nA", "A  A A  A", "A  A"),
@@ -1000,7 +1105,7 @@ class SIWCResponsesTests(unittest.TestCase):
                     response=SimpleNamespace(output_text=json.dumps(raw_result)),
                 )])
 
-                result = self.make_infer()(report)
+                result = self.make_legacy_helper()(report)
 
                 self.assertEqual(result["ACL"]["evidence"], expected)
                 self.assertEqual(raw_result, original)
@@ -1008,7 +1113,7 @@ class SIWCResponsesTests(unittest.TestCase):
                     self.assertEqual(result[target]["label"], original[target]["label"])
                     self.assertEqual(result[target]["uncertainty"], original[target]["uncertainty"])
 
-    def test_fresh_inference_recovers_case_and_whitespace_to_earliest_source_span(self):
+    def test_legacy_helper_recovers_case_and_whitespace_to_earliest_source_span(self):
         cases = (
             ("acl TEAR", "prefix ACL tear then AcL TeaR", "ACL tear"),
             ("\u00c1CL\nTear;", "\u00e1cl  TEAR; second \u00c1CL\tTear;", "\u00e1cl  TEAR;"),
@@ -1026,7 +1131,7 @@ class SIWCResponsesTests(unittest.TestCase):
                 )])
                 captured = []
 
-                result = self.make_infer()(report, on_rejected_evidence=captured.append)
+                result = self.make_legacy_helper()(report, on_rejected_evidence=captured.append)
 
                 self.assertEqual(result["ACL"]["evidence"], expected)
                 self.assertEqual(captured, [])
@@ -1035,7 +1140,7 @@ class SIWCResponsesTests(unittest.TestCase):
                     self.assertEqual(result[target]["label"], original[target]["label"])
                     self.assertEqual(result[target]["uncertainty"], original[target]["uncertainty"])
 
-    def test_case_recovery_rejects_lowercase_expansion_and_accent_changes(self):
+    def test_legacy_helper_case_recovery_rejects_lowercase_expansion_and_accent_changes(self):
         cases = (
             ("Stra\u00dfe", "STRASSE", "no_literal_match"),
             ("caf\u00e9", "cafe", "no_literal_match"),
@@ -1052,7 +1157,7 @@ class SIWCResponsesTests(unittest.TestCase):
                 )])
 
                 with self.assertRaises(LabelingError) as raised:
-                    self.make_infer()(report)
+                    self.make_legacy_helper()(report)
 
                 self.assertEqual(raised.exception.evidence_mismatch_kind, mismatch_kind)
 
@@ -1077,7 +1182,7 @@ class SIWCResponsesTests(unittest.TestCase):
                     self.make_infer().validate_source_evidence(result, report)
                 self.assertEqual(raised.exception.evidence_mismatch_kind, "case_only")
 
-    def test_fresh_inference_rejects_partial_token_and_nonwhitespace_changes(self):
+    def test_legacy_helper_rejects_partial_token_and_nonwhitespace_changes(self):
         cases = (
             ("ACL injury", "ACL tear", "no_literal_match"),
             ("ACL-tear", "ACL tear", "no_literal_match"),
@@ -1095,11 +1200,11 @@ class SIWCResponsesTests(unittest.TestCase):
                     response=SimpleNamespace(output_text=json.dumps(raw_result)),
                 )])
                 with self.assertRaises(LabelingError) as raised:
-                    self.make_infer()(report)
+                    self.make_legacy_helper()(report)
                 self.assertEqual(raised.exception.evidence_mismatch_kind, mismatch_kind)
                 self.assertNotIn(evidence, str(raised.exception))
 
-    def test_fresh_inference_keeps_exact_duplicate_substrings_accepted(self):
+    def test_legacy_helper_keeps_exact_duplicate_substrings_accepted(self):
         result = valid_result()
         for target in result.values():
             target["evidence"] = ""
@@ -1109,7 +1214,7 @@ class SIWCResponsesTests(unittest.TestCase):
             response=SimpleNamespace(output_text=json.dumps(result)),
         )])
 
-        accepted = self.make_infer()("ACL tear; then ACL tear")
+        accepted = self.make_legacy_helper()("ACL tear; then ACL tear")
 
         self.assertEqual(accepted["ACL"]["evidence"], "ACL tear")
 
@@ -1132,7 +1237,7 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertEqual(result["ACL"]["evidence"], "ACL\ntear;")
         self.assertEqual(result["MCL"]["evidence"], "missing\ttext")
 
-    def test_runner_preserves_cached_prefix_and_saves_recovered_source_span(self):
+    def test_legacy_helper_runner_preserves_cached_prefix_and_saves_recovered_source_span(self):
         rows = [{
             "StudyInstanceUID": f"synthetic-study-{index}",
             "Report": "ACL  tear with synthetic evidence",
@@ -1168,7 +1273,7 @@ class SIWCResponsesTests(unittest.TestCase):
                 diagnostics_path=journal,
                 project_root=root,
                 subscription_oauth_confirmed=True,
-                infer=self.make_infer(),
+                infer=self.make_legacy_helper(),
             )
             saved = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
 
@@ -1180,8 +1285,8 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertEqual(saved[2]["labels"], expected)
 
     def test_empty_evidence_remains_allowed(self):
-        empty = valid_result()
-        empty["ACL"]["evidence"] = ""
+        empty = valid_wire_result()
+        empty["ACL"]["evidence_id"] = None
         self.client.responses.create.return_value = FakeStream([SimpleNamespace(
             type="response.completed",
             response=SimpleNamespace(output_text=json.dumps(empty)),
@@ -1329,7 +1434,7 @@ class SIWCResponsesTests(unittest.TestCase):
 
         self.assertEqual(count, 1)
 
-    def test_fresh_recovery_uses_boundary_aware_case_and_whitespace_matching(self):
+    def test_legacy_helper_recovery_uses_boundary_aware_case_and_whitespace_matching(self):
         cases = (
             ("acl tear", "prefix: ACL tear. suffix", "ACL tear"),
             ("acl tear.", "(ACL tear.)", "ACL tear."),
@@ -1348,12 +1453,12 @@ class SIWCResponsesTests(unittest.TestCase):
                     response=SimpleNamespace(output_text=json.dumps(raw_result)),
                 )])
 
-                result = self.make_infer()(report)
+                result = self.make_legacy_helper()(report)
 
                 self.assertEqual(result["ACL"]["evidence"], expected)
                 self.assertEqual(raw_result["ACL"]["evidence"], evidence)
 
-    def test_fresh_recovery_and_case_classifier_reject_partial_word_and_expansion_matches(self):
+    def test_legacy_helper_recovery_and_case_classifier_reject_partial_word_and_expansion_matches(self):
         rejected_reports = (
             "xACL tear", "1ACL tear", "_ACL tear", "\u03b1ACL tear",
             "ACL tear2", "ACL tear_", "ACL tear\u0301", "ACL-tear",
@@ -1372,13 +1477,13 @@ class SIWCResponsesTests(unittest.TestCase):
                 )])
 
                 with self.assertRaises(LabelingError) as raised:
-                    self.make_infer()(report)
+                    self.make_legacy_helper()(report)
 
                 self.assertEqual(raised.exception.evidence_mismatch_kind, "no_literal_match")
                 if len(evidence) > 4:
                     self.assertNotIn(evidence, str(raised.exception))
 
-    def test_later_target_failure_is_attributed_after_recovering_earlier_target(self):
+    def test_legacy_helper_later_target_failure_is_attributed_after_recovering_earlier_target(self):
         report = "ACL tear."
         raw_result = valid_result()
         for target in raw_result.values():
@@ -1410,7 +1515,7 @@ class SIWCResponsesTests(unittest.TestCase):
                     diagnostics_path=journal,
                     project_root=root,
                     subscription_oauth_confirmed=True,
-                    infer=self.make_infer(),
+                    infer=self.make_legacy_helper(),
                     rejected_evidence_capture=lambda evidence, offset: captured.append(
                         (evidence, offset)
                     ),

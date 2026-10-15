@@ -331,7 +331,7 @@ def _validate_prompt_boundary(diagnostics_path: Path, *, checkpoint_count: int) 
     if not markers:
         return True
     # This is the complete supported history, not a dynamic prompt registry.
-    revisions = ("c2-literal-evidence-v1", SIWC_PROMPT_VERSION)
+    revisions = ("c2-literal-evidence-v1", "c2-literal-evidence-v2", SIWC_PROMPT_VERSION)
     prior_revision = -1
     prior_offset = 0
     for marker in markers:
