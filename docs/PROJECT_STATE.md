@@ -9,12 +9,17 @@ no report or evidence text is exported. Three deterministic report-grouped folds
 have also been generated from 488 normalized-report groups using group-OR labels
 and seed 42. Writer-side audits preserve both classes for all 12 targets in every
 train/validation split with zero group overlap; independent fold verification is
-pending. See [baseline preparation](BASELINE.md). No training, upload, or Kaggle
-execution has occurred. The earlier BP-01 focused run had eight tests and one
-Windows symlink skip; its full suite outside the restricted sandbox had 261 tests,
-no failures, and two skips. BP-02 writer checks run six focused tests without
-skips; the full suite outside the sandbox ran 267 tests with no failures and two
-skips. Independent fold verification remains pending.
+complete. See [baseline preparation](BASELINE.md). No training, upload, or Kaggle
+execution has occurred. BP-03 adds a bounded raw DICOM reader scaffold and
+synthetic tests; no competition image root or actual image decode has been
+verified, and preprocessing decisions remain pending authorized Kaggle access.
+The BP-03 focused suite passed thirteen tests; the full suite ran 280 tests with
+no failures and two skips, and a synthetic notebook harness decoded one stub
+slice without exposing identifiers. This is harness evidence only, not decoding
+of competition images. The earlier BP-01 focused run had eight tests and one
+Windows symlink skip; its full suite outside the restricted sandbox had 261 tests, no
+failures, and two skips. BP-02 writer checks ran six focused tests without skips;
+the full suite outside the sandbox ran 267 tests with no failures and two skips.
 
 ## Training-readiness audit of 500 silver labels (2026-10-16)
 

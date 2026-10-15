@@ -35,3 +35,29 @@ validation. The private artifact binds to the exact manifest SHA-256 and records
 the group assignments and aggregate class-count audit. This report-similarity
 grouping is a dependency proxy, not proof of patient identity. The step creates
 development folds only; it does not train or evaluate a model or use Gold-58.
+
+## Bounded raw DICOM reader benchmark
+
+`notebooks/baseline_dicom_benchmark.py` is a source-only notebook scaffold for
+measuring raw header access and pixel decoding on a small local sample. Set
+`SOURCE_ROOT`, `PRIVATE_MANIFEST`, and `COMPETITION_IMAGE_ROOT` explicitly in the
+runtime. The expected, configurable image layout is
+`<image-root>/<study-id>/<series-id>/*.dcm`; the reader does not recursively scan
+the corpus. It validates the private manifest, considers the first five studies
+in manifest order by default, and evaluates every listed series for those
+studies. Slice selection is capped per series and ordered by DICOM patient-space
+geometry; missing/non-finite geometry, inconsistent orientation or pixel
+spacing, and duplicate projected slice positions are rejected rather than
+replaced with an instance-number or filename guess. This scaffold does not check
+in-plane position drift or regular inter-slice spacing, and therefore does not
+certify complete geometric consistency.
+
+The benchmark lazily requires already-installed `pydicom` and `numpy`, decodes
+one slice at a time, enforces file/pixel/time bounds, and emits aggregate counts
+only. It rejects symlink/path escapes, UID mismatches, multiframe objects, and
+non-monochrome or inconsistent decoded shapes. Optional compressed-pixel decoder
+failures are categorized without exposing exception text. It does not install
+dependencies, access a network, print IDs or images, normalize pixels, choose an
+orientation policy, train a model, or claim Kaggle runtime compatibility. No
+competition image root or actual pixel decode has been verified yet; those
+checks and any preprocessing decisions remain pending authorized Kaggle access.
