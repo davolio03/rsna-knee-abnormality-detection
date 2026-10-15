@@ -31,6 +31,36 @@ from rsna_knee.labels.subscription import (
 RESPONSES_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_SIWC_MODEL = "gpt-6-luna"
 
+SIWC_PROMPT_VERSION = "c2-literal-evidence-v1"
+_LITERAL_EVIDENCE_INSTRUCTIONS = (
+    "\n\nLiteral evidence serialization (" + SIWC_PROMPT_VERSION + "):\n"
+    "For every relevant evidence passage, copy one contiguous verbatim substring "
+    "of REPORT. Do not join separated passages or omit words inside the excerpt. "
+    "Preserve backslashes, apostrophes, quotation marks, punctuation, numbers, "
+    "spacing and letter case exactly. Do not repair encoding or interpret source "
+    "escape sequences. Do not append a period or other characters. "
+    "Serialize as valid JSON: encode each source backslash as \\\\ and escape "
+    "quotation marks/newlines as JSON requires. JSON escaping is serialization "
+    "only: the JSON-decoded evidence must equal the original source substring. "
+    "Before answering, check that every nonempty JSON-decoded evidence string "
+    "occurs literally in REPORT. The earlier 200-character guidance is a preference, "
+    "not a hard maximum: prefer a concise excerpt around 200 characters. Retain a "
+    "longer literal excerpt when necessary. Do not truncate or rewrite evidence "
+    "merely to fit that preference. This overrides the earlier maximum. Use empty "
+    "evidence only when no relevant supporting or contradicting passage exists. "
+    "Do not use empty evidence to evade copying or validation requirements. "
+    "Keep the existing label, uncertainty definition and output schema unchanged."
+)
+
+
+def build_siwc_prompt(report: str) -> str:
+    """Derive a SIWC-only serialization revision without changing frozen E007."""
+    base = build_candidate_prompt("candidate_2", report)
+    instructions, marker, copied_report = base.partition("\n\nREPORT:\n")
+    if not marker or copied_report != report:
+        raise ValueError("SIWC prompt template is incompatible")
+    return instructions + _LITERAL_EVIDENCE_INSTRUCTIONS + marker + copied_report
+
 
 def safe_provider_diagnostics(error: object) -> str:
     """Format only metadata already covered by the SIWC provider allowlists."""
@@ -437,7 +467,7 @@ class SIWCResponsesInfer:
                     "The requested model is not available to the selected account.",
                     stage="inference", cause_code="model_error",
                 )
-            prompt = build_candidate_prompt("candidate_2", report)
+            prompt = build_siwc_prompt(report)
             stream = client.responses.create(
                 model=self._model,
                 input=[{"role": "user", "content": prompt}],

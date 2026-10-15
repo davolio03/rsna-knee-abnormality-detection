@@ -1,5 +1,9 @@
 # Project State
 
+## Authorized SIWC literal-evidence prompt revision (2026-10-15)
+
+The user authorized a prompt clarification and continuation toward 500 total. D020 adds the SIWC-only `c2-literal-evidence-v1` instructions before REPORT, preserving source characters and separating JSON escaping from decoded evidence. Strict validation and D018 recovery are unchanged; frozen E007/Gold-58 prompts are not modified. A safe idempotent journal boundary will identify the first new-prompt offset (planned: 64); the existing 64 records remain legacy C2. Local implementation is under verification, with independent review and live continuation pending. No provider request or target advancement is claimed for this change. The previous terminal stop below remains historical evidence. See E019.
+
 ## Latest SIWC full-cohort status (2026-10-15)
 
 The bounded run01 checkpoint is stopped at 64/500, with 436 successful records still needed and no active provider process. After D018, auto006 advanced 24 to 26, auto007 advanced 26 to 30, and auto008 advanced 30 to 64; auto009 and auto010 made no further progress. Each invocation exited 2 on source-evidence validation, preserving prior checkpoint entries and private capture history. The two bounded fresh relabels at offset 64 are exhausted. A proposed D019 formatting recovery was abandoned and reverted before any commit or live use: independent review found an unsafe space-before-source-period case, and the actual retained fragment did not meet the proposed conservative guards. The source remains D018-only; see E018 for this negative result. Do not weaken evidence or numeric safeguards, skip the failed study, or accept unsupported clinical output to force 500. Preserve the total-500 scope, prior records, canary, private diagnostics, and provider safeguards. Runtime progress establishes neither label quality nor clinical validity.

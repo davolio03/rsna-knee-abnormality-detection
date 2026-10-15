@@ -22,6 +22,7 @@ from rsna_knee.labels.siwc_auth import (  # noqa: E402
 )
 from rsna_knee.labels.siwc_responses import (  # noqa: E402
     DEFAULT_SIWC_MODEL,
+    SIWC_PROMPT_VERSION,
     SIWCResponsesInfer,
     safe_provider_diagnostics,
 )
@@ -323,6 +324,30 @@ def _bind_cohort_scope(diagnostics_path: Path, output_path: Path, *, limit: int,
     journal.append({"event": "cohort_scope", "limit": limit, "eligible_count": eligible_count})
 
 
+def _validate_prompt_boundary(diagnostics_path: Path, *, checkpoint_count: int) -> bool:
+    """Return whether the current revision needs its one-time cohort marker."""
+    markers = [entry for entry in _read_cohort_journal(diagnostics_path)
+               if entry.get("event") == "prompt_boundary"]
+    if not markers:
+        return True
+    if len(markers) != 1:
+        raise LabelingError("Stored prompt boundary is invalid; refusing to resume.")
+    marker = markers[0]
+    if (set(marker) != {"event", "prompt_version", "start_offset"}
+            or marker.get("prompt_version") != SIWC_PROMPT_VERSION
+            or type(marker.get("start_offset")) is not int
+            or not 0 <= marker["start_offset"] <= checkpoint_count):
+        raise LabelingError("Stored prompt boundary is incompatible; refusing to resume.")
+    return False
+
+
+def _record_prompt_boundary(diagnostics_path: Path, output_path: Path, *,
+                            checkpoint_count: int) -> None:
+    journal = _DiagnosticsJournal(diagnostics_path, REPOSITORY_ROOT.resolve(), output_path)
+    journal.append({"event": "prompt_boundary", "prompt_version": SIWC_PROMPT_VERSION,
+                    "start_offset": checkpoint_count})
+
+
 def run_label_cohort(*, train_csv: Path, gold_exclusions: Path,
                      profile_id: str, model: str,
                      output_path: Path, diagnostics_path: Path,
@@ -378,6 +403,9 @@ def run_label_cohort(*, train_csv: Path, gold_exclusions: Path,
     if cached_ids != expected_prefix:
         raise LabelingError("Existing checkpoint is not a prefix of the requested eligible cohort.")
 
+    needs_prompt_boundary = _validate_prompt_boundary(
+        diagnostics_path, checkpoint_count=len(checkpoint_records),
+    )
     rejected_evidence_capture = None
     if capture_rejected_evidence:
         rejected_evidence_capture = _RejectedEvidenceCapture(REPOSITORY_ROOT)
@@ -392,6 +420,9 @@ def run_label_cohort(*, train_csv: Path, gold_exclusions: Path,
         diagnostics_path, output_path, limit=target_total,
         eligible_count=len(eligible), resume=resume, explicit_limit=limit is not None,
     )
+    if needs_prompt_boundary:
+        _record_prompt_boundary(diagnostics_path, output_path,
+                                checkpoint_count=len(checkpoint_records))
     output.write(f"Eligible non-Gold records: {len(eligible)}.\n")
     output.write(f"Checkpoint records: {len(checkpoint_records)}/{target_total}.\n")
     output.flush()

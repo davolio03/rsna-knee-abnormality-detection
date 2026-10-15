@@ -12,6 +12,8 @@ from openai import OpenAI
 
 from rsna_knee.labels.siwc_responses import (
     SIWCResponsesInfer,
+    build_siwc_prompt,
+    SIWC_PROMPT_VERSION,
     _recover_fresh_boundary_aware_evidence,
     _unique_minimal_context_source_span,
 )
@@ -152,7 +154,6 @@ class SIWCResponsesTests(unittest.TestCase):
 
     def test_real_sdk_serializes_documented_message_array_for_inference(self):
         requests = []
-        expected_prompt = build_candidate_prompt("candidate_2", self.report_canary)
         result_text = json.dumps(valid_result())
 
         def handler(request):
@@ -186,11 +187,49 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertEqual(self.make_sdk_infer(handler)(self.report_canary), valid_result())
         self.assertEqual(len(requests), 1)
         payload = json.loads(requests[0].content)
-        self.assertEqual(payload["input"], [{"role": "user", "content": expected_prompt}])
+        self.assertEqual(len(payload["input"]), 1)
+        sent_prompt = payload["input"][0]["content"]
+        instructions, marker, report = sent_prompt.partition("\n\nREPORT:\n")
+        self.assertEqual(marker, "\n\nREPORT:\n")
+        self.assertEqual(report, self.report_canary)
+        self.assertIn("contiguous verbatim substring", instructions)
+        self.assertIn("JSON-decoded evidence", instructions)
+        self.assertIn("Do not repair encoding", instructions)
         self.assertIsInstance(payload["input"], list)
         self.assertFalse(payload["store"])
         self.assertTrue(payload["stream"])
         self.assertNotIn("system", [item.get("role") for item in payload["input"]])
+
+    def test_siwc_literal_prompt_preserves_source_and_frozen_candidate(self):
+        report = "alpha \\\' beta \"gamma\"\n\nREPORT:\ndelta 2/4"
+        original = build_candidate_prompt("candidate_2", report)
+        revised = build_siwc_prompt(report)
+        instructions, marker, copied = revised.partition("\n\nREPORT:\n")
+        self.assertEqual(copied, report)
+        self.assertEqual(json.loads(json.dumps({"evidence": report}))["evidence"], report)
+        response = valid_result()
+        for item in response.values():
+            item["evidence"] = report
+        self.completed.response.output_text = json.dumps(response)
+        self.assertEqual(self.make_infer()(report), response)
+        self.assertEqual(SIWC_PROMPT_VERSION, "c2-literal-evidence-v1")
+        self.assertIn("Do not append a period", instructions)
+        self.assertIn("Do not join separated passages", instructions)
+        self.assertIn("Do not use empty evidence to evade", instructions)
+        self.assertIn("200-character guidance is a preference, not a hard maximum", instructions)
+        self.assertIn("longer literal excerpt when necessary", instructions)
+        self.assertIn("Do not truncate or rewrite evidence merely to fit", instructions)
+        self.assertNotIn("is at most 200 characters", instructions)
+        base_instructions = original.partition(marker)[0]
+        self.assertTrue(instructions.startswith(base_instructions))
+        self.assertEqual(build_candidate_prompt("candidate_2", report), original)
+        self.assertNotIn("Literal evidence serialization", original)
+        for changed in (report + ".", report.replace("\\", "")):
+            with self.subTest(changed=changed):
+                result = valid_result()
+                result[LABEL_COLUMNS[0]]["evidence"] = changed
+                with self.assertRaises(LabelingError):
+                    SIWCResponsesInfer.validate_source_evidence(result, report)
 
     def _sse_handler(self, events):
         def handler(request):
@@ -365,9 +404,10 @@ class SIWCResponsesTests(unittest.TestCase):
         self.assertEqual(kwargs["model"], "gpt-6-luna")
         self.assertFalse(kwargs["store"])
         self.assertTrue(kwargs["stream"])
-        self.assertEqual(kwargs["input"], [{
-            "role": "user", "content": build_candidate_prompt("candidate_2", self.report_canary),
-        }])
+        self.assertEqual(kwargs["input"][0]["role"], "user")
+        instructions, _, report = kwargs["input"][0]["content"].partition("\n\nREPORT:\n")
+        self.assertEqual(report, self.report_canary)
+        self.assertIn("contiguous verbatim substring", instructions)
         self.assertNotIn("reasoning_effort", kwargs)
 
     def test_requested_model_missing_from_account_fails_before_inference(self):

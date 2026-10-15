@@ -965,6 +965,58 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
                 self.assertEqual(diagnostics_path.read_bytes() if diagnostics_path.exists() else None,
                                  original_journal)
 
+    def test_prompt_boundary_migration_is_idempotent_and_preserves_offset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "data" / "outputs").mkdir(parents=True)
+            path = root / "data" / "outputs" / "diagnostics.jsonl"
+            output_path = root / "data" / "outputs" / "labels.jsonl"
+            with patch.object(cli, "REPOSITORY_ROOT", root):
+                self.assertTrue(cli._validate_prompt_boundary(path, checkpoint_count=64))
+                cli._record_prompt_boundary(path, output_path, checkpoint_count=64)
+                before = path.read_bytes()
+                self.assertFalse(cli._validate_prompt_boundary(path, checkpoint_count=70))
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(json.loads(before), {
+                "event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v1",
+                "start_offset": 64,
+            })
+
+    def test_prompt_boundary_rejects_conflicting_or_malformed_before_auth_or_write(self):
+        valid = {"event": "prompt_boundary", "prompt_version": "c2-literal-evidence-v1",
+                 "start_offset": 0}
+        variants = [[{**valid, "prompt_version": "other"}], [valid, valid],
+                    [{**valid, "start_offset": True}], [{**valid, "start_offset": -1}],
+                    [{**valid, "start_offset": 1}], [{**valid, "extra": "unsafe"}],
+                    [{"event": "prompt_boundary"}]]
+        rows = [{"StudyInstanceUID": "synthetic-0", "Report": "synthetic report",
+                 **{target: "" for target in LABEL_COLUMNS}}]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "data" / "outputs").mkdir(parents=True)
+            path = root / "data" / "outputs" / "diagnostics.jsonl"
+            output_path = root / "data" / "outputs" / "labels.jsonl"
+            output_path.write_text("", encoding="utf-8")
+            for entries in variants:
+                with self.subTest(entries=entries):
+                    path.write_text("".join(json.dumps(x) + "\n" for x in entries), encoding="utf-8")
+                    before = path.read_bytes()
+                    with patch.object(cli, "REPOSITORY_ROOT", root), \
+                            patch.object(cli, "_read_rows", return_value=rows), \
+                            patch.object(cli, "_read_gold_ids", return_value={f"synthetic-gold-{i}" for i in range(58)}), \
+                            patch.object(cli, "_create_authenticator") as auth:
+                        with self.assertRaisesRegex(cli.LabelingError, "prompt boundary"):
+                            cli.run_label_cohort(
+                                train_csv=Path("synthetic.csv"), gold_exclusions=Path("gold.csv"),
+                                profile_id="synthetic-profile", model="gpt-6-luna",
+                                output_path=output_path, diagnostics_path=path,
+                                confirm_siwc_oauth=True, confirm_report_transfer=True,
+                                resume=True, limit=1, output=io.StringIO(),
+                            )
+                    auth.assert_not_called()
+                    self.assertEqual(path.read_bytes(), before)
+                    self.assertEqual(output_path.read_bytes(), b"")
+
     def test_label_all_legacy_resume_requires_explicit_limit_before_journal_write(self):
         gold = {f"synthetic-gold-{index}" for index in range(58)}
         rows = [{"StudyInstanceUID": "synthetic-0", "Report": "synthetic report",
