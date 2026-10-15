@@ -29,6 +29,8 @@ from rsna_knee.labels.subscription import (  # noqa: E402
     MAX_PILOT_RECORDS,
     LabelingError,
     _RejectedEvidenceCapture,
+    _DiagnosticsJournal,
+    _load_records,
     eligible_reports,
     run_pilot,
 )
@@ -261,14 +263,7 @@ def _cohort_paths(output_path: Path, diagnostics_path: Path, *, resume: bool) ->
 
 def _reject_usage_limited_resume(diagnostics_path: Path) -> None:
     """Do not turn a provider usage denial into an automatic retry on resume."""
-    if not diagnostics_path.exists():
-        return
-    try:
-        entries = [json.loads(line) for line in diagnostics_path.read_text(encoding="utf-8").splitlines()]
-    except (OSError, ValueError, json.JSONDecodeError):
-        raise LabelingError("Prior full-cohort diagnostics are invalid; refusing to resume.") from None
-    if not all(isinstance(entry, dict) for entry in entries):
-        raise LabelingError("Prior full-cohort diagnostics are invalid; refusing to resume.")
+    entries = _read_cohort_journal(diagnostics_path)
     usage_denial_codes = {
         "subscription_sharing_usage_limit_exceeded",
         "subscription_sharing_usage_unavailable",
@@ -287,14 +282,57 @@ def _reject_usage_limited_resume(diagnostics_path: Path) -> None:
         )
 
 
+def _read_cohort_journal(diagnostics_path: Path) -> list[dict[str, object]]:
+    if not diagnostics_path.exists():
+        return []
+    try:
+        entries = [json.loads(line) for line in diagnostics_path.read_text(encoding="utf-8").splitlines()]
+    except (OSError, ValueError, json.JSONDecodeError):
+        raise LabelingError("Prior full-cohort diagnostics are invalid; refusing to resume.") from None
+    if not all(isinstance(entry, dict) for entry in entries):
+        raise LabelingError("Prior full-cohort diagnostics are invalid; refusing to resume.")
+    return entries
+
+
+def _validate_cohort_limit(limit: int | None) -> None:
+    if limit is not None and (type(limit) is not int or limit <= 0):
+        raise LabelingError("Cohort limit must be a positive integer.")
+
+
+def _bind_cohort_scope(diagnostics_path: Path, output_path: Path, *, limit: int,
+                       eligible_count: int, resume: bool, explicit_limit: bool) -> None:
+    """Bind the journal to one total-checkpoint target; only legacy journals migrate."""
+    entries = _read_cohort_journal(diagnostics_path)
+    markers = [entry for entry in entries if entry.get("event") == "cohort_scope"]
+    if markers:
+        if len(markers) != 1:
+            raise LabelingError("Stored cohort scope is invalid; refusing to resume.")
+        marker = markers[0]
+        if (set(marker) != {"event", "limit", "eligible_count"}
+                or type(marker.get("limit")) is not int or marker["limit"] <= 0
+                or type(marker.get("eligible_count")) is not int or marker["eligible_count"] <= 0):
+            raise LabelingError("Stored cohort scope is invalid; refusing to resume.")
+        if marker["limit"] != limit or marker["eligible_count"] != eligible_count:
+            raise LabelingError("Requested limit does not match the stored cohort limit.")
+        return
+    if resume and not explicit_limit:
+        raise LabelingError("A legacy cohort resume requires an explicit limit before migration.")
+    # Old run01 journals have no scope marker. A caller may bind them once after
+    # the checkpoint has been proven to be a prefix of the selected eligible rows.
+    journal = _DiagnosticsJournal(diagnostics_path, REPOSITORY_ROOT.resolve(), output_path)
+    journal.append({"event": "cohort_scope", "limit": limit, "eligible_count": eligible_count})
+
+
 def run_label_cohort(*, train_csv: Path, gold_exclusions: Path,
                      profile_id: str, model: str,
                      output_path: Path, diagnostics_path: Path,
                      confirm_siwc_oauth: bool = False,
                      confirm_report_transfer: bool = False,
                      resume: bool = False,
+                     limit: int | None = None,
                      output: TextIO | None = None) -> int:
-    """Run all eligible non-Gold rows in safe, resumable windows of at most 14."""
+    """Run an eligible prefix in resumable windows of at most 14."""
+    _validate_cohort_limit(limit)
     if confirm_siwc_oauth is not True or confirm_report_transfer is not True:
         raise LabelingError(
             "Both explicit SIWC OAuth and report-transfer confirmations are required."
@@ -316,31 +354,64 @@ def run_label_cohort(*, train_csv: Path, gold_exclusions: Path,
     gold_ids = _read_gold_ids(gold_exclusions)
     eligible = eligible_reports(rows, gold_ids=gold_ids)
     output = output or sys.stdout
-    output.write(f"Eligible non-Gold records: {len(eligible)}.\n")
+    target_total = len(eligible) if limit is None else limit
+    if target_total > len(eligible):
+        raise LabelingError("Cohort limit exceeds the eligible non-Gold record count.")
     if not eligible:
-        output.write("No inference was started.\n")
+        output.write("Eligible non-Gold records: 0.\nNo inference was started.\n")
+        output.flush()
         return 0
+
+    checkpoint_records = _load_records(output_path) if resume else []
+    if len(checkpoint_records) > target_total:
+        raise LabelingError("Existing checkpoint exceeds the requested cohort limit.")
+    expected_prefix = [str(row["StudyInstanceUID"]).strip()
+                       for row in eligible[:len(checkpoint_records)]]
+    cached_ids = [record["StudyInstanceUID"] for record in checkpoint_records]
+    if cached_ids != expected_prefix:
+        raise LabelingError("Existing checkpoint is not a prefix of the requested eligible cohort.")
+
+    _bind_cohort_scope(
+        diagnostics_path, output_path, limit=target_total,
+        eligible_count=len(eligible), resume=resume, explicit_limit=limit is not None,
+    )
+    output.write(f"Eligible non-Gold records: {len(eligible)}.\n")
+    output.write(f"Checkpoint records: {len(checkpoint_records)}/{target_total}.\n")
+    output.flush()
 
     # Authentication is constructed only after Gold exclusion and eligibility preflight.
     infer = SIWCResponsesInfer(
         authenticator=_create_authenticator(), profile_id=profile_id, model=model,
     )
-    total = 0
-    for offset in range(0, len(eligible), MAX_PILOT_RECORDS):
-        batch_size = min(MAX_PILOT_RECORDS, len(eligible) - offset)
-        total = run_pilot(
-            rows,
-            gold_ids=gold_ids,
-            max_records=batch_size,
-            skip_records=offset,
-            output_path=output_path,
-            diagnostics_path=diagnostics_path,
-            project_root=REPOSITORY_ROOT,
-            subscription_oauth_confirmed=True,
-            allow_full_cohort_checkpoint=True,
-            infer=infer,
-        )
-    output.write(f"Checkpoint records: {total}.\n")
+    total = len(checkpoint_records)
+    for offset in range(0, target_total, MAX_PILOT_RECORDS):
+        batch_size = min(MAX_PILOT_RECORDS, target_total - offset)
+        try:
+            total = run_pilot(
+                rows,
+                gold_ids=gold_ids,
+                max_records=batch_size,
+                skip_records=offset,
+                output_path=output_path,
+                diagnostics_path=diagnostics_path,
+                project_root=REPOSITORY_ROOT,
+                subscription_oauth_confirmed=True,
+                allow_full_cohort_checkpoint=True,
+                infer=infer,
+            )
+        except (LabelingError, KeyboardInterrupt):
+            try:
+                total = len(_load_records(output_path))
+            except LabelingError:
+                pass
+            output.write(f"Checkpoint records: {total}/{target_total}.\n")
+            output.flush()
+            raise
+        output.write(f"Checkpoint records: {total}/{target_total}.\n")
+        output.flush()
+    if total != target_total:
+        raise LabelingError("Checkpoint did not reach the requested cohort limit.",
+                            stage="checkpoint_validation")
     return 0
 
 
@@ -393,6 +464,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Distinct fresh payload-free diagnostics path.")
     cohort.add_argument("--resume", action="store_true",
                         help="Resume only the matching run using its existing two paths.")
+    cohort.add_argument("--limit", type=int,
+                        help="Total checkpoint target from the eligible prefix, including cached records.")
     cohort.add_argument(
         "--confirm-siwc-oauth", action="store_true", required=True,
         help="Confirm the selected account has granted SIWC plan use.",
@@ -433,6 +506,7 @@ def main(argv: Sequence[str] | None = None, *, output: TextIO | None = None) -> 
                 confirm_siwc_oauth=args.confirm_siwc_oauth,
                 confirm_report_transfer=args.confirm_report_transfer,
                 resume=args.resume,
+                limit=args.limit,
                 output=output,
             )
         return run_label_pilot(

@@ -1,6 +1,10 @@
 # Project State
 
-## Latest SIWC full-cohort run01 status (2026-10-15)
+## Latest SIWC full-cohort status (2026-10-15)
+
+The original unbounded run01 invoked from the launch snapshot below later stopped with exit 2 after 260.41 seconds: 16 started, 15 completed, 1 failed, and 15 checkpoint records. Its safe failure category was `case_only`; this classification does not establish the actual evidence difference or root cause, and no automatic retry occurred. The user separately authorized a total target of 500 including those 15 saved records (at most 485 new successes). The `label-all --limit` implementation caps total checkpoint records, verifies an ordered eligible-prefix before authentication/journal mutation, binds scope in a payload-free journal marker, and flushes `N/target` progress. CLI (41) and Responses (50) focused tests pass; the full suite ran 232 tests with one known Windows child-timeout failure and one skip. Independent review and local commit remain pending. Legacy-resume migration requires an explicit limit. No capped resume has occurred; preserve the existing checkpoint and journal. No label-quality, evidence-relevance, or clinical-validity conclusion follows. See E016 and D014.
+
+## Initial SIWC run01 launch snapshot (2026-10-15; E015)
 
 One explicitly authorized full-cohort `label-all` invocation was launched with a new isolated run01 output and checkpoint; it did not import or resume the canary. At the first safe post-launch inspection, private job metadata reported the process as running, with 3 started, 2 completed, 0 failed, and 2 checkpoint records. This is a launch-time snapshot, not a current-status guarantee. The run targets 4,349 eligible non-Gold rows with sequential windows of 14, zero retries, and checkpointing after each completed case. The prior-runtime estimate of about 29 hours 34 minutes is variable and not a completion promise; sleep or runtime termination may interrupt the managed session. Check observed job status before any separately authorized resume; do not automatically restart an in-flight row. Operational progress does not establish label quality, evidence relevance, or clinical validity. See E015.
 

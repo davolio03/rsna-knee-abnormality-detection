@@ -64,6 +64,16 @@ The example paths are names to select only if they do not exist; choose a new un
 python scripts\siwc_label_reports.py label-all --train-csv "<training-csv-path>" --gold-exclusions "<58-study-exclusion-csv-path>" --profile-id "<profile-id>" --model "gpt-6-luna" --output "data/outputs/siwc-c2-cohort-run01.jsonl" --diagnostics "data/outputs/siwc-c2-cohort-run01-diagnostics.jsonl" --resume --confirm-siwc-oauth --confirm-report-transfer
 ```
 
+For a bounded cohort, `label-all --limit <N>` sets the **total checkpoint target**, including already-saved records; it is not a count of new requests. The runner uses the first `N` rows of the deterministic eligible non-Gold cohort. For example, `--limit 500` means up to 500 saved records total, so a compatible checkpoint with 15 records can add at most 485. A checkpoint over the target or not equal to an ordered prefix of the eligible cohort is rejected before authentication or journal writes. A limit larger than the eligible cohort is also rejected.
+
+The payload-free journal records the selected limit and eligible-cohort count. A legacy resume without a scope marker requires an explicit `--limit` and may bind it once only after checkpoint-prefix validation; subsequent resumes must resolve to the same limit and eligible count. Omitting `--limit` resolves to the full eligible count, so it cannot silently expand a journal previously bound to a smaller target. Progress is flushed as `Checkpoint records: N/target` before authentication and after each completed window. A bounded run is complete only when the checkpoint reaches the requested target; progress does not establish labeling quality.
+
+Example: resume a compatible checkpoint to a total of 500 records, including cached records:
+
+```powershell
+python scripts\siwc_label_reports.py label-all --train-csv "<training-csv-path>" --gold-exclusions "<58-study-exclusion-csv-path>" --profile-id "<profile-id>" --model "gpt-6-luna" --output "data/outputs/siwc-c2-cohort-run01.jsonl" --diagnostics "data/outputs/siwc-c2-cohort-run01-diagnostics.jsonl" --resume --limit 500 --confirm-siwc-oauth --confirm-report-transfer
+```
+
 An interruption during an in-flight request leaves that row uncheckpointed. Explicit resume may submit that one unresolved row again if the provider completed the request but the client did not receive its response; the runner never retries automatically. Do not resume after a provider usage denial.
 
 ## Authorization and privacy boundary
@@ -94,3 +104,5 @@ The flag affects only optional local capture after a fresh rejection; it does no
 - [Models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
 - [Preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
 - [Truststore documentation](https://truststore.readthedocs.io/en/latest/)
+
+Keep the input CSV and Gold-58 exclusions unchanged throughout a run and its resumes. Scope metadata binds the target and eligible count, not a content digest of unsaved rows; an equal-size edit beyond the saved prefix is not detected.
