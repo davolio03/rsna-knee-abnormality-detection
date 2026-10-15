@@ -1,10 +1,14 @@
 # Project State
 
-## Accepted source-fragment selection implementation (2026-10-15)
+## SIWC target reached: 500/500 (2026-10-16)
 
-The user accepted replacing generated evidence quotes with source-fragment selection. D022 adds SIWC v3: the model selects a request-local original-line ID; code copies that exact line into the unchanged saved evidence field before public schema/literal validation. The complete REPORT stays unchanged as context. This avoids fresh free-quote repair, but selecting a literal source line does not establish relevance or clinical validity; one-line reports yield coarse whole-report evidence and the request catalogue duplicates report text. Local verification is underway; independent review and live v3 continuation remain pending. The last audited saved prefix is472/500,28 remaining, with64 legacy,408 v1 and zero v2 accepted rows. No source reports/identifiers are published. See D022/E020; terminal snapshots below are historical, not v3 results.
+The parent-monitored run reached 500 saved non-Gold records using verified v3 source `2a5e9db`. Auto028 advanced 472 to 484 and stopped on an invalid evidence reference; auto029 advanced 484 to 498 and stopped similarly; auto030 advanced 498 to 500 and exited 0. Each invocation preserved its previous checkpoint prefix. The job is completed and no owned provider process remains active. Independent audit passed: 500 unique ordered-prefix records from 4,349 eligible studies, with all 58 Gold studies excluded; all 500 records passed the actual loader and all 6,000 target evidence checks. This is operational completion, not clinical-quality validation.
 
-## Latest SIWC status: stopped at 472/500 (2026-10-15)
+Saved provenance is 64 legacy, 408 v1, zero v2 and 28 v3 records, with prompt boundaries 64/472/472. V3 resolves selected source-line IDs locally before the unchanged public schema/literal guard; it does not establish evidence relevance or label accuracy. Preserve checkpoints, journal and private capture history. No further cohort expansion or provider run is authorized by completing the 500 target. See D022/E020; sections below retain historical snapshots.
+
+Final audit also confirmed the last 28 v3 records contain 258 nonempty exact catalogue-line excerpts and 78 empty evidence fields, with no saved `evidence_id` field. The v3 phase made 30 attempts: 28 completed and 2 evidence failures. Checkpoint/journal and 27 capture archives were hash-stable; the current capture slot is absent and the final process is inactive. Original canary/baseline hashes were not independently reverified.
+
+## Historical SIWC stop: 472/500 (2026-10-15)
 
 The monitored campaign is incomplete: 472 saved non-Gold records, 28 remaining, and no active provider process (parent-confirmed terminal outcome). Version 1 added 408 accepted records after the original 64. Version 2 in source `6a380bd` was attempted three times at offset 472; auto024, auto025 and auto026 each exited 2 on `evidence_not_grounded`, accepting zero additional records. Its two bounded fresh relabels are exhausted. The v2 prompt clarification did not resolve this case; no further speculative prompt change, evidence relaxation or failed-row skip is justified by these results.
 

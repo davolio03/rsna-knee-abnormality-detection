@@ -1,5 +1,17 @@
 # E020 - SIWC source-fragment selection
 
+## Operational outcome (2026-10-16, Europe/Madrid)
+
+- **Status:** Target 500/500 reached with source `2a5e9db`; independent final aggregate audit passed. No active owned provider process; parent job metadata reports completed.
+- **Observed runtime:** auto028: 472 to 484 exited 2 after 180s on `evidence_not_grounded`, with no rejected-quote capture. A bounded fresh resume, auto029: 484 to 498, exited 2 after 240s with the same category and no capture. Auto030: 498 to 500 exited 0 after 60s. These were two invalid source references rejected before acceptance and then resolved in fresh responses; do not infer the actual rejected IDs from the safe category. Prior prefixes were preserved in every invocation according to parent monitoring.
+- **Saved provenance:** 28 new v3 records with locally copied exact source-line evidence; total 500 comprises 64 legacy, 408 v1, zero v2 and 28 v3, with boundaries 64/472/472. Independent final schema/prefix/Gold/provenance audit passed.
+- **Verification:** Responses 65/65, CLI 47/47 and frozen comparison 15/15; independent suites plus 17 invalid-wire probes and 5 valid / 9 invalid-history probes; parent Responses 65 spot check. Full 253: 251 passed, known Windows child-timeout failure and one symlink skip. Compilation/diff checks passed before live use.
+- **Conclusion:** Operational completion for this bounded target; retain source-fragment selection for these results without treating literal grounding as evidence relevance or clinical correctness. No causal quality improvement, per-target metric, training suitability or wider-cohort authorization follows. Preserve prior negative results and all private diagnostic history.
+
+- **Independent final audit:** 500 unique ordered-prefix records from 4,349 eligible studies; all 58 Gold studies excluded. Actual loader accepted all 500 records and all 6,000 target evidence checks passed. Last 28 v3 records: 258 nonempty evidence strings, each an exact original catalogue-line slice, and 78 empty fields; no public `evidence_id`. Boundaries 64/472/472 and mixed provenance confirmed. V3 phase 30 started/28 completed/2 evidence failures; whole journal 531 started/500 completed/31 failed (30 evidence failures, 1 HTTP504), not 531 distinct studies. Checkpoint/journal and 27 capture archives were hash-stable; fixed capture absent, final auto030 exited 0 and its process was absent. Historical prefix metadata: 24 true, 7 missing, none false; missing fields do not prove preservation and original canary/baseline hashes were not independently reverified.
+
+## Implementation setup (historical snapshot; not current run status)
+
 - **Date:** 2026-10-15
 - **Status:** Local implementation; independent verification and live v3 execution pending.
 - **Baseline:** E019, saved prefix472/500,28 remaining;64 legacy,408 v1 and zero accepted v2 records. Source baseline6a380bd; model `gpt-6-luna`, existing SIWC account route, Gold-58 exclusion, ordered prefix and total500 scope retained. Repeated free-text evidence failures motivated a structural generation change rather than another spelling instruction or validation relaxation.
