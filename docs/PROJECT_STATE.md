@@ -5,11 +5,16 @@
 The report-free private cohort manifest is generated and independently checked:
 500 ordered non-Gold studies, 6,000 binary labels, 2,784 series, and prompt-era
 counts 64 legacy / 408 v1 / zero v2 / 28 v3. Five input SHA-256 values match;
-no report or evidence text is exported. See [baseline preparation](BASELINE.md).
-Grouped folds and the DICOM-reader scaffold are next; no training, upload or
-Kaggle execution has occurred. Focused checks: eight tests, one Windows symlink
-skip. Full suite outside the restricted sandbox: 261 tests, no failures, two
-skips; sandboxed temporary-file replacement failures do not reproduce there.
+no report or evidence text is exported. Three deterministic report-grouped folds
+have also been generated from 488 normalized-report groups using group-OR labels
+and seed 42. Writer-side audits preserve both classes for all 12 targets in every
+train/validation split with zero group overlap; independent fold verification is
+pending. See [baseline preparation](BASELINE.md). No training, upload, or Kaggle
+execution has occurred. The earlier BP-01 focused run had eight tests and one
+Windows symlink skip; its full suite outside the restricted sandbox had 261 tests,
+no failures, and two skips. BP-02 writer checks run six focused tests without
+skips; the full suite outside the sandbox ran 267 tests with no failures and two
+skips. Independent fold verification remains pending.
 
 ## Training-readiness audit of 500 silver labels (2026-10-16)
 
