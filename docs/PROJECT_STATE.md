@@ -1,10 +1,16 @@
 # Project State
 
-## Latest SIWC canary window (2026-10-14)
+## Latest SIWC canary status (2026-10-15)
+
+One authorized two-case resume after D012 exited 2 in 39.70 seconds: started 2, completed 1, failed 1. The checkpoint advanced from 12 to 13, and the prior 12 records' byte-line hashes were unchanged. The existing E012 capture artifact remained unchanged; capture opt-in was off, so no new rejected evidence was retained. The failure at eligible offset 13 carried the safe category `case_only`; this static case-fold substring category does not reveal the actual quote or establish its quality. The completed case does not prove D012 recovery executed. The canary remains incomplete at 13 of 14 records, with one failed and none unattempted; no full-cohort run or retry occurred. See E013.
+
+D012 policy and code are unchanged. This bounded result neither validates the E012 full response nor provides evidence that the new whitespace branch ran. No label-quality, evidence-relevance, or clinical-validity conclusion follows.
+
+## Prior SIWC canary window (2026-10-14)
 
 After E011, one authorized bounded run attempted the nine remaining canary cases with capture opt-in. It exited 2 in 143.52 seconds: 8 started, 7 completed, 1 failed, and 1 was not attempted. The checkpoint advanced from five to twelve, with the prior five records unchanged. The failed response at eligible offset 12 emitted `whitespace_only`; one fixed local capture was verified at 143 UTF-8 bytes. A safe in-memory comparison found two normalized substring matches and two identical contiguous-token spans, so no unique source span existed and the unchanged recovery correctly rejected the ambiguity. The conditional full-cohort condition was unmet; `label-all` was not launched. The canary remains incomplete: one failed and one unattempted. This does not establish the cause of E010, generalize to uncaptured responses, or support label-quality/evidence-relevance/clinical-validity claims. The captured fragment remains private local data; manual removal is required when no longer needed. See E012; E008-E011 remain historical records.
 
-As of 2026-10-15, D012 changes only the fresh whitespace-equivalent tie-break: repeated or overlapping exact token spans select the earliest original source substring. Implementation, focused synthetic regression tests, and independent safety verification passed locally. The full suite retains the known Windows child-cleanup failure and one unavailable directory-symlink test. No live rerun occurred, the E012 full response was not revalidated, and the canary remains incomplete.
+Before the later REP-02 resume, D012 changed only the fresh whitespace-equivalent tie-break: repeated or overlapping exact token spans select the earliest original source substring. Implementation, focused synthetic regression tests, and independent safety verification had passed; the full suite retained the known Windows child-cleanup failure and one unavailable directory-symlink test. At that stage no live rerun had occurred and the E012 full response remained unvalidated; see the latest status above for the subsequent bounded resume.
 
 - **Last updated:** 2026-10-15
 - **Current phase:** Phase 1 - Dataset Understanding / EDA
