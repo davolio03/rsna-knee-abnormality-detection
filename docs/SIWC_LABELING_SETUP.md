@@ -96,7 +96,7 @@ An interruption during an in-flight request leaves that row uncheckpointed. Expl
 
 ## Optional rejected-evidence capture
 
-The bounded `label` command supports an explicit `--capture-rejected-evidence` opt-in. It is off by default and unavailable on `label-all`. On the first fresh, schema-valid response rejected by the exact source-evidence guard, the CLI may create the single fixed file `data/private/siwc-rejected-evidence.json`. The JSON object contains only the rejected evidence string and its eligible-row offset; it does not include report text, study identifiers, target names, labels, provider response bodies, or credentials. Cached records, successful responses, and schema/provider failures are not captured.
+The bounded `label` and `label-all` commands support an explicit `--capture-rejected-evidence` opt-in. It is off by default. For `label-all`, an explicit positive `--limit` is required; unbounded capture is rejected. Before the scope journal is written or authentication/request work begins, the CLI prepares and validates the single fixed slot `data/private/siwc-rejected-evidence.json`, refusing if it already exists or is unsafe. On the first fresh, schema-valid response rejected by the exact source-evidence guard, the CLI may create that file. The JSON object contains only the rejected evidence string and its eligible-row offset; it does not include report text, study identifiers, target names, labels, provider response bodies, or credentials. Cached records, successful responses, and schema/provider failures are not captured.
 
 Capture accepts at most 16 KiB of UTF-8 evidence and never truncates. The destination is created exclusively; an existing file or unsafe path (including a symlink/reparse point or alias) is refused, and there is no arbitrary destination option. Capture-write failures do not replace the original validation error or change the checkpoint. Remove the file manually when no longer needed: it is not automatically expired or encrypted, and Git ignore rules are not a privacy or retention control. Treat its evidence as sensitive local data and do not share it.
 
@@ -104,7 +104,7 @@ Capture accepts at most 16 KiB of UTF-8 evidence and never truncates. The destin
 python scripts\siwc_label_reports.py label --train-csv "<training-csv-path>" --gold-exclusions "<58-study-exclusion-csv-path>" --profile-id "<profile-id>" --model "gpt-6-luna" --max-records 1 --confirm-siwc-oauth --confirm-report-transfer --capture-rejected-evidence
 ```
 
-The flag affects only optional local capture after a fresh rejection; it does not relax literal evidence acceptance, authorize report transfer, or permit a retry. No live capture has been exercised.
+For an already bounded cohort resume, the corresponding opt-in is `--resume --limit <N> --capture-rejected-evidence`; the target remains the total checkpoint count, including cached records. Keep the fixed slot absent until the run is ready, and manually preserve any earlier capture before use. Capture write failures do not replace validation failures or change checkpoints. The flag does not relax evidence acceptance, authorize report transfer, or permit a retry. This CLI wiring has only synthetic local coverage; no live capture has been exercised by this change.
 
 ## Official references
 

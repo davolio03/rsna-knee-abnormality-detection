@@ -696,9 +696,117 @@ class SIWCLabelReportsCliTests(unittest.TestCase):
         self.assertEqual([call.kwargs["skip_records"] for call in run_pilot.call_args_list], [0, 14, 28])
         self.assertTrue(all(call.kwargs["allow_full_cohort_checkpoint"] is True
                             for call in run_pilot.call_args_list))
+        self.assertTrue(all(call.kwargs["rejected_evidence_capture"] is None
+                            for call in run_pilot.call_args_list))
         self.assertEqual(len({call.kwargs["output_path"] for call in run_pilot.call_args_list}), 1)
         self.assertEqual(len({call.kwargs["diagnostics_path"] for call in run_pilot.call_args_list}), 1)
         self.assertIn("Eligible non-Gold records: 31", output.getvalue())
+
+    def test_label_all_rejected_capture_requires_explicit_positive_limit(self):
+        with patch.object(cli, "_read_rows") as read_rows:
+            with self.assertRaisesRegex(cli.LabelingError, "requires an explicit positive --limit"):
+                cli.run_label_cohort(
+                    train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                    profile_id="synthetic-profile", model="gpt-6-luna",
+                    output_path=Path("synthetic-output.jsonl"),
+                    diagnostics_path=Path("synthetic-diagnostics.jsonl"),
+                    confirm_siwc_oauth=True, confirm_report_transfer=True,
+                    capture_rejected_evidence=True,
+                )
+        read_rows.assert_not_called()
+
+    def test_label_all_capture_flag_is_explicitly_opt_in_and_bool_is_strict(self):
+        args = [
+            "label-all", "--train-csv", "synthetic.csv", "--gold-exclusions", "synthetic-gold.csv",
+            "--profile-id", "synthetic-profile", "--model", "gpt-6-luna",
+            "--output", "synthetic-output.jsonl", "--diagnostics", "synthetic-diagnostics.jsonl",
+            "--limit", "1", "--confirm-siwc-oauth", "--confirm-report-transfer",
+        ]
+        self.assertFalse(cli.build_parser().parse_args(args).capture_rejected_evidence)
+        self.assertTrue(cli.build_parser().parse_args(args + ["--capture-rejected-evidence"])
+                        .capture_rejected_evidence)
+        with self.assertRaisesRegex(cli.LabelingError, "explicit boolean"):
+            cli.run_label_cohort(
+                train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                profile_id="synthetic-profile", model="gpt-6-luna",
+                output_path=Path("synthetic-output.jsonl"),
+                diagnostics_path=Path("synthetic-diagnostics.jsonl"), limit=1,
+                capture_rejected_evidence=1,
+            )
+
+    def test_label_all_capture_preflights_fixed_slot_before_journal_auth_or_requests(self):
+        rows = [{"StudyInstanceUID": "synthetic-0", "Report": "synthetic report",
+                 **{target: "" for target in LABEL_COLUMNS}}]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = root / "data" / "outputs"
+            outputs.mkdir(parents=True)
+            output_path = outputs / "bounded.jsonl"
+            diagnostics_path = outputs / "bounded-diagnostics.jsonl"
+            capture_path = root / "data" / "private" / "siwc-rejected-evidence.json"
+            capture_path.parent.mkdir(parents=True)
+            capture_path.write_text("SYNTHETIC_EXISTING_CAPTURE", encoding="utf-8")
+            before = capture_path.read_bytes()
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "REJECTED_EVIDENCE_CAPTURE_PATH", capture_path), \
+                    patch.object(cli, "_read_rows", return_value=rows), \
+                    patch.object(cli, "_read_gold_ids", return_value={f"gold-{i}" for i in range(58)}), \
+                    patch.object(cli, "_create_authenticator") as create_auth, \
+                    patch.object(cli, "run_pilot") as run_pilot:
+                with self.assertRaisesRegex(cli.LabelingError, "unsafe or already exists"):
+                    cli.run_label_cohort(
+                        train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                        profile_id="synthetic-profile", model="gpt-6-luna",
+                        output_path=output_path, diagnostics_path=diagnostics_path,
+                        confirm_siwc_oauth=True, confirm_report_transfer=True, limit=1,
+                        capture_rejected_evidence=True,
+                    )
+            create_auth.assert_not_called()
+            run_pilot.assert_not_called()
+            self.assertFalse(diagnostics_path.exists())
+            self.assertEqual(capture_path.read_bytes(), before)
+
+    def test_label_all_capture_forwards_fixed_sink_to_each_window(self):
+        rows = [{"StudyInstanceUID": f"synthetic-{index}", "Report": "synthetic report",
+                 **{target: "" for target in LABEL_COLUMNS}} for index in range(15)]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = root / "data" / "outputs"
+            outputs.mkdir(parents=True)
+            output_path = outputs / "bounded.jsonl"
+            diagnostics_path = outputs / "bounded-diagnostics.jsonl"
+            def run_window(*_args, **kwargs):
+                if kwargs["skip_records"] == 14:
+                    self.assertTrue(kwargs["rejected_evidence_capture"](
+                        "SYNTHETIC_REJECTED_QUOTE", 14
+                    ))
+                return kwargs["skip_records"] + kwargs["max_records"]
+
+            with patch.object(cli, "REPOSITORY_ROOT", root), \
+                    patch.object(cli, "REJECTED_EVIDENCE_CAPTURE_PATH",
+                                 root / "data" / "private" / "siwc-rejected-evidence.json"), \
+                    patch.object(cli, "_read_rows", return_value=rows), \
+                    patch.object(cli, "_read_gold_ids", return_value={f"gold-{i}" for i in range(58)}), \
+                    patch.object(cli, "_create_authenticator", return_value=object()), \
+                    patch.object(cli, "SIWCResponsesInfer", return_value=object()), \
+                    patch.object(cli, "run_pilot", side_effect=run_window) as run_pilot:
+                result = cli.run_label_cohort(
+                    train_csv=Path("synthetic.csv"), gold_exclusions=Path("synthetic-gold.csv"),
+                    profile_id="synthetic-profile", model="gpt-6-luna",
+                    output_path=output_path, diagnostics_path=diagnostics_path,
+                    confirm_siwc_oauth=True, confirm_report_transfer=True, limit=15,
+                    capture_rejected_evidence=True,
+                )
+            self.assertEqual(result, 0)
+            sinks = [call.kwargs["rejected_evidence_capture"] for call in run_pilot.call_args_list]
+            self.assertEqual(len(sinks), 2)
+            self.assertIsNotNone(sinks[0])
+            self.assertIs(sinks[0], sinks[1])
+            self.assertEqual(sinks[0].path, root / "data" / "private" / "siwc-rejected-evidence.json")
+            payload = json.loads(sinks[0].path.read_text(encoding="utf-8"))
+            self.assertEqual(payload, {
+                "evidence": "SYNTHETIC_REJECTED_QUOTE", "eligible_offset": 14,
+            })
 
     def test_label_all_limit_caps_total_checkpoint_and_flushes_per_window(self):
         gold = {f"synthetic-gold-{index}" for index in range(58)}

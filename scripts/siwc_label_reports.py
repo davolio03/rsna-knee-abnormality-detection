@@ -330,9 +330,16 @@ def run_label_cohort(*, train_csv: Path, gold_exclusions: Path,
                      confirm_report_transfer: bool = False,
                      resume: bool = False,
                      limit: int | None = None,
+                     capture_rejected_evidence: bool = False,
                      output: TextIO | None = None) -> int:
     """Run an eligible prefix in resumable windows of at most 14."""
     _validate_cohort_limit(limit)
+    if type(capture_rejected_evidence) is not bool:
+        raise LabelingError("Rejected-evidence capture must be an explicit boolean.")
+    if capture_rejected_evidence and limit is None:
+        raise LabelingError(
+            "Rejected-evidence capture requires an explicit positive --limit."
+        )
     if confirm_siwc_oauth is not True or confirm_report_transfer is not True:
         raise LabelingError(
             "Both explicit SIWC OAuth and report-transfer confirmations are required."
@@ -371,6 +378,16 @@ def run_label_cohort(*, train_csv: Path, gold_exclusions: Path,
     if cached_ids != expected_prefix:
         raise LabelingError("Existing checkpoint is not a prefix of the requested eligible cohort.")
 
+    rejected_evidence_capture = None
+    if capture_rejected_evidence:
+        rejected_evidence_capture = _RejectedEvidenceCapture(REPOSITORY_ROOT)
+        if rejected_evidence_capture.path != REJECTED_EVIDENCE_CAPTURE_PATH:
+            raise LabelingError("Rejected-evidence capture destination is invalid.")
+        if not rejected_evidence_capture.prepare():
+            raise LabelingError(
+                "Rejected-evidence capture slot is unsafe or already exists."
+            )
+
     _bind_cohort_scope(
         diagnostics_path, output_path, limit=target_total,
         eligible_count=len(eligible), resume=resume, explicit_limit=limit is not None,
@@ -398,6 +415,7 @@ def run_label_cohort(*, train_csv: Path, gold_exclusions: Path,
                 subscription_oauth_confirmed=True,
                 allow_full_cohort_checkpoint=True,
                 infer=infer,
+                rejected_evidence_capture=rejected_evidence_capture,
             )
         except (LabelingError, KeyboardInterrupt):
             try:
@@ -467,6 +485,10 @@ def build_parser() -> argparse.ArgumentParser:
     cohort.add_argument("--limit", type=int,
                         help="Total checkpoint target from the eligible prefix, including cached records.")
     cohort.add_argument(
+        "--capture-rejected-evidence", action="store_true",
+        help="Opt in to one bounded local capture of rejected fresh evidence (requires --limit).",
+    )
+    cohort.add_argument(
         "--confirm-siwc-oauth", action="store_true", required=True,
         help="Confirm the selected account has granted SIWC plan use.",
     )
@@ -507,6 +529,7 @@ def main(argv: Sequence[str] | None = None, *, output: TextIO | None = None) -> 
                 confirm_report_transfer=args.confirm_report_transfer,
                 resume=args.resume,
                 limit=args.limit,
+                capture_rejected_evidence=args.capture_rejected_evidence,
                 output=output,
             )
         return run_label_pilot(
