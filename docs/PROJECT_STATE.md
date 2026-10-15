@@ -1,5 +1,16 @@
 # Project State
 
+## Local baseline preparation started (2026-10-16)
+
+The report-free private cohort manifest is generated and independently checked:
+500 ordered non-Gold studies, 6,000 binary labels, 2,784 series, and prompt-era
+counts 64 legacy / 408 v1 / zero v2 / 28 v3. Five input SHA-256 values match;
+no report or evidence text is exported. See [baseline preparation](BASELINE.md).
+Grouped folds and the DICOM-reader scaffold are next; no training, upload or
+Kaggle execution has occurred. Focused checks: eight tests, one Windows symlink
+skip. Full suite outside the restricted sandbox: 261 tests, no failures, two
+skips; sandboxed temporary-file replacement failures do not reproduce there.
+
 ## Training-readiness audit of 500 silver labels (2026-10-16)
 
 The local aggregate audit is complete; see [E021](../experiments/E021_500_study_training_readiness_audit.md). All 500 unique records match the ordered non-Gold eligible prefix, and all 6,000 target items and 4,374 nonempty literal-source citations pass validation. This verifies structure/source integrity, not clinical label correctness or evidence relevance. The cohort is not randomly sampled and contains 64 legacy, 408 v1, zero v2 and 28 v3 records; prompt-era differences are confounded by order.
