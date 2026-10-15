@@ -1,8 +1,10 @@
 # Project State
 
-## SIWC spelling-preservation revision at472 (2026-10-15)
+## Latest SIWC status: stopped at 472/500 (2026-10-15)
 
-Parent-monitored v1 execution advanced the saved non-Gold prefix from64 to472/500. Repeated evidence at472 modified a source word and punctuation; two bounded v1 relabels made no progress. D021 now adds `c2-literal-evidence-v2` spelling/grammar/apparent-typo preservation instructions and a narrow append-only v1?v2 boundary history. Source, frozen Gold-58 Candidate2, labels/model/schema and evidence acceptance remain unchanged. Local verification is in progress; independent review and v2 live continuation are pending. Preserve the original64 legacy records and408 v1 records; expected v2 boundary472 does not yet establish any new saved result. Runtime completion is not clinical-quality evidence. See E019 for revision history.
+The monitored campaign is incomplete: 472 saved non-Gold records, 28 remaining, and no active provider process (parent-confirmed terminal outcome). Version 1 added 408 accepted records after the original 64. Version 2 in source `6a380bd` was attempted three times at offset 472; auto024, auto025 and auto026 each exited 2 on `evidence_not_grounded`, accepting zero additional records. Its two bounded fresh relabels are exhausted. The v2 prompt clarification did not resolve this case; no further speculative prompt change, evidence relaxation or failed-row skip is justified by these results.
+
+Preserve the existing 64 legacy plus 408 v1 records, v1 boundary at 64, v2 boundary at 472 (zero accepted v2 rows), current private rejected-evidence capture and all prior archives. Prefix preservation is reported by parent monitoring; independent final aggregate audit is pending. Frozen Gold-58 prompts, model, labels/schema and D018/strict evidence validation remain unchanged. This is operational evidence, not clinical-quality validation. See D021/E019. The sections below retain historical implementation and run snapshots.
 
 ## Authorized SIWC literal-evidence prompt revision (2026-10-15)
 
