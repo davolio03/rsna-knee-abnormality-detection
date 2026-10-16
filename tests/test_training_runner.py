@@ -86,7 +86,7 @@ class BaselineRunnerTests(unittest.TestCase):
                     self.assertEqual(factory_calls, [])
                     self.assertFalse((root / "new-output").exists())
 
-    def test_cli_preserves_safe_runtime_reason_code_and_gpu_is_explicitly_unvalidated(self):
+    def test_cli_preserves_safe_runtime_reason_code_for_unavailable_gpu(self):
         from scripts.train_baseline import main
 
         with TemporaryDirectory() as temp:
@@ -112,9 +112,48 @@ class BaselineRunnerTests(unittest.TestCase):
             with redirect_stderr(stderr):
                 exit_code = main(["--config", str(config_path), "--execute"])
             self.assertEqual(exit_code, 2)
-            self.assertIn("cuda_not_validated", stderr.getvalue())
+            self.assertIn("cuda_unavailable", stderr.getvalue())
             self.assertNotIn(str(root), stderr.getvalue())
             self.assertFalse(Path(config.output_dir).exists())
+
+
+    def test_cuda_device_requires_available_cuda_and_returns_cuda_device(self):
+        from rsna_knee.training.baseline import TrainingRunError, _check_device
+
+        with mock.patch("torch.cuda.is_available", return_value=False):
+            with self.assertRaises(TrainingRunError) as caught:
+                _check_device("cuda")
+        self.assertEqual(caught.exception.reason_code, "cuda_unavailable")
+        with mock.patch("torch.cuda.is_available", side_effect=RuntimeError("device probe failed")):
+            with self.assertRaises(TrainingRunError) as probe_error:
+                _check_device("cuda")
+        self.assertEqual(probe_error.exception.reason_code, "cuda_unavailable")
+        with mock.patch("torch.cuda.is_available", return_value=True):
+            self.assertEqual(_check_device("cuda"), torch.device("cuda"))
+        self.assertEqual(_check_device("cpu"), torch.device("cpu"))
+
+    def test_cuda_peak_memory_resets_before_work_and_reads_after_synchronizing(self):
+        from rsna_knee.training.baseline import _reset_peak_cuda_memory, _runtime_metadata
+
+        calls = []
+        device = torch.device("cuda")
+        config = self.make_config(Path("."), device="cuda")
+        with mock.patch("torch.cuda.synchronize", side_effect=lambda d: calls.append(("sync", d))), \
+             mock.patch("torch.cuda.reset_peak_memory_stats", side_effect=lambda d: calls.append(("reset", d))), \
+             mock.patch("torch.cuda.max_memory_allocated", side_effect=lambda d: calls.append(("peak", d)) or 123456), \
+             mock.patch("torch.cuda.is_available", return_value=True):
+            _reset_peak_cuda_memory(device)
+            metadata = _runtime_metadata(config, 1.25, device=device)
+        self.assertEqual(calls, [("sync", device), ("reset", device), ("sync", device), ("peak", device)])
+        self.assertEqual(metadata["peak_cuda_memory_bytes"], 123456)
+        self.assertTrue(metadata["cuda_available"])
+
+    def test_cpu_runtime_metadata_keeps_cuda_peak_memory_empty(self):
+        from rsna_knee.training.baseline import _runtime_metadata
+
+        config = self.make_config(Path("."), device="cpu")
+        metadata = _runtime_metadata(config, 0.25, device=torch.device("cpu"))
+        self.assertIsNone(metadata["peak_cuda_memory_bytes"])
 
     def test_overfit_uses_only_bounded_train_subset_and_trains_one_study_per_step(self):
         from rsna_knee.training.baseline import run_training

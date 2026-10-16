@@ -158,22 +158,35 @@ def _seed_everything(seed: int, device_name: str) -> None:
     import numpy as np
     import torch
 
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if device_name == "cuda":
-        torch.cuda.manual_seed_all(seed)
-    torch.use_deterministic_algorithms(True)
-    if hasattr(torch.backends, "cudnn"):
-        torch.backends.cudnn.benchmark = False
+    try:
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if device_name == "cuda":
+            torch.cuda.manual_seed_all(seed)
+        torch.use_deterministic_algorithms(True)
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            if hasattr(torch.backends.cudnn, "allow_tf32"):
+                torch.backends.cudnn.allow_tf32 = False
+        if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul"):
+            torch.backends.cuda.matmul.allow_tf32 = False
+    except (RuntimeError, AttributeError):
+        code = "cuda_determinism_unavailable" if device_name == "cuda" else "determinism_unavailable"
+        raise TrainingRunError(code) from None
 
 
 def _check_device(name: str) -> Any:
     import torch
 
     if name == "cuda":
-        # CUDA determinism has not been validated for this runner; fail closed instead of falling back.
-        raise TrainingRunError("cuda_not_validated")
+        try:
+            available = torch.cuda.is_available()
+        except (RuntimeError, OSError):
+            raise TrainingRunError("cuda_unavailable") from None
+        if not available:
+            raise TrainingRunError("cuda_unavailable")
     return torch.device(name)
 
 
@@ -235,10 +248,24 @@ def _write_json(path: Path, value: Any) -> None:
         raise TrainingRunError("output_write_failed") from None
 
 
-def _runtime_metadata(config: TrainingConfig, elapsed_seconds: float) -> dict[str, Any]:
+def _reset_peak_cuda_memory(device: Any) -> None:
+    """Start a truthful per-run CUDA allocation peak measurement."""
+    if getattr(device, "type", None) == "cuda":
+        import torch
+
+        torch.cuda.synchronize(device)
+        torch.cuda.reset_peak_memory_stats(device)
+
+
+def _runtime_metadata(config: TrainingConfig, elapsed_seconds: float, *, device: Any) -> dict[str, Any]:
     import numpy as np
     import torch
 
+    is_cuda = getattr(device, "type", None) == "cuda"
+    peak_memory = None
+    if is_cuda:
+        torch.cuda.synchronize(device)
+        peak_memory = int(torch.cuda.max_memory_allocated(device))
     return {
         "python_version": platform.python_version(),
         "platform": platform.system(),
@@ -249,7 +276,7 @@ def _runtime_metadata(config: TrainingConfig, elapsed_seconds: float) -> dict[st
         "cuda_available": bool(torch.cuda.is_available()),
         "cuda_runtime_version": torch.version.cuda,
         "elapsed_seconds": float(elapsed_seconds),
-        "peak_cuda_memory_bytes": None,
+        "peak_cuda_memory_bytes": peak_memory,
     }
 
 
@@ -326,6 +353,7 @@ def run_training(
         else:
             model = model_factory(config)
         model = model.to(device)
+        _reset_peak_cuda_memory(device)
         loss_function = torch.nn.BCEWithLogitsLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
         losses_by_step: list[float] = []
@@ -401,7 +429,7 @@ def run_training(
                     "max_slices": config.max_slices,
                 },
                 "input_sha256": {"manifest": manifest_sha256, "folds": folds_sha256},
-                "runtime": _runtime_metadata(config, time.perf_counter() - started),
+                "runtime": _runtime_metadata(config, time.perf_counter() - started, device=device),
                 "row_index_semantics": "zero-based index within this validated fold partition; no study identifiers",
                 "rows": prediction_rows,
             })
@@ -424,7 +452,7 @@ def run_training(
             torch.save(model.state_dict(), config.output_dir / "checkpoint.pt")
         except (OSError, RuntimeError, ValueError):
             raise TrainingRunError("checkpoint_write_failed") from None
-        report["runtime"] = _runtime_metadata(config, time.perf_counter() - started)
+        report["runtime"] = _runtime_metadata(config, time.perf_counter() - started, device=device)
         report["config"] = _safe_config(config)
         report["input_sha256"] = {"manifest": manifest_sha256, "folds": folds_sha256}
         _write_json(config.output_dir / "report.json", report)

@@ -1,5 +1,23 @@
 # Project State
 
+## Kaggle eight-study training package prepared (2026-10-16)
+
+KG-01 enables explicit CUDA selection with availability checks, deterministic
+settings, safe no-fallback errors, and synchronized per-run peak-allocation
+telemetry. CPU behavior remains unchanged. KG-02 adds an import-closed,
+source-allowlisted private package builder, exact manifest/fold hash binding,
+member inventory, and an output-free Kaggle notebook/config for the fixed
+eight-study fold-0 seed-42 overfit. The notebook defaults both GPU probe and
+training off and targets only the previously observed private and competition
+mount roots. The package contains no bytecode, raw images, reports, checkpoints,
+outputs, or credentials. Focused synthetic CPU/package tests passed; these do
+not prove GPU behavior. No package upload, Kaggle execution, real-image fit,
+convergence, or generalization claim has occurred in this preparation.
+
+**Next step:** Parent performs the authorized private dataset update, runs the
+separate GPU numerical probe, and only if it succeeds starts the bounded
+eight-study training run.
+
 ## Provisional local training runner prepared (2026-10-16)
 
 TB-03 now provides a plan-only-by-default CLI and output-free notebook for the

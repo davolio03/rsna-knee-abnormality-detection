@@ -230,8 +230,42 @@ $env:PYTHONPATH = "src"
 `RUN_TRAINING = False`; opening or executing its default cell only validates
 and renders the config. No installation/download cells, hidden checkpoint
 loading, or automatic remote upload are included. Runner tests use synthetic
-CPU tensors only. CUDA execution is explicitly rejected as unvalidated rather
-than silently falling back; the private runtime record includes elapsed seconds
-and reports `peak_cuda_memory_bytes: null` for CPU. No actual cohort fit,
-training-readiness, image-suitability, clinical-performance, or generalization
-evidence is established.
+CPU tensors only. The runner now selects CUDA only when explicitly configured
+and `torch.cuda.is_available()` is true; it fails with a safe reason code before
+output creation otherwise, never falling back to CPU. CUDA deterministic
+algorithms, cuDNN deterministic mode, and TF32-off are configured from the
+requested seed. CUDA telemetry synchronizes before resetting the allocation
+peak and synchronizes again before reading actual peak allocated bytes; CPU
+continues to report `peak_cuda_memory_bytes: null`. These mock checks do not
+establish real GPU execution or deterministic-kernel coverage.
+
+## Eight-study private Kaggle package (KG-01/KG-02; execution pending)
+
+`notebooks/kaggle_eight_study_overfit.ipynb` and
+`configs/kaggle_eight_study_overfit.json` define a separate, output-free private
+Kaggle trial. The notebook defaults both `RUN_GPU_PROBE = False` and
+`RUN_TRAINING = False`; it performs no installation, download, or automatic
+upload. The two mounted roots are explicit and were verified from the existing
+Kaggle setup: the private dataset package and the competition's `train_series`
+root. Manifest and fold files are resolved by bounded matching within the
+private input mount and ambiguity fails closed.
+
+The fixed trial is fold 0, seed 42, overfit mode, at most eight training
+studies, 40 optimizer steps, five epochs, 256-pixel inputs, at most eight slices
+per series, and CUDA only. A synthetic CUDA forward/backward/optimizer probe is
+provided separately from the study run. The scratch architecture and PP-01/02
+preprocessing are unchanged. The package builder uses an explicit source
+allowlist and import closure, includes package initializers and fold-mode
+metrics, binds the private manifest/fold bytes to expected SHA-256 values, and
+writes a member-hash inventory. Reports, evidence, image files, checkpoints,
+outputs, credentials, and bytecode are excluded from the package.
+
+The package at `data/private/kaggle-eight-study-overfit/` is an ignored,
+private-transfer artifact. Its inventory records the complete file membership
+and hashes; the two data hashes are
+`e88c61c22a463737f16951b7c76db03834034aecd1b31dc61b4ce495080b2be2` (manifest)
+and `b82b376b0086201e3364b11a0203b62890e628442075a52ea4a9e09ee0e778ac`
+(folds). Local package and mocked CUDA tests do not prove Kaggle GPU
+availability, CUDA numerical success, real-image decoding, overfit behavior,
+convergence, validation performance, or generalization. Parent-run Kaggle
+execution remains pending; no GPU or real-image fit result is claimed.

@@ -1,0 +1,17 @@
+{
+  "mode": "overfit",
+  "manifest_path": "resolved-from-private-input",
+  "folds_path": "resolved-from-private-input",
+  "image_root": "/kaggle/input/competitions/rsna-knee-abnormality-detection/train_series",
+  "output_dir": "/kaggle/working/kaggle-eight-study-overfit/run01",
+  "fold": 0,
+  "seed": 42,
+  "epochs": 5,
+  "max_steps": 40,
+  "overfit_limit": 8,
+  "output_size": 256,
+  "max_slices": 8,
+  "device": "cuda",
+  "learning_rate": 0.001,
+  "feature_width": 64
+}
