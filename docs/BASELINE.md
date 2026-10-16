@@ -318,7 +318,7 @@ were preserved. The parent will request separate consent before private
 notebook publication. No additional training or full-fold run is authorized by
 this smoke test.
 
-## First full-fold Kaggle baseline prepared; batch not started (2026-10-17)
+## First full-fold Kaggle baseline batch running; results pending (2026-10-17)
 
 `notebooks/kaggle_first_fold_baseline.ipynb` is a clean standalone,
 output-free private batch notebook; `configs/kaggle_first_fold_baseline.json`
@@ -344,7 +344,23 @@ single development fold against provisional silver labels, not clinical truth
 or a final generalization claim. The preparation and fixed hypothesis are
 recorded in [E026](../experiments/E026_kaggle_first_fold_baseline.md).
 
-Local preparation is complete, but no first-fold batch was started here and no
-first-fold results exist yet. Parent review and the authorized private Kaggle
-Save Version -> Save & Run All action remain pending. Preserve the completed
-eight-study evidence in E025 separately.
+The parent verified the private notebook, Version 3 package and competition
+image input, and T4x2 GPU selection (29 hours available at launch). The enabled
+cell was derived from the checked-in code by one exact training-flag replacement;
+the full clipboard cell readback matched SHA-256
+`a8535e7a7752b38509cd7106334cf2346a7658a909e37a09e2344da40b91b3f1`. Save
+Version -> Save & Run All was selected and clicked once. The private notebook
+[version 1](https://www.kaggle.com/code/davidsulleiro/rsna-knee-first-fold-baseline/edit)
+was accepted and observed running as `E026 Fold 0 - 333 train 167 val - 5 epochs`
+on T4x2 at 2026-10-17 01:46 Europe/Madrid (approximately 2026-10-16 23:46:48
+UTC). Execution `359170889` is available in the [private status viewer]
+(https://www.kaggle.com/code/davidsulleiro/rsna-knee-first-fold-baseline?scriptVersionId=359170889).
+The draft session is off; the separate batch is active.
+
+This is only launch evidence. Plan validation, fit completion, metrics, report,
+checkpoint and predictions remain pending; no first-fold result is claimed.
+The single-run authorization is consumed. Do not retry or restart; inspect
+Version 1 read-only and reconcile only the observed outcome. Preserve the
+completed eight-study evidence in E025 separately. The launch screenshot is
+`data/private/kaggle-first-fold-background/batch-running-v1.jpg` (110,768 bytes;
+SHA-256 `a4b1647f7205d394bc0d28a39672d621b733b16b5c05f676c2e4d68c472bc281`).
