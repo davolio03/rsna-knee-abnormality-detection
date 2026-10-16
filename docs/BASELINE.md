@@ -201,10 +201,10 @@ or authorized by this component work.
 `scripts/train_baseline.py` loads the explicit checked-in configuration at
 `configs/baseline_training.json` and is **plan-only unless `--execute` is
 provided**. The plan validates the exact manifest/fold binding and partition
-counts without decoding images or creating output files. The checked-in image
-root deliberately names `data/private/kaggle-input-update-required`: the
-current private dataset Version 2 still needs a local update for training code,
-the fixed folds, and notebook, so this package does not claim remote readiness.
+counts without decoding images or creating output files. At this earlier
+pre-KG-01/02 snapshot, the checked-in image root deliberately named
+`data/private/kaggle-input-update-required` and the private Kaggle package was
+not yet updated; the later bounded private-package fit is documented below.
 
 After updating those explicit private inputs locally, inspect the plan and
 select one of two modes. `overfit` uses only the deterministic first at most 16
@@ -239,7 +239,7 @@ peak and synchronizes again before reading actual peak allocated bytes; CPU
 continues to report `peak_cuda_memory_bytes: null`. These mock checks do not
 establish real GPU execution or deterministic-kernel coverage.
 
-## Eight-study private Kaggle package and probe (KG-01/KG-02 verified; KG-03 blocked before upload)
+## Eight-study private Kaggle fit (KG-01/KG-02 verified; KG-03 smoke test complete)
 
 `notebooks/kaggle_eight_study_overfit.ipynb` and
 `configs/kaggle_eight_study_overfit.json` define a separate, output-free private
@@ -277,9 +277,43 @@ deterministic algorithms were enabled, gradients were finite, BCE loss was
 only that this synthetic GPU path ran; it does not validate the scratch study
 model or DICOM pipeline.
 
-The private dataset update is currently blocked before upload. The Version 2
-New Version dialog cleared its pending selection; the chooser timed out before
-file selection, so no transfer or new version occurred. No real images were
-read and the eight-study fit did not start. Browser troubleshooting advised
-enabling “Allow access to file URLs” for the ChatGPT extension; no permission
-was changed. See [E024](../experiments/E024_kaggle_eight_study_cuda_probe.md).
+The user manually uploaded the private package, which was mounted as Version 3 (24 files).
+Before importing the training package, the ignored launch cell used the pinned
+embedded local inventory to verify all 24 unpacked member hashes, including the
+manifest, folds, config, notebook, and source files. The embedded inventory's
+ZIP SHA-256 is local provenance only; remote ZIP archive bytes were not
+verified. The launch cell is
+`data/private/kaggle-eight-study-overfit/launch_cell.py` (SHA-256
+`2843bee0da1988cf9d59814afac780f46301737f55b1a1e3d6de88f0d390efd8`), and its
+training flag defaults off.
+
+After enabling the flag for the authorized run, a fresh Kaggle GPU kernel
+completed the fixed fold-0/seed-42 overfit configuration: eight training
+studies, five epochs, 40 optimizer steps, 256-pixel inputs, and at most eight
+slices per series. The same bounded training-subset mean BCE decreased from
+`0.6906174942851067` to `0.48356025479733944`; model runtime was
+`83.31482125599996` seconds (`83.430137425` seconds wrapper time), and peak
+CUDA allocation was `222,188,032` bytes. Runtime: Python `3.13.15`, PyTorch
+`2.11.0+cu128`, NumPy `2.1.3`, Linux. Per-step losses included increases, so
+the aggregate endpoint decrease does not establish complete memorization. This
+run has no validation metrics, predictions, AUC, or Gold-58 results and does
+not establish generalization or a strong baseline. The scratch model,
+preprocessing, data split, and fold allocation were unchanged. See
+[E025](../experiments/E025_kaggle_eight_study_overfit.md).
+
+The ID-free private report is preserved at
+`data/private/kaggle-eight-study-overfit/observed-training-run01/report.json`
+(2,336 bytes; SHA-256
+`a2871673660d462a9e6a0d27a50c4dd3ac5f4f9c81300873a7255bbc063cf0e3`); its
+private checkpoint is `checkpoint.pt` (100,087 bytes; SHA-256
+`b09f222057dd8fe8c1886ab3c107e8127264b43450019e4e2367cf6eba38518e`). Parent
+verification confirmed remote and local-download hashes match. The GPU UI
+confirmed the session was stopped. Browser download calls timed out although
+the artifacts were saved; no repeat download was made.
+
+Notebook source and results remain a draft. A Save Version attempt was rejected
+before execution because notebook publication had not been explicitly
+authorized; no save-version operation ran. The prior three dataset versions
+were preserved. The parent will request separate consent before private
+notebook publication. No additional training or full-fold run is authorized by
+this smoke test.

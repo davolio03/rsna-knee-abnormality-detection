@@ -1,6 +1,6 @@
 # Project State
 
-## Kaggle eight-study package and CUDA probe (2026-10-16)
+## Kaggle eight-study overfit completed; no validation or publication (2026-10-17)
 
 KG-01/02 were independently verified and committed locally as `f79c0cb`.
 Verification passed 78 focused tests, the full legacy suite (287 tests run, OK,
@@ -9,26 +9,39 @@ import. KG-01 provides explicit CUDA availability/no-fallback behavior,
 deterministic settings, and synchronized peak-allocation telemetry. KG-02
 provides the allowlisted private package, exact manifest/fold hashes, inventory,
 and disabled-by-default notebook/config. See
-[E024](../experiments/E024_kaggle_eight_study_cuda_probe.md) for the observed
-runtime probe and subsequent upload blocker.
+[E024](../experiments/E024_kaggle_eight_study_cuda_probe.md) for the earlier
+synthetic GPU probe and resolved upload blocker, and
+[E025](../experiments/E025_kaggle_eight_study_overfit.md) for the observed
+bounded fit.
 
-The authorized synthetic CUDA probe passed on Kaggle with PyTorch
+The separate synthetic CUDA probe passed on Kaggle with PyTorch
 `2.11.0+cu128`, CUDA `12.8`, and Tesla T4 hardware: deterministic algorithms
 were enabled, gradients were finite, BCE loss was `0.6535296440124512`, and
-observed peak allocation was `18,198,528` bytes. The UI confirmed the GPU
-session stopped. This is synthetic numerical-runtime evidence only, not a
-scratch study model run or real-image training evidence.
+peak allocation was `18,198,528` bytes. This probe is distinct from the later
+real-image study fit.
 
-KG-03 is **blocked before upload**. The existing private dataset remains at
-Version 2: the New Version dialog cleared its pending selection, but the file
-chooser timed out before any file was selected or transferred. No new dataset
-version, package upload, DICOM access, or eight-study fit occurred. Browser
-troubleshooting advised enabling “Allow access to file URLs” for the ChatGPT
-extension; no permission was changed. The bounded overfit run remains pending.
+KG-03 completed on the private Version 3 package. The mounted package passed
+all embedded-inventory member hashes before model import. A fresh GPU kernel
+completed the predeclared fold-0/seed-42 overfit cap: eight training studies,
+five epochs, 40 optimizer steps, 256-pixel inputs, and at most eight slices per
+series. Mean BCE on that same bounded training subset fell from
+`0.6906174942851067` to `0.48356025479733944`; runtime was `83.31482125599996`
+seconds, and peak CUDA allocation was `222,188,032` bytes. Individual losses
+were not monotonically decreasing. This is a short optimization smoke test, not
+evidence of complete memorization, validation performance, generalization, or
+clinical utility. No validation, predictions, AUC, or Gold-58 evaluation ran.
 
-**Next step:** Resolve the file-chooser access issue with the user, then resume
-the already-authorized private upload. Only after upload can the fixed
-fold-0/seed-42/eight-study/40-step/5-epoch fit be attempted.
+The private report and checkpoint are preserved under ignored
+`data/private/kaggle-eight-study-overfit/observed-training-run01/`; their hashes
+and runtime are recorded in E025. The GPU session was confirmed off. Notebook
+source/results remain a draft: the attempted Save Version action was rejected
+before execution because publication was not explicitly authorized; no save-
+version operation ran and the prior three dataset versions remain preserved.
+The parent will seek separate consent before private notebook publication.
+
+**Next step:** No further training or full-fold work is authorized by this
+smoke test. Obtain separate authorization before any new validation/full-fold
+run or notebook publication.
 
 ## Provisional local training runner prepared (2026-10-16)
 
@@ -49,9 +62,9 @@ independent verification passed 73 focused tests; see
 [baseline runner details](BASELINE.md#local-training-runner-tb-03-provisional).
 
 **Historical next step at that time:** Prepare the private Kaggle package and
-validate GPU execution. The package and synthetic GPU probe are now complete;
-current upload blocker and remaining fit work are recorded in the status section
-at the top of this document.
+validate GPU execution. KG-01/02, the synthetic GPU probe, and the bounded KG-03
+fit are now complete; the current evidence and remaining authorization boundary
+are recorded in the status section at the top of this document.
 
 ## Reusable trainable components prepared (2026-10-16)
 
