@@ -1,29 +1,49 @@
 # Project State
 
-## Five-study preprocessing pilot prepared; execution pending (2026-10-16)
+## Five-study Kaggle preprocessing pilot completed (2026-10-16)
+
+The authorized CPU run completed PP-02/PP-01 preprocessing for the first five
+manifest studies: 30/30 listed series succeeded, scanning 1,067 headers and
+selecting 240 slices (eight per series). Every tensor was finite, shaped
+`(8, 1, 256, 256)`, and within `[0, 1]`; there were zero failed series and zero
+failure placeholders. The parent directly inspected the original 30-series
+processed-image/mask montage and observed recognizable knees across views with
+no blank panels. This is bounded observed pilot evidence, not independent live
+rerun, raw-image comparison, anatomical/clinical accuracy, full-series or codec
+coverage, offline compatibility, or training readiness. Series indices 9 and
+10 had validity masks with 84.375% valid area and letterbox margins; the other
+28 masks were fully valid all-white validity fields. These masks encode valid
+pixels, not segmentation labels. See [E023](../experiments/E023_kaggle_five_study_preprocessing_pilot.md).
+
+The UI-confirmed notebook source was saved as Quick Version 3, titled
+“Five-study preprocessing pilot - observed success”; the two prior versions
+were preserved. Quick Save confirmed source, not retained remote outputs, and no
+additional run was made to save results. The parent stopped the session and
+the UI confirmed the CPU session was off. The downloaded ID-free aggregate
+report and montage are preserved under ignored
+`data/private/kaggle-five-study-preprocessing/observed-run01/`. The report's
+locally verified SHA-256 is
+`94c944300cc3d9569fe1c85269c49d75b059211984a4afbf57f90956675b11ae`.
+
+The Kaggle environment was CPU-only (`accelerator=None`), with internet left
+enabled; this is not an offline test. No package install, training, labeling,
+Gold-58 use, new-cohort traversal, or public publication occurred. Editor
+recovery succeeded without security changes; the original cause of the earlier
+editor failure remains unknown.
+
+**Next step:** Review E023 and decide whether to pursue additional authorized
+preprocessing validation before any separate training smoke-test decision.
+
+## Five-study preprocessing pilot prepared (2026-10-16)
 
 The bounded harness in `src/rsna_knee/data/preprocessing_pilot.py` and its five
 synthetic tests are independently verified. Focused suites passed 5 pilot,
 18 adapter and 25 PP-01 tests; full project suite passed outside the restricted
 sandbox (283 tests, zero failures, five skips). The original manifest is unchanged.
 
-The authorized browser upload created **Version 2** of the existing private
-[reader dataset](https://www.kaggle.com/datasets/davidsulleiro/rsna-knee-five-study-reader-private),
-confirmed as Private with 17 files. Its audited transfer ZIP is 169,038 bytes,
-SHA-256 `0352b8504d253e69a2c6a078384dfcf1b1b8ee2d5de14e031863efa181c1e79b`.
-The output-free pilot notebook is local under ignored
-`data/private/kaggle-five-study-preprocessing/`; it has NOT been imported remotely.
-
-**Blocker:** The existing notebook editor remains at `Loading Editor`, with
-Import Notebook, Run All and Start session disabled, including after reload and
-a fresh tab. No preprocessing run, image inspection, session start, dependency
-installation or training occurred. This is not a successful real-image experiment.
-The two previous saved reader notebook versions remain unchanged.
-
-**Next step:** Recover the
-[notebook editor](https://www.kaggle.com/code/davidsulleiro/rsna-knee-five-study-dicom-reader/edit),
-attach dataset Version 2, import the prepared notebook, run the authorized five
-studies/all 30 series with at most eight slices each, and inspect the results.
+The private dataset Version 2 and output-free transfer package were prepared
+and independently audited before the successful follow-up pilot above. See
+E023 for the final observed result and evidence limits.
 
 ## Explicit DICOM-to-PP-01 adapter (PP-02; 2026-10-16)
 

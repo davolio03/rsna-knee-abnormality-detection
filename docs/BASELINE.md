@@ -129,3 +129,18 @@ Independent PP-02 verification passed. The full project suite outside the
 restricted sandbox passed: 282 tests, zero failures, four skips. The optional
 image suites execute in the bundled runtime; they are skipped in the project
 venv when NumPy/Pillow are unavailable.
+
+### Bounded five-study preprocessing observation
+
+The separately authorized CPU Kaggle pilot then ran this adapter with PP-01 on
+the first five manifest studies and all 30 listed series. It scanned 1,067
+headers, selected eight slices per series (240 total), and completed all 30
+series without failure. Every output was finite, shaped `(8, 1, 256, 256)`, and
+within `[0, 1]`. The parent visually inspected the original 30-series processed
+image/mask montage: no blank panels and recognizable knees across views. Series
+indices 9 and 10 had validity masks with 84.375% valid area and letterbox
+margins; the other 28 masks were fully valid all-white validity fields. These
+masks encode valid pixels, not segmentation labels. These are
+observations from a bounded pilot, not raw-image comparisons, anatomical or
+clinical accuracy, full-series/codec coverage, offline evidence, or training
+readiness. See [E023](../experiments/E023_kaggle_five_study_preprocessing_pilot.md).
