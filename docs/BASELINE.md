@@ -58,6 +58,9 @@ only. It rejects symlink/path escapes, UID mismatches, multiframe objects, and
 non-monochrome or inconsistent decoded shapes. Optional compressed-pixel decoder
 failures are categorized without exposing exception text. It does not install
 dependencies, access a network, print IDs or images, normalize pixels, choose an
-orientation policy, train a model, or claim Kaggle runtime compatibility. No
-competition image root or actual pixel decode has been verified yet; those
-checks and any preprocessing decisions remain pending authorized Kaggle access.
+orientation policy, or train a model. A bounded CPU Kaggle run has now verified
+the configured competition mount and decoded 240 slices across 30 series from
+the first five manifest studies, with zero observed decode failures. This small
+parent-observed pilot does not verify full-series or full-cohort coverage,
+offline compatibility, complete geometry, preprocessing, or training
+readiness; see [E022](../experiments/E022_kaggle_five_study_dicom_reader.md).

@@ -1,6 +1,6 @@
 # Project State
 
-## Local baseline preparation started (2026-10-16)
+## Local baseline and bounded real-image pilot (2026-10-16)
 
 The report-free private cohort manifest is generated and independently checked:
 500 ordered non-Gold studies, 6,000 binary labels, 2,784 series, and prompt-era
@@ -9,10 +9,13 @@ no report or evidence text is exported. Three deterministic report-grouped folds
 have also been generated from 488 normalized-report groups using group-OR labels
 and seed 42. Writer-side audits preserve both classes for all 12 targets in every
 train/validation split with zero group overlap; independent fold verification is
-complete. See [baseline preparation](BASELINE.md). No training, upload, or Kaggle
-execution has occurred. BP-03 adds a bounded raw DICOM reader scaffold and
-synthetic tests; no competition image root or actual image decode has been
-verified, and preprocessing decisions remain pending authorized Kaggle access.
+complete. See [baseline preparation](BASELINE.md). BP-03 adds a bounded raw
+DICOM reader scaffold and synthetic tests. After the historical local-only
+snapshot below was written, an authorized private Kaggle CPU pilot mounted the
+competition input and decoded 240 slices from 30 series across the first five
+manifest studies, with zero observed decode failures. This is parent-observed
+draft-cell evidence, not an independent live rerun, full-series check, or
+full-cohort readiness claim; see [E022](../experiments/E022_kaggle_five_study_dicom_reader.md).
 The BP-03 focused suite passed thirteen tests; the full suite ran 280 tests with
 no failures and two skips, and a synthetic notebook harness decoded one stub
 slice without exposing identifiers. This is harness evidence only, not decoding
@@ -20,6 +23,11 @@ of competition images. The earlier BP-01 focused run had eight tests and one
 Windows symlink skip; its full suite outside the restricted sandbox had 261 tests, no
 failures, and two skips. BP-02 writer checks ran six focused tests without skips;
 the full suite outside the sandbox ran 267 tests with no failures and two skips.
+
+**Next step:** Define and validate a preprocessing/geometry policy, then
+separately authorize an overfit smoke test or training. The five-study decode
+does not resolve complete geometric consistency, codec coverage, full-cohort
+runtime, or label quality.
 
 ## Training-readiness audit of 500 silver labels (2026-10-16)
 
