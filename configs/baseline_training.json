@@ -1,0 +1,17 @@
+{
+  "mode": "overfit",
+  "manifest_path": "data/private/500-study-training-cohort.json",
+  "folds_path": "data/private/500-study-training-folds.json",
+  "image_root": "data/private/kaggle-input-update-required",
+  "output_dir": "data/private/baseline-training-preparation/run01",
+  "fold": 0,
+  "seed": 42,
+  "epochs": 1,
+  "max_steps": 20,
+  "overfit_limit": 8,
+  "output_size": 256,
+  "max_slices": 8,
+  "device": "cpu",
+  "learning_rate": 0.001,
+  "feature_width": 64
+}

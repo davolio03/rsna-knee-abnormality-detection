@@ -1,5 +1,27 @@
 # Project State
 
+## Provisional local training runner prepared (2026-10-16)
+
+TB-03 now provides a plan-only-by-default CLI and output-free notebook for the
+fixed fold-bound scratch baseline. The public runner revalidates dataclass
+instances so `dataclasses.replace` cannot bypass configured bounds. Bounded
+overfit is train-only and reports start/end loss on the same at-most-16-study
+subset. Single-fold mode uses the complete selected train/validation partitions
+unless an explicit step
+cap is recorded as partial. Private outputs include a state-dict checkpoint,
+an ID-free report, and fold-mode predictions keyed only by partition row index.
+Synthetic runner and existing training/preprocessing suites passed 73 tests in
+the isolated runtime. These tests did not decode competition images or fit on
+the cohort. The checked-in config still points to an update-required private
+image root because dataset Version 2 does not yet include the folds/training
+package/notebook; local inputs must be updated before the plan can validate.
+CUDA is explicitly unsupported pending deterministic GPU validation.
+Independent verification and parent spotcheck passed: 73 focused tests without skips; the legacy full suite ran 285 tests successfully with 7 explicit optional skips. See
+[baseline runner details](BASELINE.md#local-training-runner-tb-03-provisional).
+
+**Next step:** Prepare the updated private Kaggle input package, then validate GPU execution and a small real-image overfit run under separate authorization. Do not claim
+dataset/remote readiness or run an actual cohort fit from this preparation.
+
 ## Reusable trainable components prepared (2026-10-16)
 
 TB-02 adds a fold-bound lazy study dataset, a provisional scratch study-level

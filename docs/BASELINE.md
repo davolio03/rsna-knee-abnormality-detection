@@ -192,5 +192,46 @@ if any target is undefined.
 
 Synthetic CPU forward/backward and metric tests do not demonstrate model
 quality, training convergence, real-image suitability, or generalization. No
-competition data was loaded by these tests. The training loop and single-fold
-runner remain pending; no actual fit is authorized by this component work.
+competition data was loaded by these tests. The runner and single-fold path are
+now available for explicit local execution, but no actual cohort fit is claimed
+or authorized by this component work.
+
+## Local training runner (TB-03; provisional)
+
+`scripts/train_baseline.py` loads the explicit checked-in configuration at
+`configs/baseline_training.json` and is **plan-only unless `--execute` is
+provided**. The plan validates the exact manifest/fold binding and partition
+counts without decoding images or creating output files. The checked-in image
+root deliberately names `data/private/kaggle-input-update-required`: the
+current private dataset Version 2 still needs a local update for training code,
+the fixed folds, and notebook, so this package does not claim remote readiness.
+
+After updating those explicit private inputs locally, inspect the plan and
+select one of two modes. `overfit` uses only the deterministic first at most 16
+training-partition studies (default 8), caps optimization at 40 steps (default
+20), and compares initial/final loss on exactly that same subset. It never
+constructs or evaluates a validation dataset and produces no AUC. `fold` trains
+on the complete selected training partition by default (one epoch), evaluates
+the complete fixed validation partition, and writes all 12 per-target AUCs,
+macro AUC, missing-class targets, and private per-row labels/probabilities.
+An explicit `max_steps` cap in fold mode is reported as partial training, never
+as a full-epoch result. Outputs require a new private directory and include
+only a state-dict checkpoint, a JSON report, and (fold mode only) JSON
+validation predictions indexed by partition row, without study identifiers.
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv-training\Scripts\python.exe scripts\train_baseline.py
+# After updating private inputs, inspect the plan above before an explicit fit:
+.\.venv-training\Scripts\python.exe scripts\train_baseline.py --execute
+```
+
+`notebooks/baseline_training.ipynb` is output-free and keeps
+`RUN_TRAINING = False`; opening or executing its default cell only validates
+and renders the config. No installation/download cells, hidden checkpoint
+loading, or automatic remote upload are included. Runner tests use synthetic
+CPU tensors only. CUDA execution is explicitly rejected as unvalidated rather
+than silently falling back; the private runtime record includes elapsed seconds
+and reports `peak_cuda_memory_bytes: null` for CPU. No actual cohort fit,
+training-readiness, image-suitability, clinical-performance, or generalization
+evidence is established.
