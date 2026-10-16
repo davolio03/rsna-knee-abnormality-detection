@@ -144,3 +144,28 @@ masks encode valid pixels, not segmentation labels. These are
 observations from a bounded pilot, not raw-image comparisons, anatomical or
 clinical accuracy, full-series/codec coverage, offline evidence, or training
 readiness. See [E023](../experiments/E023_kaggle_five_study_preprocessing_pilot.md).
+
+## Isolated CPU training runtime
+
+The first trainable baseline uses a separate ignored `.venv-training` so the
+project's existing `.venv` is not changed. Create it with the repository Python
+and install binary wheels only from the official CPU PyTorch index and explicit
+PyPI index:
+
+```powershell
+.\.venv\Scripts\python.exe -m venv .venv-training
+.\.venv-training\Scripts\python.exe -m pip install --isolated --use-feature=truststore --only-binary=:all: --index-url https://download.pytorch.org/whl/cpu torch
+.\.venv-training\Scripts\python.exe -m pip install --isolated --use-feature=truststore --only-binary=:all: --index-url https://pypi.org/simple -r requirements-images.txt
+```
+
+Do not install `torchvision`, `torchaudio`, or Lightning for this scratch-model
+runtime. `--use-feature=truststore` makes pip use Windows' system certificate
+store while retaining TLS verification; do not replace it with a trusted-host
+or certificate-verification bypass. The verified runtime on 2026-10-16 resolved
+to PyTorch `2.14.1+cpu`, NumPy `2.4.6`, Pillow `12.3.0`, and pydicom `3.0.2`.
+`pip check` reported no broken requirements. A local CPU autograd smoke check
+confirmed `torch.version.cuda is None`, CUDA unavailable, and finite nonzero
+gradients. The PP-01, PP-02, and five-study preprocessing test modules passed
+(25, 18, and 5 tests respectively). This verifies the environment and existing
+synthetic/pilot suites, not model training, full-cohort behavior, or clinical
+performance. The existing `.venv` configuration hash remained unchanged.

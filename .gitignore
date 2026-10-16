@@ -1,5 +1,6 @@
 # Ignore local environments, credentials, and editor state.
 .venv/
+.venv-training/
 venv/
 env/
 __pycache__/
