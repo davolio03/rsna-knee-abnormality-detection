@@ -64,3 +64,37 @@ the first five manifest studies, with zero observed decode failures. This small
 parent-observed pilot does not verify full-series or full-cohort coverage,
 offline compatibility, complete geometry, preprocessing, or training
 readiness; see [E022](../experiments/E022_kaggle_five_study_dicom_reader.md).
+
+## PP-01 decoded-array preprocessing prototype
+
+`src/rsna_knee/data/preprocessing.py` defines a local-only contract for raw
+decoded 2D monochrome arrays. The caller must supply the slices already in
+geometric order and provide explicit photometric interpretation, optional
+paired rescale slope/intercept, optional stored-value pixel padding metadata,
+and optional pixel spacing. Arrays must be finite, real-valued, and same-shaped
+within a series; boolean/string intensity metadata, non-finite padding values,
+and unrepresentable normalization ranges fail closed. Integer stored pixels and
+integer padding tags are limited to ±2^53 so conversion to the prototype's
+float64 intensity domain cannot collapse distinct stored values; percentile
+arguments must be real numerics, not booleans. The prototype selects at most eight unique slices
+with both endpoints, masks explicit padding before rescaling, and rejects
+unsupported Modality LUTs and inconsistent per-series shape, spacing, or
+photometric metadata. It applies one provisional linear 1st/99th-percentile
+range to valid pixels across selected slices within that series, handles
+MONOCHROME1 explicitly, then bilinear-resizes and letterboxes to a pixel-space
+aspect-preserving square. Output is float32 `(K, 1, 256, 256)` by default,
+alongside a boolean validity mask and ID-free JSON-serializable transforms.
+Bilinear resizing uses normalized mask-weighted interpolation so tagged padding
+does not attenuate neighboring valid intensities.
+
+These choices are engineering defaults, not tuned or clinically validated
+preprocessing. Pixel spacing is retained as metadata; no physical resampling,
+DICOM file adapter, orientation policy, ROI, augmentation, or training path is
+included. `NumPy` and `Pillow` are optional image dependencies listed in
+`requirements-images.txt`; sampling can be imported without them. The focused
+synthetic suite was executed with bundled Python 3.12.14 (NumPy 2.3.5, Pillow
+12.3.0): 25 focused tests passed after strict input validation and padding-edge
+interpolation fixes. The project venv explicitly skipped this
+optional-dependency suite; the full project suite passed outside the restricted
+sandbox (281 run, three skips). Independent verification passed, including numerical edge-case probes. Actual
+competition-image preprocessing remains pending.

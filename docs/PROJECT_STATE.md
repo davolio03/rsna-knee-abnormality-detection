@@ -1,5 +1,28 @@
 # Project State
 
+## Decoded-array preprocessing prototype (2026-10-16)
+
+PP-01 now has a versioned local prototype for already-decoded monochrome arrays,
+plus synthetic numerical coverage for sampling, per-series intensity handling,
+padding, MONOCHROME1 inversion, and pixel-space letterboxing. The prototype
+rejects unsafe real-numeric inputs and uses mask-weighted bilinear interpolation
+at padding edges. Integer raw pixels and padding tags outside ±2^53 are rejected
+before float64 conversion; boolean percentile parameters are rejected. All 25
+focused synthetic tests pass under bundled Python
+3.12.14 with NumPy 2.3.5 and Pillow 12.3.0. The full suite passed outside the
+restricted sandbox (281 tests, three skips). This is not evidence
+that the choices are appropriate for competition images: percentiles, resolution,
+and slice cap remain provisional. Independent verification passed; actual-image
+validation remains pending. The prototype does not integrate with the raw DICOM
+reader, train a model, access images, or establish clinical validity. See
+[PP-01 details](BASELINE.md#pp-01-decoded-array-preprocessing-prototype) and
+[D024](DECISIONS.md#d024--keep-baseline-decoded-array-preprocessing-provisional).
+
+**Next step:** Integrate the decoded-array adapter and separately validate the
+preprocessing contract on authorized representative images before deciding
+whether the baseline can advance to a training smoke test. Do not interpret the
+synthetic tests as image-quality, clinical, or model-performance evidence.
+
 ## Local baseline and bounded real-image pilot (2026-10-16)
 
 The report-free private cohort manifest is generated and independently checked:
