@@ -98,3 +98,34 @@ interpolation fixes. The project venv explicitly skipped this
 optional-dependency suite; the full project suite passed outside the restricted
 sandbox (281 run, three skips). Independent verification passed, including numerical edge-case probes. Actual
 competition-image preprocessing remains pending.
+
+## PP-02 explicit DICOM series adapter
+
+`src/rsna_knee/data/dicom_preprocessing.py` adds an explicit local adapter for
+one caller-selected series directory. It scans direct `.dcm` headers, reuses
+the raw reader's patient-space projection geometry, rejects missing or
+inconsistent orientation/spacing/layout and duplicate projected positions,
+then uniformly selects up to eight geometrically ordered slices before pixel
+decode. `max_slices=1` means the first slice in ascending projected position.
+Only monochrome single-frame images are accepted. Paired rescale values and
+padding-range metadata are converted to finite native numeric values; partial
+rescale metadata, orphan padding range limits, and Modality LUT sequences are
+rejected rather than guessed. Each decoded array and its header geometry must
+agree before the unchanged PP-01 transform runs. Integer padding is checked
+before float conversion; rescale/padding metadata must also match the scanned
+header before pixel access.
+
+The result contains PP-01 images, validity masks, transform metadata and
+ID-free counts/selected projected positions; it does not expose file paths,
+instance identifiers, or decoder exception text. Pydicom remains a lazy
+optional dependency; the callable `dcmread` seam supports synthetic tests.
+Eighteen synthetic adapter tests passed with real NumPy/Pillow PP-01 numerical
+processing, and the 25 PP-01 regression tests passed under bundled Python
+3.12.14. These tests do not establish pydicom codec compatibility, actual
+competition-image behavior, image quality, or training readiness. No image
+files were read and no dependencies were installed for this change.
+
+Independent PP-02 verification passed. The full project suite outside the
+restricted sandbox passed: 282 tests, zero failures, four skips. The optional
+image suites execute in the bundled runtime; they are skipped in the project
+venv when NumPy/Pillow are unavailable.

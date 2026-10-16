@@ -1,5 +1,25 @@
 # Project State
 
+## Explicit DICOM-to-PP-01 adapter (PP-02; 2026-10-16)
+
+PP-02 now provides an explicit-path DICOM series adapter that reuses the raw
+reader's patient-space ordering geometry, validates header and decoded layout,
+selects at most eight uniformly spaced slices before decode, and passes native
+numeric metadata and decoded arrays to PP-01. Its result reports ID-free counts,
+projected slice positions, tensors, masks, and transforms. The synthetic adapter
+suite and PP-01 regressions pass under bundled Python with real NumPy/Pillow
+processing; pydicom is not installed, so tests inject synthetic datasets. No
+competition images were accessed and codec compatibility, image quality,
+actual-image policy, and training readiness remain unverified. See
+[PP-02 details](BASELINE.md#pp-02-explicit-dicom-series-adapter).
+
+**Verification:** Independent verification passed: 18 adapter tests and 25 PP-01
+regressions; full project suite outside sandbox: 282 tests, zero failures, four
+skips (optional dependencies/platform conditions).
+
+**Next step:** Run a separately authorized bounded Kaggle preprocessing pilot
+and visually inspect representative images before any training smoke test.
+
 ## Decoded-array preprocessing prototype (2026-10-16)
 
 PP-01 now has a versioned local prototype for already-decoded monochrome arrays,
