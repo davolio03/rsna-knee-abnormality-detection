@@ -1,5 +1,30 @@
 # Project State
 
+## Five-study preprocessing pilot prepared; execution pending (2026-10-16)
+
+The bounded harness in `src/rsna_knee/data/preprocessing_pilot.py` and its five
+synthetic tests are independently verified. Focused suites passed 5 pilot,
+18 adapter and 25 PP-01 tests; full project suite passed outside the restricted
+sandbox (283 tests, zero failures, five skips). The original manifest is unchanged.
+
+The authorized browser upload created **Version 2** of the existing private
+[reader dataset](https://www.kaggle.com/datasets/davidsulleiro/rsna-knee-five-study-reader-private),
+confirmed as Private with 17 files. Its audited transfer ZIP is 169,038 bytes,
+SHA-256 `0352b8504d253e69a2c6a078384dfcf1b1b8ee2d5de14e031863efa181c1e79b`.
+The output-free pilot notebook is local under ignored
+`data/private/kaggle-five-study-preprocessing/`; it has NOT been imported remotely.
+
+**Blocker:** The existing notebook editor remains at `Loading Editor`, with
+Import Notebook, Run All and Start session disabled, including after reload and
+a fresh tab. No preprocessing run, image inspection, session start, dependency
+installation or training occurred. This is not a successful real-image experiment.
+The two previous saved reader notebook versions remain unchanged.
+
+**Next step:** Recover the
+[notebook editor](https://www.kaggle.com/code/davidsulleiro/rsna-knee-five-study-dicom-reader/edit),
+attach dataset Version 2, import the prepared notebook, run the authorized five
+studies/all 30 series with at most eight slices each, and inspect the results.
+
 ## Explicit DICOM-to-PP-01 adapter (PP-02; 2026-10-16)
 
 PP-02 now provides an explicit-path DICOM series adapter that reuses the raw
