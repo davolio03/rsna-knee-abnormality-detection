@@ -1,5 +1,31 @@
 # Project State
 
+## First full-fold Kaggle baseline prepared; awaiting parent launch (2026-10-17)
+
+FB-01 is complete locally. The clean output-free notebook and matching config
+are `notebooks/kaggle_first_fold_baseline.ipynb` and
+`configs/kaggle_first_fold_baseline.json`. Ten synthetic notebook guard tests
+and the required focused training/package/preprocessing suite (88 tests) pass.
+Strict TDD observed both the initial missing-artifact RED and a regression RED
+where failed preflight returned normally. Safe failures now re-raise so Kaggle
+cannot report a successful batch after an error; only a complete fold report is
+summarized. The notebook remains
+`RUN_TRAINING = False`; this worker did not start a Kaggle batch. Parent
+independent review and the authorized private Save Version -> Save & Run All
+launch remain pending. No first-fold measurements exist yet.
+
+The frozen protocol is scratch-only, fold 0 / seed 42, all 333 training and 167
+validation studies, five epochs / 1,665 planned steps, CUDA only, 256 pixels,
+eight slices maximum, width 64, learning rate 0.001. The unchanged Version 3
+package must pass the embedded 24-member inventory and source hashes before its
+source is imported; the manifest/fold hashes and plan counts are checked again
+before fitting. Output is new and private at
+`/kaggle/working/kaggle-first-fold-baseline/run01`. The runner produces a final
+checkpoint only, with no resume/per-epoch checkpoint promise. See
+[E026](../experiments/E026_kaggle_first_fold_baseline.md) for the pending
+hypothesis and [FB-01..03](../odd/tasks/kaggle-first-fold-background.md) for
+progress. Do not interpret one fold as clinical truth or final generalization.
+
 ## Kaggle eight-study overfit completed; no validation or publication (2026-10-17)
 
 KG-01/02 were independently verified and committed locally as `f79c0cb`.
@@ -39,9 +65,9 @@ before execution because publication was not explicitly authorized; no save-
 version operation ran and the prior three dataset versions remain preserved.
 The parent will seek separate consent before private notebook publication.
 
-**Next step:** No further training or full-fold work is authorized by this
-smoke test. Obtain separate authorization before any new validation/full-fold
-run or notebook publication.
+**Historical next step at that point:** No further training/full-fold action
+was authorized by the eight-study smoke test alone. The later user authorization
+and first-fold preparation are recorded above; actual launch remains pending.
 
 ## Provisional local training runner prepared (2026-10-16)
 

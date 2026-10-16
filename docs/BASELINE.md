@@ -317,3 +317,34 @@ authorized; no save-version operation ran. The prior three dataset versions
 were preserved. The parent will request separate consent before private
 notebook publication. No additional training or full-fold run is authorized by
 this smoke test.
+
+## First full-fold Kaggle baseline prepared; batch not started (2026-10-17)
+
+`notebooks/kaggle_first_fold_baseline.ipynb` is a clean standalone,
+output-free private batch notebook; `configs/kaggle_first_fold_baseline.json`
+records the matching frozen configuration. The cell defaults `RUN_TRAINING`
+off, performs no installation or download, and verifies every unpacked member
+against the pinned 24-file inventory before importing the package. The archive
+digest remains local provenance only; the remote ZIP bytes are not verified.
+The runner's plan-only call must confirm the pinned manifest/fold hashes and
+exact 333/167 partition before its only possible fit. CUDA is required, with no
+CPU fallback. Safe categorical failures are logged and re-raised so the Kaggle
+batch records a failed run rather than falsely completing a cell after an
+audit, plan, device, or training error. A successful summary is emitted only
+after the runner returns a complete 1,665-step report with the expected fold,
+hashes, and 12 finite per-target metrics.
+
+The prepared run is a fresh scratch fit on fold 0 with seed 42, 5 epochs and
+1,665 planned steps, validating the complete 167-study fold. It uses the
+unchanged model and preprocessing, 256-pixel inputs, at most eight slices per
+series, feature width 64, and learning rate 0.001. Output is isolated at
+`/kaggle/working/kaggle-first-fold-baseline/run01`. The runner writes a final
+checkpoint only; there is no resume or per-epoch checkpoint promise. This is a
+single development fold against provisional silver labels, not clinical truth
+or a final generalization claim. The preparation and fixed hypothesis are
+recorded in [E026](../experiments/E026_kaggle_first_fold_baseline.md).
+
+Local preparation is complete, but no first-fold batch was started here and no
+first-fold results exist yet. Parent review and the authorized private Kaggle
+Save Version -> Save & Run All action remain pending. Preserve the completed
+eight-study evidence in E025 separately.
