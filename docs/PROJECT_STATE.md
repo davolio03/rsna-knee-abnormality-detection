@@ -1,22 +1,34 @@
 # Project State
 
-## Kaggle eight-study training package prepared (2026-10-16)
+## Kaggle eight-study package and CUDA probe (2026-10-16)
 
-KG-01 enables explicit CUDA selection with availability checks, deterministic
-settings, safe no-fallback errors, and synchronized per-run peak-allocation
-telemetry. CPU behavior remains unchanged. KG-02 adds an import-closed,
-source-allowlisted private package builder, exact manifest/fold hash binding,
-member inventory, and an output-free Kaggle notebook/config for the fixed
-eight-study fold-0 seed-42 overfit. The notebook defaults both GPU probe and
-training off and targets only the previously observed private and competition
-mount roots. The package contains no bytecode, raw images, reports, checkpoints,
-outputs, or credentials. Focused synthetic CPU/package tests passed; these do
-not prove GPU behavior. No package upload, Kaggle execution, real-image fit,
-convergence, or generalization claim has occurred in this preparation.
+KG-01/02 were independently verified and committed locally as `f79c0cb`.
+Verification passed 78 focused tests, the full legacy suite (287 tests run, OK,
+7 optional skips), all 24 ZIP-member/source/inventory checks, and isolated ZIP
+import. KG-01 provides explicit CUDA availability/no-fallback behavior,
+deterministic settings, and synchronized peak-allocation telemetry. KG-02
+provides the allowlisted private package, exact manifest/fold hashes, inventory,
+and disabled-by-default notebook/config. See
+[E024](../experiments/E024_kaggle_eight_study_cuda_probe.md) for the observed
+runtime probe and subsequent upload blocker.
 
-**Next step:** Parent performs the authorized private dataset update, runs the
-separate GPU numerical probe, and only if it succeeds starts the bounded
-eight-study training run.
+The authorized synthetic CUDA probe passed on Kaggle with PyTorch
+`2.11.0+cu128`, CUDA `12.8`, and Tesla T4 hardware: deterministic algorithms
+were enabled, gradients were finite, BCE loss was `0.6535296440124512`, and
+observed peak allocation was `18,198,528` bytes. The UI confirmed the GPU
+session stopped. This is synthetic numerical-runtime evidence only, not a
+scratch study model run or real-image training evidence.
+
+KG-03 is **blocked before upload**. The existing private dataset remains at
+Version 2: the New Version dialog cleared its pending selection, but the file
+chooser timed out before any file was selected or transferred. No new dataset
+version, package upload, DICOM access, or eight-study fit occurred. Browser
+troubleshooting advised enabling “Allow access to file URLs” for the ChatGPT
+extension; no permission was changed. The bounded overfit run remains pending.
+
+**Next step:** Resolve the file-chooser access issue with the user, then resume
+the already-authorized private upload. Only after upload can the fixed
+fold-0/seed-42/eight-study/40-step/5-epoch fit be attempted.
 
 ## Provisional local training runner prepared (2026-10-16)
 
@@ -30,15 +42,16 @@ cap is recorded as partial. Private outputs include a state-dict checkpoint,
 an ID-free report, and fold-mode predictions keyed only by partition row index.
 Synthetic runner and existing training/preprocessing suites passed 73 tests in
 the isolated runtime. These tests did not decode competition images or fit on
-the cohort. The checked-in config still points to an update-required private
-image root because dataset Version 2 does not yet include the folds/training
-package/notebook; local inputs must be updated before the plan can validate.
-CUDA is explicitly unsupported pending deterministic GPU validation.
-Independent verification and parent spotcheck passed: 73 focused tests without skips; the legacy full suite ran 285 tests successfully with 7 explicit optional skips. See
+the cohort. At the time of this earlier TB-03 snapshot, the checked-in local config still
+pointed to an update-required private image root and CUDA was blocked pending
+KG-01/02. The later package and CUDA-probe status is recorded above. Earlier
+independent verification passed 73 focused tests; see
 [baseline runner details](BASELINE.md#local-training-runner-tb-03-provisional).
 
-**Next step:** Prepare the updated private Kaggle input package, then validate GPU execution and a small real-image overfit run under separate authorization. Do not claim
-dataset/remote readiness or run an actual cohort fit from this preparation.
+**Historical next step at that time:** Prepare the private Kaggle package and
+validate GPU execution. The package and synthetic GPU probe are now complete;
+current upload blocker and remaining fit work are recorded in the status section
+at the top of this document.
 
 ## Reusable trainable components prepared (2026-10-16)
 

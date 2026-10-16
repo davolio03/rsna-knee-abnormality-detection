@@ -239,7 +239,7 @@ peak and synchronizes again before reading actual peak allocated bytes; CPU
 continues to report `peak_cuda_memory_bytes: null`. These mock checks do not
 establish real GPU execution or deterministic-kernel coverage.
 
-## Eight-study private Kaggle package (KG-01/KG-02; execution pending)
+## Eight-study private Kaggle package and probe (KG-01/KG-02 verified; KG-03 blocked before upload)
 
 `notebooks/kaggle_eight_study_overfit.ipynb` and
 `configs/kaggle_eight_study_overfit.json` define a separate, output-free private
@@ -265,7 +265,21 @@ private-transfer artifact. Its inventory records the complete file membership
 and hashes; the two data hashes are
 `e88c61c22a463737f16951b7c76db03834034aecd1b31dc61b4ce495080b2be2` (manifest)
 and `b82b376b0086201e3364b11a0203b62890e628442075a52ea4a9e09ee0e778ac`
-(folds). Local package and mocked CUDA tests do not prove Kaggle GPU
-availability, CUDA numerical success, real-image decoding, overfit behavior,
-convergence, validation performance, or generalization. Parent-run Kaggle
-execution remains pending; no GPU or real-image fit result is claimed.
+(folds). Independent verification passed the focused 78-test suite and legacy full suite
+(287 tests run, OK, 7 optional skips), and confirmed all 24 ZIP members against the
+allowlist, source bytes, inventory, and exact input hashes; isolated ZIP import
+also succeeded. The KG-01/02 work unit is committed locally as `f79c0cb`.
+
+A separate synthetic CUDA forward/backward/optimizer probe passed in the
+existing Kaggle environment (PyTorch `2.11.0+cu128`, CUDA `12.8`, Tesla T4):
+deterministic algorithms were enabled, gradients were finite, BCE loss was
+`0.6535296440124512`, and peak allocation was `18,198,528` bytes. This proves
+only that this synthetic GPU path ran; it does not validate the scratch study
+model or DICOM pipeline.
+
+The private dataset update is currently blocked before upload. The Version 2
+New Version dialog cleared its pending selection; the chooser timed out before
+file selection, so no transfer or new version occurred. No real images were
+read and the eight-study fit did not start. Browser troubleshooting advised
+enabling “Allow access to file URLs” for the ChatGPT extension; no permission
+was changed. See [E024](../experiments/E024_kaggle_eight_study_cuda_probe.md).
