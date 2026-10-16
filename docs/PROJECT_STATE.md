@@ -1,5 +1,20 @@
 # Project State
 
+## Reusable trainable components prepared (2026-10-16)
+
+TB-02 adds a fold-bound lazy study dataset, a provisional scratch study-level
+CNN with mask-aware spatial pooling and equal slice/series aggregation, and
+tie-correct 12-target ROC-AUC reporting. Focused synthetic CPU forward/backward,
+dataset, and metric tests passed. These tests did not read competition DICOMs or
+fit on the private cohort; no model-quality or generalization evidence exists.
+The dataset requires the exact manifest-bound deterministic fold artifact and
+fails closed on malformed inputs rather than dropping studies. See
+[D025](DECISIONS.md#d025--establish-reusable-scratch-study-level-training-components)
+and [baseline setup](BASELINE.md#reusable-trainable-components-provisional).
+
+**Next step:** Complete TB-03's bounded overfit/single-fold runner and verify
+its safeguards; actual fitting on competition data remains outside this work.
+
 ## Five-study Kaggle preprocessing pilot completed (2026-10-16)
 
 The authorized CPU run completed PP-02/PP-01 preprocessing for the first five

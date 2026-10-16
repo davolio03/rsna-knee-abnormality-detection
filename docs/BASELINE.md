@@ -169,3 +169,28 @@ gradients. The PP-01, PP-02, and five-study preprocessing test modules passed
 (25, 18, and 5 tests respectively). This verifies the environment and existing
 synthetic/pilot suites, not model training, full-cohort behavior, or clinical
 performance. The existing `.venv` configuration hash remained unchanged.
+
+## Reusable trainable components (provisional)
+
+`src/rsna_knee/data/training_dataset.py` loads the private manifest and fold
+artifact, binds folds to the manifest's exact bytes, and recomputes the
+repository's deterministic allocation before accepting assignments. It exposes
+one requested fold partition and decodes each selected study lazily through
+PP-02; it does not cache full-cohort pixels. Each study retains every
+manifest-listed series, with a maximum of eight selected slices per series.
+Invalid paths, preprocessing failures, and malformed tensors fail with a safe
+category rather than silently dropping a study or exposing a path/identifier.
+The bounded subset helper is available only on a training partition.
+
+`src/rsna_knee/models/baseline.py` provides a shared three-stage scratch 2D CNN
+with mask-zeroed inputs and validity-weighted spatial feature pooling. It then
+averages selected slices within each series, series within a study, and emits
+12 ordered logits. `src/rsna_knee/validation/metrics.py` computes tie-correct
+per-target ROC-AUC using the existing NumPy dependency, without adding
+scikit-learn. Missing classes are reported as undefined; macro AUC is undefined
+if any target is undefined.
+
+Synthetic CPU forward/backward and metric tests do not demonstrate model
+quality, training convergence, real-image suitability, or generalization. No
+competition data was loaded by these tests. The training loop and single-fold
+runner remain pending; no actual fit is authorized by this component work.
