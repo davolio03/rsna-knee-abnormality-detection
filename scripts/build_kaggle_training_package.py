@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
 import hashlib
 import json
 from pathlib import Path
+import re
 import stat
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
@@ -181,12 +183,161 @@ def build_package(
     return inventory
 
 
+def build_first_fold_package(
+    repository_root: Path,
+    output_dir: Path,
+    *,
+    manifest_path: Path,
+    folds_path: Path,
+    config_path: Path,
+    notebook_path: Path,
+) -> dict[str, object]:
+    """Create a fresh first-fold package and an independently pinned notebook.
+
+    The notebook is deliberately outside the ZIP inventory: it embeds the inventory
+    bytes, so including it in that inventory would create a self-referential hash.
+    """
+    repository = Path(repository_root).resolve(strict=True)
+    output_dir = Path(output_dir)
+    if output_dir.exists() or output_dir.is_symlink():
+        raise ValueError("first-fold package output directory must be new")
+
+    inputs = {
+        "data/private/500-study-training-cohort.json": (Path(manifest_path), EXPECTED_MANIFEST_SHA256),
+        "data/private/500-study-training-folds.json": (Path(folds_path), EXPECTED_FOLDS_SHA256),
+    }
+    config_raw = Path(config_path).resolve(strict=True).read_bytes()
+    if not Path(config_path).resolve(strict=True).is_relative_to(repository):
+        raise ValueError("package input escaped repository")
+    config_template = json.loads(config_raw.decode("utf-8"))
+    if not isinstance(config_template, dict):
+        raise ValueError("first-fold config must be an object")
+    members: dict[str, bytes] = {}
+    for path in _local_import_closure(repository / "src"):
+        relative = path.relative_to(repository).as_posix()
+        if path.suffix != ".py" or "__pycache__" in path.parts:
+            raise ValueError("source allowlist rejected a non-source file")
+        members[relative] = path.read_bytes()
+    for archive_name, (path, expected_hash) in inputs.items():
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(repository):
+            raise ValueError("package input escaped repository")
+        raw = resolved.read_bytes()
+        if expected_hash and _sha256(raw) != expected_hash:
+            raise ValueError("private source artifact hash mismatch")
+        members[archive_name] = raw
+
+    names = tuple(sorted(members))
+    if any(name.startswith("/") or ".." in Path(name).parts for name in names):
+        raise ValueError("package member path is unsafe")
+    if any(name.endswith((".pyc", ".pyo", ".pt", ".pth", ".ckpt", ".dcm", ".dicom"))
+           or "__pycache__" in Path(name).parts for name in names):
+        raise ValueError("package member type is not allowed")
+    source_names = {name for name in names if name.startswith("src/")}
+    if not source_names or "src/rsna_knee/__init__.py" not in source_names:
+        raise ValueError("package is not import closed")
+
+    package_dir = output_dir / "package"
+    archive_path = output_dir / "kaggle-first-fold-diagnostic.zip"
+    inventory_path = output_dir / "inventory.json"
+    prepared_notebook_path = output_dir / "kaggle_first_fold_baseline_run02.ipynb"
+    prepared_config_path = output_dir / "kaggle_first_fold_baseline_run02.json"
+    output_dir.mkdir(parents=True, exist_ok=False)
+    package_dir.mkdir()
+    inventory_members = {name: _sha256(members[name]) for name in names}
+    try:
+        for name in names:
+            target = package_dir.joinpath(*Path(name).parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(members[name])
+        with ZipFile(archive_path, "x", compression=ZIP_DEFLATED, compresslevel=9) as archive:
+            for name in names:
+                info = ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
+                info.compress_type = ZIP_DEFLATED
+                info.external_attr = (stat.S_IFREG | 0o600) << 16
+                archive.writestr(info, members[name])
+        package_bytes = archive_path.read_bytes()
+        inventory = {
+            "schema_version": "kaggle-training-package-inventory-v1",
+            "package_sha256": _sha256(package_bytes),
+            "manifest_sha256": EXPECTED_MANIFEST_SHA256,
+            "folds_sha256": EXPECTED_FOLDS_SHA256,
+            "members": inventory_members,
+            "exclusions": ["bytecode", "reports", "evidence", "images", "checkpoints", "outputs", "credentials"],
+        }
+        inventory_bytes = (json.dumps(inventory, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        inventory_path.write_bytes(inventory_bytes)
+
+        config = dict(config_template)
+        config.update({
+            "output_dir": "/kaggle/working/kaggle-first-fold-baseline/run02",
+            "expected_member_count": len(names),
+            "expected_inventory_sha256": _sha256(inventory_bytes),
+            "expected_archive_provenance": inventory["package_sha256"],
+        })
+        prepared_config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+
+        notebook_raw = Path(notebook_path).resolve(strict=True).read_bytes()
+        if not Path(notebook_path).resolve(strict=True).is_relative_to(repository):
+            raise ValueError("notebook input escaped repository")
+        notebook = json.loads(notebook_raw.decode("utf-8"))
+        if any(cell.get("outputs", []) for cell in notebook.get("cells", [])):
+            raise ValueError("notebook must not contain saved outputs")
+        code_cells = [cell for cell in notebook.get("cells", []) if cell.get("cell_type") == "code"]
+        if len(code_cells) != 1:
+            raise ValueError("first-fold notebook code-cell contract changed")
+        code = "".join(code_cells[0].get("source", []))
+        replacements = {
+            r'"output_dir": "[^"]+"': '"output_dir": "/kaggle/working/kaggle-first-fold-baseline/run02"',
+            r'"expected_member_count": \d+': f'"expected_member_count": {len(names)}',
+            r'"expected_inventory_sha256": "[0-9a-f]{64}"': f'"expected_inventory_sha256": "{_sha256(inventory_bytes)}"',
+            r'"expected_archive_provenance": "[0-9a-f]{64}"': f'"expected_archive_provenance": "{inventory["package_sha256"]}"',
+            r'EXPECTED_INVENTORY_B64 = "[^"]+"': f'EXPECTED_INVENTORY_B64 = "{base64.b64encode(inventory_bytes).decode("ascii")}"',
+        }
+        for pattern, replacement in replacements.items():
+            code, count = re.subn(pattern, lambda _match, value=replacement: value, code, count=1)
+            if count != 1:
+                raise ValueError("first-fold notebook pin contract changed")
+        if "RUN_TRAINING = False" not in code:
+            raise ValueError("first-fold notebook must remain disabled by default")
+        code_cells[0]["source"] = code.splitlines(keepends=True)
+        prepared_notebook_path.write_text(json.dumps(notebook, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    except Exception:
+        # Keep an uncertain output intact for inspection; never silently replace it.
+        raise
+    return {
+        **inventory,
+        "inventory_sha256": _sha256(inventory_bytes),
+        "archive_path": str(archive_path),
+        "package_dir": str(package_dir),
+        "inventory_path": str(inventory_path),
+        "notebook_path": str(prepared_notebook_path),
+        "config_path": str(prepared_config_path),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     root = Path(__file__).resolve().parents[1]
     default_output = root / "data/private/kaggle-eight-study-overfit"
     parser.add_argument("--output-dir", type=Path, default=default_output)
+    parser.add_argument("--first-fold-output-dir", type=Path)
     args = parser.parse_args(argv)
+    if args.first_fold_output_dir is not None:
+        result = build_first_fold_package(
+            root,
+            args.first_fold_output_dir,
+            manifest_path=root / "data/private/500-study-training-cohort.json",
+            folds_path=root / "data/private/500-study-training-folds.json",
+            config_path=root / "configs/kaggle_first_fold_baseline.json",
+            notebook_path=root / "notebooks/kaggle_first_fold_baseline.ipynb",
+        )
+        print(json.dumps({key: result[key] for key in (
+            "package_sha256", "inventory_sha256", "manifest_sha256", "folds_sha256",
+            "members", "archive_path", "package_dir", "inventory_path", "notebook_path",
+            "config_path",
+        )}, indent=2))
+        return 0
     result = build_package(
         root,
         args.output_dir / "kaggle-eight-study-overfit.zip",
