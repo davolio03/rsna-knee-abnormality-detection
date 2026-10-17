@@ -63,7 +63,7 @@ if RUN_CANARY:
     from pathlib import Path
 
     CANARY_CONFIG_B64 = "{config_b64}"
-    CANARY_CONFIG_SHA256 = "{_sha256(config_raw)}"
+    CANARY_CONFIG_SHA256 = "{_sha256(config_b64.encode('ascii'))}"
     CANARY_INVENTORY_B64 = "{inventory_b64}"
     CANARY_HELPER_B64 = "{runtime_b64}"
     CANARY_HELPER_B64_SHA256 = "{_sha256(runtime_b64.encode('ascii'))}"
@@ -97,11 +97,11 @@ if RUN_CANARY:
         print(json.dumps(summary, sort_keys=True))
     except Exception as exc:
         reason = getattr(exc, "reason_code", None)
-        if reason not in {{"package_inventory_invalid", "package_member_hash_mismatch",
-                         "manifest_hash_mismatch", "folds_hash_mismatch", "manifest_invalid",
-                         "folds_invalid", "fold_partition_mismatch", "target_series_unavailable",
-                         "series_files_mismatch", "preprocessing_failed", "output_unavailable",
-                         "runtime_limit_reached", "canary_disabled", "canary_provenance_invalid"}}:
+        canary_failure = runtime_ns.get("CanaryFailure") if "runtime_ns" in locals() else None
+        safe_reasons = canary_failure.SAFE_REASONS if canary_failure is not None else set()
+        if "canary_provenance_invalid" not in safe_reasons:
+            safe_reasons = set(safe_reasons) | {{"canary_provenance_invalid"}}
+        if reason not in safe_reasons:
             reason = "preprocessing_failed"
         print(json.dumps({{"status": "failed", "reason_code": reason}}, sort_keys=True))
         raise RuntimeError(reason) from None

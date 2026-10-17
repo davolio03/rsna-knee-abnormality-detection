@@ -6,6 +6,10 @@ import ast
 import re
 import tempfile
 import unittest
+import os
+import subprocess
+import sys
+import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +27,7 @@ from scripts.kaggle_preprocessing_canary_runtime import (
     select_target_series,
     verify_package,
 )
+from scripts.build_kaggle_training_package import _local_import_closure
 
 
 MANIFEST_REL = "data/private/500-study-training-cohort.json"
@@ -140,6 +145,37 @@ class KagglePreprocessingCanaryTests(unittest.TestCase):
                 )
             self.assertEqual(caught.exception.reason_code, "package_inventory_invalid")
             self.assertEqual(calls, [])
+
+    def test_uninventoried_files_fail_closed_without_echoing_their_names(self):
+        manifest = b'{"records": []}'
+        folds = b'{"study_assignments": []}'
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "input"
+            root.mkdir()
+            inventory, config = package_fixture(root, manifest, folds)
+            secret_name = "reports/private-report.txt"
+            unexpected = root / secret_name
+            unexpected.parent.mkdir()
+            unexpected.write_text("synthetic sentinel", encoding="utf-8")
+            with self.assertRaises(CanaryFailure) as caught:
+                verify_package(root, inventory, config)
+            self.assertEqual(caught.exception.reason_code, "package_inventory_invalid")
+            self.assertNotIn(secret_name, str(caught.exception))
+
+    def test_symlinked_input_root_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            target = base / "target"
+            target.mkdir()
+            inventory, config = package_fixture(target, b"{}", b"{}")
+            linked_root = base / "linked-input"
+            try:
+                linked_root.symlink_to(target, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks are unavailable in this environment")
+            with self.assertRaises(CanaryFailure) as caught:
+                verify_package(linked_root, inventory, config)
+            self.assertEqual(caught.exception.reason_code, "package_inventory_invalid")
 
     def test_preprocessing_summary_is_aggregate_only_and_output_is_new(self):
         manifest = b'{"records":[{"study_id":"opaque-study","series":[{"series_id":"opaque-series"}]}]}'
@@ -292,11 +328,169 @@ class KagglePreprocessingCanaryTests(unittest.TestCase):
                 "RUN_CANARY = False", "RUN_CANARY = True", 1,
             )
             stdout = io.StringIO()
-            with self.assertRaisesRegex(RuntimeError, "preprocessing_failed"), redirect_stdout(stdout):
+            with self.assertRaisesRegex(RuntimeError, "package_inventory_invalid"), redirect_stdout(stdout):
                 exec(compile(code, "canary.ipynb", "exec"), {"__name__": "enabled_canary_test"})
             event = json.loads(stdout.getvalue())
-            self.assertEqual(event, {"reason_code": "preprocessing_failed", "status": "failed"})
+            self.assertEqual(event, {"reason_code": "package_inventory_invalid", "status": "failed"})
             self.assertNotIn(str(root), stdout.getvalue())
+
+    def test_config_hash_domain_matches_notebook_decode_check(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            inventory = json.dumps({
+                "schema_version": "kaggle-training-package-inventory-v1",
+                "package_sha256": "a" * 64, "manifest_sha256": "b" * 64,
+                "folds_sha256": "c" * 64,
+                "members": {
+                    "data/private/500-study-training-cohort.json": "d" * 64,
+                    "data/private/500-study-training-folds.json": "e" * 64,
+                    **{f"src/module_{index}.py": "f" * 64 for index in range(20)},
+                },
+            }, sort_keys=True).encode()
+            paths = build_canary_notebook(
+                root, inventory,
+                {"expected_member_count": 22, "expected_manifest_sha256": "b" * 64,
+                 "expected_folds_sha256": "c" * 64, "private_input_root": str(root),
+                 "image_root": str(root), "fold": 0, "target_series_ordinal": 355},
+                runtime_helper_path=Path("scripts/kaggle_preprocessing_canary_runtime.py"),
+                manifest_helper_path=Path("src/rsna_knee/data/orientation_audit.py"),
+            )
+            code = "".join(json.loads(paths["notebook_path"].read_text())["cells"][0]["source"])
+            config_b64 = ast.literal_eval(re.search(r'^    CANARY_CONFIG_B64 = (".*")$', code, re.MULTILINE).group(1))
+            config_hash = re.search(r'^    CANARY_CONFIG_SHA256 = "([0-9a-f]{64})"$', code, re.MULTILINE).group(1)
+            self.assertEqual(hashlib.sha256(config_b64.encode("ascii")).hexdigest(), config_hash)
+
+    def test_enabled_notebook_preprocesses_only_synthetic_packaged_series(self):
+        try:
+            import pydicom
+            from pydicom.dataset import FileDataset, FileMetaDataset
+            from pydicom.uid import CTImageStorage, ExplicitVRLittleEndian, generate_uid
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"optional synthetic DICOM dependency is unavailable: {exc}")
+
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            input_root = base / "input"
+            source_root = input_root / "src"
+            manifest = json.dumps({"records": [{"study_id": "synthetic-study", "series": [
+                {"series_id": "synthetic-series"},
+            ]}]}).encode()
+            folds = json.dumps({"study_assignments": [{"study_id": "synthetic-study", "fold": 1}]}).encode()
+            members = {
+                path.relative_to(Path.cwd()).as_posix(): path.read_bytes()
+                for path in _local_import_closure(Path.cwd() / "src")
+            }
+            members[MANIFEST_REL] = manifest
+            members[FOLDS_REL] = folds
+            package_bytes_path = base / "synthetic-package.zip"
+            with zipfile.ZipFile(package_bytes_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for name, raw in sorted(members.items()):
+                    archive.writestr(name, raw)
+            inventory = {
+                "schema_version": "kaggle-training-package-inventory-v1",
+                "package_sha256": hashlib.sha256(package_bytes_path.read_bytes()).hexdigest(),
+                "manifest_sha256": hashlib.sha256(manifest).hexdigest(),
+                "folds_sha256": hashlib.sha256(folds).hexdigest(),
+                "members": {name: hashlib.sha256(raw).hexdigest() for name, raw in members.items()},
+            }
+            inventory_bytes = (json.dumps(inventory, indent=2, sort_keys=True) + "\n").encode()
+            for name, raw in members.items():
+                target = input_root.joinpath(*Path(name).parts)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(raw)
+
+            image_root = base / "images"
+            series_path = image_root / "synthetic-study" / "synthetic-series"
+            series_path.mkdir(parents=True)
+            for index, z in enumerate((0, 1), start=1):
+                file_meta = FileMetaDataset()
+                file_meta.MediaStorageSOPClassUID = CTImageStorage
+                file_meta.MediaStorageSOPInstanceUID = generate_uid()
+                file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+                dataset = FileDataset(str(series_path / f"slice-{index}.dcm"), {}, file_meta=file_meta, preamble=b"\0" * 128)
+                dataset.SOPClassUID = CTImageStorage
+                dataset.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
+                dataset.StudyInstanceUID = generate_uid()
+                dataset.SeriesInstanceUID = generate_uid()
+                dataset.Modality = "CT"
+                dataset.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]
+                dataset.ImagePositionPatient = [0, 0, z]
+                dataset.PixelSpacing = [0.7, 0.8]
+                dataset.Rows = 8
+                dataset.Columns = 8
+                dataset.SamplesPerPixel = 1
+                dataset.PhotometricInterpretation = "MONOCHROME2"
+                dataset.BitsAllocated = 16
+                dataset.BitsStored = 16
+                dataset.HighBit = 15
+                dataset.PixelRepresentation = 0
+                dataset.PixelData = np.arange(64, dtype=np.uint16).tobytes()
+                dataset.save_as(series_path / f"slice-{index}.dcm", enforce_file_format=True)
+
+            artifacts_dir = base / "notebook-artifacts"
+            artifacts_dir.mkdir()
+            config = {
+                "expected_member_count": len(members),
+                "expected_manifest_sha256": inventory["manifest_sha256"],
+                "expected_folds_sha256": inventory["folds_sha256"],
+                "private_input_root": str(input_root), "manifest_relative_path": MANIFEST_REL,
+                "folds_relative_path": FOLDS_REL, "image_root": str(image_root),
+                "output_dir": str(base / "canary-output"), "fold": 0,
+                "expected_training_count": 1, "expected_validation_count": 0,
+                "target_series_ordinal": 1, "expected_target_file_count": 2,
+                "output_size": 256, "max_slices": 8, "max_seconds": 60,
+            }
+            paths = build_canary_notebook(
+                artifacts_dir, inventory_bytes, config,
+                runtime_helper_path=Path("scripts/kaggle_preprocessing_canary_runtime.py"),
+                manifest_helper_path=Path("src/rsna_knee/data/orientation_audit.py"),
+            )
+            code = "".join(json.loads(paths["notebook_path"].read_text())["cells"][0]["source"])
+            enabled_path = base / "enabled-canary.py"
+            enabled_path.write_text(code.replace("RUN_CANARY = False", "RUN_CANARY = True", 1), encoding="utf-8")
+            env = dict(os.environ)
+            env.pop("PYTHONPATH", None)
+            result = subprocess.run(
+                [sys.executable, str(enabled_path)], cwd=base, env=env,
+                capture_output=True, text=True, timeout=60, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            event = json.loads(result.stdout.strip().splitlines()[-1])
+            self.assertEqual(event["status"], "completed")
+            self.assertEqual(event["series_ordinal"], 1)
+            self.assertEqual(event["input_file_count"], 2)
+            self.assertTrue(event["finite_values"])
+            saved = json.loads((base / "canary-output" / "preprocessing-summary.json").read_text())
+            self.assertEqual(saved, event)
+            self.assertNotIn("synthetic-study", result.stdout + result.stderr)
+            self.assertNotIn("synthetic-series", result.stdout + result.stderr)
+
+            changed = pydicom.dcmread(series_path / "slice-2.dcm")
+            orientation = list(changed.ImageOrientationPatient)
+            orientation[4] += 1.0001e-5
+            changed.ImageOrientationPatient = orientation
+            changed.save_as(series_path / "slice-2.dcm", enforce_file_format=True)
+            failure_config = dict(config)
+            failure_config["output_dir"] = str(base / "failed-output")
+            failure_artifacts = base / "failure-notebook-artifacts"
+            failure_artifacts.mkdir()
+            failure_paths = build_canary_notebook(
+                failure_artifacts, inventory_bytes, failure_config,
+                runtime_helper_path=Path("scripts/kaggle_preprocessing_canary_runtime.py"),
+                manifest_helper_path=Path("src/rsna_knee/data/orientation_audit.py"),
+            )
+            failure_code = "".join(json.loads(failure_paths["notebook_path"].read_text())["cells"][0]["source"])
+            failure_path = base / "enabled-canary-failure.py"
+            failure_path.write_text(failure_code.replace("RUN_CANARY = False", "RUN_CANARY = True", 1), encoding="utf-8")
+            failure_result = subprocess.run(
+                [sys.executable, str(failure_path)], cwd=base, env=env,
+                capture_output=True, text=True, timeout=60, check=False,
+            )
+            self.assertNotEqual(failure_result.returncode, 0)
+            failure_event = json.loads(failure_result.stdout.strip().splitlines()[-1])
+            self.assertEqual(failure_event, {"reason_code": "inconsistent_orientation", "status": "failed"})
+            self.assertFalse((base / "failed-output").exists())
+            self.assertNotIn("synthetic-study", failure_result.stdout + failure_result.stderr)
 
 
 if __name__ == "__main__":

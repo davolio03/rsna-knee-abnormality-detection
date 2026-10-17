@@ -40,7 +40,10 @@ def _sha256(raw: bytes) -> str:
 def verify_package(input_root: Path, inventory_bytes: bytes, config: dict) -> dict:
     """Verify embedded inventory, every package member, and manifest/fold pins."""
     try:
-        root = Path(input_root).resolve(strict=True)
+        candidate_root = Path(input_root)
+        if candidate_root.is_symlink():
+            raise OSError
+        root = candidate_root.resolve(strict=True)
         if not root.is_dir():
             raise OSError
     except Exception:
@@ -55,6 +58,27 @@ def verify_package(input_root: Path, inventory_bytes: bytes, config: dict) -> di
                 or inventory.get("package_sha256") != config.get("expected_archive_provenance")
                 or inventory.get("manifest_sha256") != config.get("expected_manifest_sha256")
                 or inventory.get("folds_sha256") != config.get("expected_folds_sha256")):
+            raise CanaryFailure("package_inventory_invalid")
+        expected_names = set(members)
+        expected_directories = {
+            parent.as_posix()
+            for name in expected_names
+            for parent in list(Path(name).parents)[:-1]
+            if parent.as_posix() != "."
+        }
+        actual_names = set()
+        for entry in root.rglob("*"):
+            relative_name = entry.relative_to(root).as_posix()
+            if entry.is_symlink():
+                raise CanaryFailure("package_member_hash_mismatch")
+            if entry.is_dir():
+                if relative_name not in expected_directories:
+                    raise CanaryFailure("package_inventory_invalid")
+            elif entry.is_file():
+                actual_names.add(relative_name)
+            else:
+                raise CanaryFailure("package_inventory_invalid")
+        if actual_names != expected_names:
             raise CanaryFailure("package_inventory_invalid")
         for name, expected in members.items():
             relative = Path(name)
@@ -153,6 +177,7 @@ def run_preprocessing_canary(
     )
     if preprocessor is None:
         import sys
+        sys.dont_write_bytecode = True
         package_source = Path(input_root) / "src"
         sys.path.insert(0, str(package_source))
         try:
