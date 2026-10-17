@@ -1,7 +1,7 @@
-# E026 — First full-fold Kaggle scratch baseline (running; results pending)
+# E026 — First full-fold Kaggle scratch baseline (failed; cause unknown)
 
 - **Date:** 2026-10-17
-- **Status:** running; result pending
+- **Status:** Inconclusive failure; no metrics or checkpoint. Historical run ended; no retry authorized.
 - **Parent:** E025
 - **Hypothesis:** The unchanged scratch study-level CNN can complete one full
   deterministic development fold on the existing Kaggle GPU runtime.
@@ -37,13 +37,26 @@
   at 2026-10-17 01:46 Europe/Madrid (approximately 2026-10-16 23:46:48 UTC).
   Version 1's execution identifier is `359170889`; the private status viewer is
   [Version 1 status](https://www.kaggle.com/code/davidsulleiro/rsna-knee-first-fold-baseline?scriptVersionId=359170889).
-  A read-only viewer check later showed “Running for 67.0s”, T4x2 / Latest
-  Container Image, and 0 B output; no training result or failure was present.
-  The draft editor session is off; the separate batch is active.
-- **Results:** Plan validation, fitting, metrics, report, checkpoint, and
-  predictions remain pending. This record makes no training-result claim. The
-  one-run authorization is consumed; do not retry or restart. Next step is
-  read-only inspection of this same Version 1 execution.
+  A later read-only observation confirmed Version 1 failed after 258.3 seconds
+  with 0 B output. At 247.3 seconds, logs emitted `training_blocked` and
+  `training_failed`, followed by Papermill `RuntimeError(training_failed)` at
+  notebook main line 232. The draft editor session is off.
+- **Results:** No metrics, report, predictions, or checkpoint were produced.
+  The actual exception, failure stage, and completed step count are unknown;
+  the prior wrapper suppressed the cause with `from None`. Do not infer GPU
+  out-of-memory or any specific failure step. The one-run authorization is
+  consumed; do not retry or restart.
+- **Diagnostic follow-up:** Locally, the training runner now retains only an
+  allowlisted exception family and bounded exception-family chain, coarse
+  execution stage, and validated internal source location for unexpected exceptions. The notebook and local CLI emit
+  those fields only after strict schema/allowlist checks; raw messages, paths,
+  IDs, reports, and locals remain excluded. Synthetic regression tests verify
+  the redaction and fail-closed behavior. This code was not present in private
+  Kaggle package Version 3 or the failed Version 1, and cannot retroactively
+  identify that run's cause. A future diagnostic run would require separately
+  authorized remote work and a matching provenance-preserving package version.
+  New local notebook cell SHA-256: `837f39df3b4f7bb9d4085dd7d36c1cfa2193f005ca61e239826154aea920171a`
+  (18,249 bytes); the historical launched-cell hash above remains unchanged.
 - **Launch evidence:** Screenshot
   `data/private/kaggle-first-fold-background/batch-running-v1.jpg` (110,768
   bytes; SHA-256
@@ -58,8 +71,17 @@
   runner/component/fold/validation/preprocessing, package, and notebook suite
   passed (88 tests). Independent parent verification passed 88 focused tests and
   the legacy full suite (297 tests, seven optional skips). The private Version 1
-  batch was accepted and is running; metrics and outputs are still pending. The
-  CSV registry contains older rows with inconsistent column widths; the new
+  subsequently failed as documented above. The CSV registry contains older
+  rows with inconsistent column widths; the new
   E026 row matches the 28-column header and was checked independently.
-- **Conclusion:** Pending. No adoption decision is made before the authorized
-  private batch result is observed and independently reconciled.
+- **Diagnostic verification:** Strict TDD observed a RED because the runner
+  had no `diagnostics` metadata; the targeted regression then passed. The
+  focused suite passed 92 tests. The legacy suite passed 298/299 tests with
+  eight optional skips; its sole failure was the existing Windows child-process
+  timeout cleanup test (`test_windows_timeout_kills_synthetic_child_process`),
+  even after using a writable workspace temp directory. Notebook JSON, syntax,
+  empty outputs, config parity, exact local launch-cell parity, and
+  `git diff --check` passed.
+- **Conclusion:** The single private batch failed with its underlying cause
+  unavailable. No model-performance or adoption conclusion can be drawn; any
+  additional remote diagnostic execution requires new explicit authorization.

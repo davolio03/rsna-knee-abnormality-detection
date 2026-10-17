@@ -117,6 +117,70 @@ class BaselineRunnerTests(unittest.TestCase):
             self.assertFalse(Path(config.output_dir).exists())
 
 
+    def test_unexpected_training_failure_has_bounded_safe_diagnostics(self):
+        from rsna_knee.training.baseline import TrainingRunError, run_training
+
+        class Dataset:
+            def __len__(self):
+                return 1
+            def bounded_training_subset(self, _limit):
+                return self
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_inputs(root)
+            config = self.make_config(root)
+            secret = f"{root}/private/study-identifier"
+            def fail_model(_config):
+                try:
+                    raise OSError(f"decoder path {secret}")
+                except OSError as cause:
+                    raise RuntimeError(f"CUDA operation failed at {secret}") from cause
+
+            with self.assertRaises(TrainingRunError) as caught:
+                run_training(config, execute=True,
+                             dataset_factory=lambda *_: Dataset(),
+                             model_factory=fail_model)
+
+        error = caught.exception
+        self.assertEqual(error.reason_code, "training_failed")
+        self.assertEqual(error.diagnostics["stage"], "model_initialization")
+        self.assertEqual(error.diagnostics["exception_family"], "runtime")
+        self.assertEqual(error.diagnostics["exception_chain"], ["runtime", "operating_system"])
+        self.assertEqual(set(error.diagnostics), {"stage", "exception_family", "exception_chain", "source"})
+        self.assertNotIn(secret, repr(error.diagnostics))
+        source = error.diagnostics["source"]
+        self.assertEqual(source["module"], "training.baseline")
+        self.assertEqual(source["function"], "run_training")
+        self.assertIsInstance(source["line"], int)
+        self.assertNotIn(secret, str(error))
+
+    def test_cli_emits_only_allowlisted_training_diagnostics(self):
+        from scripts.train_baseline import main
+        from rsna_knee.training.baseline import TrainingRunError
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_inputs(root)
+            config_path = root / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            safe = {
+                "stage": "training", "exception_family": "runtime",
+                "exception_chain": ["runtime", "operating_system"],
+                "source": {"module": "training.baseline", "function": "run_training", "line": 12},
+            }
+            stderr = io.StringIO()
+            with mock.patch("scripts.train_baseline.TrainingConfig.from_mapping", return_value=object()), \
+                 mock.patch("scripts.train_baseline.run_training", side_effect=TrainingRunError(
+                     "training_failed", diagnostics=safe)), \
+                 redirect_stderr(stderr):
+                exit_code = main(["--config", str(config_path), "--execute"])
+        self.assertEqual(exit_code, 2)
+        event = json.loads(stderr.getvalue())
+        self.assertEqual(event["reason_code"], "training_failed")
+        self.assertEqual(event["diagnostics"], safe)
+        self.assertNotIn(str(root), stderr.getvalue())
+
     def test_cuda_device_requires_available_cuda_and_returns_cuda_device(self):
         from rsna_knee.training.baseline import TrainingRunError, _check_device
 

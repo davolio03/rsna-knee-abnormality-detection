@@ -34,7 +34,10 @@ def main(argv: list[str] | None = None) -> int:
         config = TrainingConfig.from_mapping(value)
         result = run_training(config, execute=args.execute)
     except TrainingRunError as exc:
-        print(f"Training command failed ({exc.reason_code}).", file=sys.stderr)
+        event = {"status": "failed", "reason_code": exc.reason_code}
+        if isinstance(exc.diagnostics, dict):
+            event["diagnostics"] = exc.diagnostics
+        print(json.dumps(event, sort_keys=True), file=sys.stderr)
         return 2
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
         print("Training command failed (configuration_or_input_invalid).", file=sys.stderr)

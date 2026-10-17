@@ -13,13 +13,115 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 
+_SAFE_FAILURE_STAGES = frozenset({
+    "runtime_setup", "model_initialization", "training", "validation", "metrics",
+    "checkpoint", "report_write",
+})
+_SAFE_SOURCE_FUNCTIONS = frozenset({
+    "run_training", "_sample_loss", "_mean_loss", "_runtime_metadata", "_write_json",
+})
+_SAFE_EXCEPTION_FAMILIES = frozenset({
+    "memory", "operating_system", "runtime", "value", "type", "index_or_key", "import", "other",
+})
+
+
+def _validate_failure_diagnostics(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping) or set(value) - {
+        "stage", "exception_family", "exception_chain", "source"
+    }:
+        return None
+    stage = value.get("stage")
+    family = value.get("exception_family")
+    chain = value.get("exception_chain")
+    if (type(stage) is not str or stage not in _SAFE_FAILURE_STAGES
+            or type(family) is not str or family not in _SAFE_EXCEPTION_FAMILIES
+            or type(chain) is not list or not 1 <= len(chain) <= 4
+            or chain[0] != family
+            or any(type(entry) is not str or entry not in _SAFE_EXCEPTION_FAMILIES for entry in chain)):
+        return None
+    safe: dict[str, Any] = {"stage": stage, "exception_family": family, "exception_chain": list(chain)}
+    source = value.get("source")
+    if source is not None:
+        if (not isinstance(source, Mapping) or set(source) != {"module", "function", "line"}
+                or source.get("module") != "training.baseline"
+                or type(source.get("function")) is not str
+                or source.get("function") not in _SAFE_SOURCE_FUNCTIONS
+                or type(source.get("line")) is not int
+                or not 1 <= source["line"] <= 100000):
+            return None
+        safe["source"] = {
+            "module": "training.baseline", "function": source["function"], "line": source["line"],
+        }
+    return safe
+
+
+def _safe_exception_family(error: Exception) -> str:
+    if isinstance(error, MemoryError) or (
+        type(error).__module__ == "torch.cuda" and type(error).__name__ == "OutOfMemoryError"
+    ):
+        return "memory"
+    if isinstance(error, OSError):
+        return "operating_system"
+    if isinstance(error, RuntimeError):
+        return "runtime"
+    if isinstance(error, ValueError):
+        return "value"
+    if isinstance(error, TypeError):
+        return "type"
+    if isinstance(error, (IndexError, KeyError)):
+        return "index_or_key"
+    if isinstance(error, ImportError):
+        return "import"
+    return "other"
+
+
+def _safe_exception_chain(error: Exception) -> list[str]:
+    chain: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while isinstance(current, BaseException) and id(current) not in seen and len(chain) < 4:
+        seen.add(id(current))
+        chain.append(_safe_exception_family(current))
+        current = current.__cause__ or (
+            current.__context__ if not current.__suppress_context__ else None
+        )
+    return chain or ["other"]
+
+
+def _safe_failure_diagnostics(error: Exception, stage: str) -> dict[str, Any]:
+    """Keep only coarse allowlisted failure metadata; never retain exception text."""
+    if stage not in _SAFE_FAILURE_STAGES:
+        stage = "runtime_setup"
+    family = _safe_exception_family(error)
+    diagnostics: dict[str, Any] = {
+        "stage": stage,
+        "exception_family": family,
+        "exception_chain": _safe_exception_chain(error),
+    }
+    traceback = error.__traceback__
+    while traceback is not None:
+        frame = traceback.tb_frame
+        code = frame.f_code
+        if (Path(code.co_filename).as_posix().endswith("/rsna_knee/training/baseline.py")
+                and code.co_name in _SAFE_SOURCE_FUNCTIONS):
+            diagnostics["source"] = {
+                "module": "training.baseline",
+                "function": code.co_name,
+                "line": int(traceback.tb_lineno),
+            }
+            break
+        traceback = traceback.tb_next
+    return diagnostics
+
+
 class TrainingRunError(ValueError):
     """Safe categorical training error that omits input paths and identifiers."""
 
-    def __init__(self, reason_code: str) -> None:
+    def __init__(self, reason_code: str, *, diagnostics: Mapping[str, Any] | None = None) -> None:
         if not re.fullmatch(r"[a-z0-9_]{1,48}", reason_code):
             reason_code = "invalid_input"
         self.reason_code = reason_code
+        self.diagnostics = _validate_failure_diagnostics(diagnostics)
         super().__init__(f"Training run unavailable ({reason_code}).")
 
 
@@ -344,8 +446,10 @@ def run_training(
         raise TrainingRunError("output_must_be_new") from None
 
     started = time.perf_counter()
-    _seed_everything(config.seed, config.device)
+    stage = "runtime_setup"
     try:
+        _seed_everything(config.seed, config.device)
+        stage = "model_initialization"
         if model_factory is None:
             from rsna_knee.models.baseline import ScratchStudyCNN
 
@@ -357,6 +461,7 @@ def run_training(
         loss_function = torch.nn.BCEWithLogitsLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
         losses_by_step: list[float] = []
+        stage = "training"
         initial_loss = _mean_loss(model, train_dataset, loss_function, device) if config.mode == "overfit" else None
         model.train()
         steps_completed = 0
@@ -392,6 +497,7 @@ def run_training(
                 "interpretation_limit": "Bounded train-subset smoke test only; not clinical evidence, validation, or a generalization claim.",
             }
         else:
+            stage = "validation"
             model.eval()
             true_labels: list[list[int]] = []
             probabilities: list[list[float]] = []
@@ -413,6 +519,7 @@ def run_training(
                     })
             from rsna_knee.validation.metrics import multilabel_roc_auc
 
+            stage = "metrics"
             metrics = multilabel_roc_auc(np.asarray(true_labels), np.asarray(probabilities))
             _write_json(config.output_dir / "validation_predictions.json", {
                 "schema_version": "private-baseline-predictions-v1",
@@ -447,11 +554,13 @@ def run_training(
                 "interpretation_limit": "Single fixed development fold; provisional silver labels, not clinical evidence or a final generalization claim.",
             }
 
+        stage = "checkpoint"
         try:
             # Save only the model tensor mapping; never load user-supplied checkpoints.
             torch.save(model.state_dict(), config.output_dir / "checkpoint.pt")
         except (OSError, RuntimeError, ValueError):
             raise TrainingRunError("checkpoint_write_failed") from None
+        stage = "report_write"
         report["runtime"] = _runtime_metadata(config, time.perf_counter() - started, device=device)
         report["config"] = _safe_config(config)
         report["input_sha256"] = {"manifest": manifest_sha256, "folds": folds_sha256}
@@ -459,6 +568,8 @@ def run_training(
         return report
     except TrainingRunError:
         raise
-    except Exception:
-        # Do not leak tensor/device/path errors or delete partial private evidence.
-        raise TrainingRunError("training_failed") from None
+    except Exception as error:
+        # Do not leak tensor/device/path text or delete partial private evidence.
+        raise TrainingRunError(
+            "training_failed", diagnostics=_safe_failure_diagnostics(error, stage)
+        ) from None

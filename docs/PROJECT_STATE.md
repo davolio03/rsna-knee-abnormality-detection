@@ -1,38 +1,24 @@
 # Project State
 
-## First full-fold Kaggle baseline batch running; results pending (2026-10-17)
+## First full-fold Kaggle baseline failed; cause unknown (2026-10-17)
 
-FB-01 is complete locally and committed as `ce9f40a0f465c3c32e0d249a577a3256174b1f4a`.
-The clean output-free notebook and matching config
-are `notebooks/kaggle_first_fold_baseline.ipynb` and
-`configs/kaggle_first_fold_baseline.json`. Ten synthetic notebook guard tests
-and the required focused training/package/preprocessing suite (88 tests) pass.
-Strict TDD observed both the initial missing-artifact RED and a regression RED
-where failed preflight returned normally. Safe failures now re-raise so Kaggle
-cannot report a successful batch after an error; only a complete fold report is
-summarized. The notebook remains
-`RUN_TRAINING = False`. Independent verification passed 88 focused tests and the
-legacy suite (297 tests, OK, 7 optional skips). For the private Kaggle notebook,
-the full enabled source cell was read back from the clipboard and matched its
-pinned SHA-256 before Save Version -> Save & Run All was selected and clicked
-once. Version 1, named “E026 Fold 0 - 333 train 167 val - 5 epochs”, is accepted
-and observed running on the T4x2 GPU. Launch was observed at 2026-10-17 01:46
-Europe/Madrid (approximately 2026-10-16 23:46:48 UTC). This is launch evidence
-only: plan validation, fit completion, metrics and outputs remain pending. Do
-not retry or restart; the one-run authorization is consumed. The next action is
-read-only inspection of Version 1 results. Execution `359170889` is visible in
-the [private run viewer](https://www.kaggle.com/code/davidsulleiro/rsna-knee-first-fold-baseline?scriptVersionId=359170889).
+FB-01/02 and launch recording are complete; private Version 1 / execution
+`359170889` failed after 258.3 seconds with 0 B output. Logs at 247.3 seconds
+reported `training_blocked` / `training_failed`, followed by Papermill
+`RuntimeError(training_failed)` from notebook main line 232. No metrics, report,
+predictions, or checkpoint were produced. The underlying exception, failure
+stage, and completed step count remain unknown; do not infer GPU out-of-memory
+or a specific failed step. The one-run authorization is consumed: never relaunch
+or restart without new explicit authorization.
 
-The frozen protocol is scratch-only, fold 0 / seed 42, all 333 training and 167
-validation studies, five epochs / 1,665 planned steps, CUDA only, 256 pixels,
-eight slices maximum, width 64, learning rate 0.001. The unchanged Version 3
-package must pass the embedded 24-member inventory and source hashes before its
-source is imported; the manifest/fold hashes and plan counts are checked again
-before fitting. Output is new and private at
-`/kaggle/working/kaggle-first-fold-baseline/run01`. The runner produces a final
-checkpoint only, with no resume/per-epoch checkpoint promise. See
-[E026](../experiments/E026_kaggle_first_fold_baseline.md) for the protocol and
-launch evidence. Do not interpret one fold as clinical truth or final generalization.
+Local diagnostics now preserve only allowlisted exception family and bounded
+exception-family chain, coarse stage, and validated internal source location; notebook and CLI tests verify raw error
+text, paths, IDs, reports, and locals are not exposed. This code was not included
+in Kaggle package Version 3 or the failed Version 1, so it cannot diagnose that
+historical run. Any diagnostic remote run requires separate authorization and a
+matching provenance-preserving package version. The notebook remains disabled
+by default and its fixed trial/provenance is unchanged. See
+[E026](../experiments/E026_kaggle_first_fold_baseline.md).
 
 ## Kaggle eight-study overfit completed; no validation or publication (2026-10-17)
 

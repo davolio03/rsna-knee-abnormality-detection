@@ -4,9 +4,11 @@ import io
 import json
 import tempfile
 import unittest
+import sys
+from types import SimpleNamespace
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -218,6 +220,63 @@ class KaggleFirstFoldNotebookTests(unittest.TestCase):
                 namespace["main"]()
         self.assertIn('"reason_code": "runtime_failed"', output.getvalue())
         self.assertNotIn("study-id", output.getvalue())
+
+    def test_training_failure_emits_only_allowlisted_diagnostics(self):
+        _, _, namespace = load_notebook_code()
+        error = RuntimeError("private path and study identifier must not escape")
+        error.reason_code = "training_failed"
+        error.diagnostics = {
+            "stage": "model_initialization",
+            "exception_family": "runtime", "exception_chain": ["runtime", "operating_system"],
+            "source": {"module": "training.baseline", "function": "run_training", "line": 321},
+        }
+        output = io.StringIO()
+        torch_stub = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True))
+        with patch.object(Path, "is_dir", return_value=True), \
+                patch.dict(sys.modules, {"torch": torch_stub}), \
+                patch.dict(namespace, {
+                    "audit_package": lambda _root: {
+                        "validated_member_count": 24, "manifest_matches": True,
+                        "folds_match": True, "remote_archive_bytes_verified": False,
+                    },
+                    "run_with_plan_gate": Mock(side_effect=error),
+                }), redirect_stdout(output):
+            with self.assertRaisesRegex(RuntimeError, "training_failed"):
+                namespace["main"]()
+        event = json.loads(output.getvalue())
+        self.assertEqual(event["reason_code"], "training_failed")
+        self.assertEqual(event["diagnostics"]["stage"], "model_initialization")
+        self.assertEqual(event["diagnostics"]["exception_chain"], ["runtime", "operating_system"])
+        self.assertEqual(event["diagnostics"]["source"]["line"], 321)
+        self.assertNotIn("private path", output.getvalue())
+        self.assertNotIn("study identifier", output.getvalue())
+
+    def test_malformed_failure_diagnostics_are_omitted_not_echoed(self):
+        _, _, namespace = load_notebook_code()
+        error = RuntimeError("private path and study identifier must not escape")
+        error.reason_code = "training_failed"
+        error.diagnostics = {
+            "stage": "training", "exception_family": "runtime",
+            "exception_chain": ["runtime"], "unsafe": "private/path/study-id",
+        }
+        output = io.StringIO()
+        torch_stub = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True))
+        with patch.object(Path, "is_dir", return_value=True), \
+                patch.dict(sys.modules, {"torch": torch_stub}), \
+                patch.dict(namespace, {
+                    "audit_package": lambda _root: {
+                        "validated_member_count": 24, "manifest_matches": True,
+                        "folds_match": True, "remote_archive_bytes_verified": False,
+                    },
+                    "run_with_plan_gate": Mock(side_effect=error),
+                }), redirect_stdout(output):
+            with self.assertRaisesRegex(RuntimeError, "training_failed"):
+                namespace["main"]()
+        event = json.loads(output.getvalue())
+        self.assertNotIn("diagnostics", event)
+        self.assertNotIn("private path", output.getvalue())
+        self.assertNotIn("study identifier", output.getvalue())
+        self.assertNotIn("private/path/study-id", output.getvalue())
 
     def test_partial_execution_report_is_not_treated_as_success(self):
         _, _, namespace = load_notebook_code()
