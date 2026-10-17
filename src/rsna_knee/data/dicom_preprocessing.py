@@ -53,6 +53,23 @@ _HEADER_TAGS = (
     "RescaleIntercept", "PixelPaddingValue", "PixelPaddingRangeLimit", "ModalityLUTSequence",
 )
 _ABSENT = object()
+_ORIENTATION_COMPONENT_TOLERANCE = 1e-5
+
+
+def _orientation_component_matches(left: float, right: float) -> bool:
+    """Apply the fixed orientation tolerance with only a two-ULP roundoff margin.
+
+    DICOM orientation values are parsed as binary floats. This margin prevents
+    subtraction/representation rounding at the exact tolerance boundary from
+    becoming a false rejection; it is not a relative or scientific tolerance.
+    """
+    operand_scale = max(abs(left), abs(right), _ORIENTATION_COMPONENT_TOLERANCE)
+    roundoff = 2 * math.ulp(operand_scale)
+    return abs(left - right) <= _ORIENTATION_COMPONENT_TOLERANCE + roundoff
+
+
+def _orientations_match(left, right) -> bool:
+    return all(_orientation_component_matches(a, b) for a, b in zip(left, right))
 
 
 def _fail(code: str, message: str) -> None:
@@ -154,7 +171,7 @@ def _decoded_metadata_matches_header(left, right) -> bool:
         and left["columns"] == right["columns"]
         and left["samples"] == right["samples"]
         and left["photometric"] == right["photometric"]
-        and all(abs(a - b) <= 1e-5 for a, b in zip(left["orientation"], right["orientation"]))
+        and _orientations_match(left["orientation"], right["orientation"])
         and all(abs(a - b) <= 1e-5 for a, b in zip(left["spacing"], right["spacing"]))
         and abs(left["coordinate"] - right["coordinate"]) <= 1e-5
         and all(left[key] == right[key] for key in ("slope", "intercept", "padding", "padding_limit"))
@@ -203,7 +220,7 @@ def preprocess_dicom_series(
         if reference is None:
             reference = header
         else:
-            if any(abs(a - b) > 1e-5 for a, b in zip(reference["orientation"], header["orientation"])):
+            if not _orientations_match(reference["orientation"], header["orientation"]):
                 _fail("inconsistent_orientation", "The series contains inconsistent slice orientation.")
             if any(abs(a - b) > 1e-5 for a, b in zip(reference["spacing"], header["spacing"])):
                 _fail("inconsistent_spacing", "The series contains inconsistent pixel spacing.")

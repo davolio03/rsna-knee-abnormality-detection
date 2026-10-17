@@ -1,8 +1,10 @@
 # Project State
 
-## Authorized CPU orientation-header audit running; measurement pending (2026-10-17)
+## CPU orientation-header audit complete; local boundary correction verified (2026-10-17)
 
-Parent launched exactly one private, CPU-only orientation-header audit in notebook Version 1 / execution `359458891`, using the existing private reader dataset Version 5 and attached official competition input. The corrected notebook was read back with only `RUN_AUDIT = False` changed to `True`; enabled cell SHA-256 `c920522b9a6b4f5e6e65ea67ada6d1f52f811a01302bc1e5b2901326b264154d`. At the initial viewer snapshot it showed `Running` for 12.1 seconds, `Accelerator None`, and 0 B output. This is not a completed measurement: results remain pending and no retry/restart is authorized. The run reads headers only; no training, GPU, pixel decoding, reports, labels, or threshold change. See [E026](../experiments/E026_kaggle_first_fold_baseline.md) for hashes, verifier counts, and proof location.
+The one authorized private CPU orientation-header audit completed in notebook Version 1 / execution `359458891`, using private reader dataset Version 5 and the attached official competition input. Its ID-free summary reports 12,319 headers read in 115.273 seconds; the first threshold-exceeding series (ordinal 355) was fully read across 43 headers, with 23 headers above the existing `1e-5` component threshold and zero invalid orientations or read failures. Maximum component delta/spread was `0.000010000000000010001`; maximum row/column/normal angles were `0`, `0.0005712049259344931`, and `0.0005593304958631258` degrees. This is a bounded training-header observation, not a cohort-wide estimate or clinical conclusion.
+
+A user-authorized local fix now retains the same scientific orientation threshold while allowing only a two-ULP, operand-scale arithmetic-rounding margin in the orientation component checks. Spacing and projected-position comparisons, data selection, models, and folds are unchanged. Synthetic regression tests reproduce the exact-boundary false rejection and verify larger deltas/rotations still fail. The focused suite passed 125 tests; no package rebuild, data inspection, GPU work, or remote rerun occurred. The audit authorization is consumed; no additional audit or training run is authorized. See [E026](../experiments/E026_kaggle_first_fold_baseline.md) for execution provenance and verification details.
 
 ## Run03 controlled retry failed; no further retry (2026-10-17)
 

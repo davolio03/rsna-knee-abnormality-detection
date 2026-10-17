@@ -1,3 +1,4 @@
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ except ModuleNotFoundError as exc:
 
 from rsna_knee.data.dicom_preprocessing import (
     DicomPreprocessingError,
+    _decoded_metadata_matches_header,
     preprocess_dicom_series,
 )
 
@@ -172,6 +174,74 @@ class DicomPreprocessingTests(unittest.TestCase):
         with self.assertRaises(DicomPreprocessingError) as caught:
             self.run_adapter()
         self.assertEqual(caught.exception.reason_code, "inconsistent_spacing")
+
+    def test_orientation_threshold_accepts_only_binary_rounding_excess(self):
+        in_plane = math.sqrt(0.96)
+        reference = [0.2, in_plane, 0.0, -in_plane, 0.2, 0.0]
+        boundary = reference.copy()
+        boundary[0] += 1e-5
+        self.assertGreater(abs(boundary[0] - reference[0]), 1e-5)
+        for name in self.headers:
+            position = self.headers[name].ImagePositionPatient[2]
+            self.headers[name] = dataset(position, ImageOrientationPatient=reference)
+            self.decoded[name] = dataset(
+                position, np.ones((2, 3)), ImageOrientationPatient=reference
+            )
+        boundary[4] += 1e-5
+        self.headers["slice-1.dcm"] = dataset(1, ImageOrientationPatient=boundary)
+        self.decoded["slice-1.dcm"] = dataset(
+            1, np.ones((2, 3)), ImageOrientationPatient=reference
+        )
+
+        result = self.run_adapter()
+
+        self.assertEqual(result.metadata["slice_count_scanned"], 3)
+
+    def test_orientation_threshold_still_rejects_materially_larger_delta(self):
+        reference = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+        outside = reference.copy()
+        outside[0] += 1.0001e-5
+        self.headers["slice-0.dcm"] = dataset(3, ImageOrientationPatient=reference)
+        self.headers["slice-1.dcm"] = dataset(1, ImageOrientationPatient=outside)
+
+        with self.assertRaises(DicomPreprocessingError) as caught:
+            self.run_adapter()
+
+        self.assertEqual(caught.exception.reason_code, "inconsistent_orientation")
+
+    def test_decoded_orientation_roundoff_is_tolerated_but_spacing_and_position_are_not(self):
+        in_plane = math.sqrt(0.96)
+        reference = [0.2, in_plane, 0.0, -in_plane, 0.2, 0.0]
+        boundary = reference.copy()
+        boundary[0] += 1e-5
+        boundary[4] += 1e-5
+        common = {
+            "rows": 2, "columns": 3, "samples": 1, "photometric": "MONOCHROME2",
+            "orientation": reference, "spacing": (0.7, 0.8), "coordinate": 1.0,
+            "slope": None, "intercept": None, "padding": None, "padding_limit": None,
+        }
+        decoded = {**common, "orientation": boundary}
+
+        self.assertTrue(_decoded_metadata_matches_header(common, decoded))
+        self.assertFalse(_decoded_metadata_matches_header(
+            common, {**decoded, "spacing": (0.7 + 1.0001e-5, 0.8)}
+        ))
+        self.assertFalse(_decoded_metadata_matches_header(
+            common, {**decoded, "coordinate": 1.0 + 1.0001e-5}
+        ))
+
+    def test_orientation_comparison_still_rejects_real_rotation(self):
+        angle = 1e-3
+        reference = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+        rotated = [math.cos(angle), math.sin(angle), 0.0,
+                   -math.sin(angle), math.cos(angle), 0.0]
+        self.headers["slice-0.dcm"] = dataset(3, ImageOrientationPatient=reference)
+        self.headers["slice-1.dcm"] = dataset(1, ImageOrientationPatient=rotated)
+
+        with self.assertRaises(DicomPreprocessingError) as caught:
+            self.run_adapter()
+
+        self.assertEqual(caught.exception.reason_code, "inconsistent_orientation")
 
     def test_missing_required_geometry_fails_closed(self):
         self.headers["slice-0.dcm"] = dataset(3, PixelSpacing=None)
