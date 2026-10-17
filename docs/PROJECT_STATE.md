@@ -1,5 +1,9 @@
 # Project State
 
+## Authorized diagnostic run03 package prepared locally; remote action pending (2026-10-17)
+
+After run02 failed, the user explicitly authorized exactly one further private diagnostic attempt using a package with the allowlisted dataset-reason-code fix. Local preparation is complete using the existing package builder: 22-member ZIP, matching inventory, separate disabled-default run03 notebook, and config with unchanged fold0/seed42/scratch/333/167/5-epoch/1,665-step/CUDA protocol and private dataset mount. All package members match inventory and extracted source; manifest/fold pins are unchanged. A synthetic dataset-to-runner-to-notebook-event check retained only `pixel_decode_failed` and leaked no sentinel. The 98-test focused suite passed. No upload or launch has occurred; parent owns remote verification and the one authorized run. No retry/restart is authorized. Exact paths, hashes, and verification are in E026 and the ignored run03 preparation provenance record.
+
 ## First full-fold Kaggle baseline: V1 and diagnostic run02 failed (2026-10-17)
 
 FB-01/02 and launch recording are complete; private Version 1 / execution

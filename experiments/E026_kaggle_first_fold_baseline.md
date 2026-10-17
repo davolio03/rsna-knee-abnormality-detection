@@ -168,3 +168,11 @@
   end-to-end dataset → runner → CLI/notebook diagnostic checks passed. The
   ignored prior launch-cell snapshot was preserved unchanged; no historical
   package or launch artifact was rewritten.
+
+## Newly authorized run03 preparation — pending parent upload and launch
+
+- **Authorization:** The user explicitly authorized exactly one additional private run03 after proposing a package rebuild with the local dataset-reason fix. This authorization applies only to this single attempt; it does not authorize any retry or restart. Parent owns all Kaggle/browser operations.
+- **Preparation:** The existing audited builder produced a fresh 22-member package from current allowlisted source, pinned manifest/folds, plus a new disabled-default run03 notebook and matching config. No historical run01/run02 package, notebook, proof, or provenance was changed. The fixed fold0/seed42 scratch protocol and existing private dataset mount are unchanged.
+- **Artifacts:** ZIP `data/private/kaggle-first-fold-background/run03-preparation/kaggle-first-fold-diagnostic.zip`, SHA-256 `774aed89cba781017a130abe607bffc077d15a4e6b91fb2ef112d4d27b246ede`; inventory `.../inventory.json`, SHA-256 `96016ffefdb4e96ac36119d943156b07c70caa3a20618a39459bad2eb9e94d82`; notebook `.../kaggle_first_fold_baseline_run03.ipynb`, SHA-256 `c90a64e48589ba6a4376f5fdab85de264c251c30d2c421fbab6d0d33e4e966f2`; matching config `.../kaggle_first_fold_baseline_run03.json`, SHA-256 `031b369c1cf78d417727524a8b9be4156bf932d0cfe94fc58ce0d3c52b0f8ece`. Full local hashes and bounded verification are in ignored `data/private/kaggle-first-fold-background/run03-preparation/run03-preparation-provenance.json`.
+- **Verification:** The archive, inventory, and extracted build folder agree for all 22 unique members; manifest/fold bytes and hashes match pinned source. Isolated ZIP import used the packaged source. A synthetic lazy dataset failure traversed `run_training` and the prepared notebook event, retaining only `pixel_decode_failed` without a sentinel message/path; no GPU or real data. The focused suite passed 98 tests. Notebook/config JSON, syntax, config parity, empty outputs, and disabled default passed.
+- **Current boundary:** Local preparation is complete. No package upload or run03 launch has occurred. Parent must independently verify before any remote action; R3-02/R3-03 remain pending.
