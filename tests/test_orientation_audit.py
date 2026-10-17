@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from rsna_knee.data.orientation_audit import (
+    _angle_degrees,
     audit_orientation_headers,
     extract_manifest_series,
     scan_first_inconsistent_series,
@@ -72,6 +73,16 @@ class OrientationAuditTests(unittest.TestCase):
         self.assertEqual(result["valid_orientation_count"], 1)
         self.assertEqual(result["invalid_orientation_count"], 4)
         self.assertEqual(result["max_component_delta"], 0.0)
+
+    def test_angle_math_preserves_tiny_angles_and_handles_identical_and_opposite_vectors(self):
+        import math
+
+        tiny_degrees = 1e-7
+        tiny = (math.cos(math.radians(tiny_degrees)),
+                math.sin(math.radians(tiny_degrees)), 0.0)
+        self.assertAlmostEqual(_angle_degrees((1.0, 0.0, 0.0), tiny), tiny_degrees, places=10)
+        self.assertEqual(_angle_degrees((1.0, 0.0, 0.0), (1.0, 0.0, 0.0)), 0.0)
+        self.assertEqual(_angle_degrees((1.0, 0.0, 0.0), (-1.0, 0.0, 0.0)), 180.0)
 
     def test_nonunit_vectors_are_normalized_only_for_angle_measurement(self):
         result = audit_orientation_headers([
@@ -200,6 +211,15 @@ class OrientationAuditTests(unittest.TestCase):
         self.assertEqual(invalid["status"], "blocked")
         self.assertEqual(invalid["blocked_reason"], "provenance_invalid")
         self.assertEqual(calls, [])
+
+    def test_empty_series_and_empty_series_list_fail_closed(self):
+        def reader(path, **kwargs):
+            raise AssertionError("reader must not run for empty series")
+
+        for groups in ([], [[]], [[], [Path("unused.dcm")]]):
+            with self.subTest(groups=groups):
+                with self.assertRaisesRegex(ValueError, "^series_files_missing$"):
+                    scan_first_inconsistent_series(groups, reader)
 
 
 if __name__ == "__main__":

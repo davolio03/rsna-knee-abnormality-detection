@@ -245,8 +245,11 @@ def _unit(vector: Sequence[float]) -> tuple[float, ...]:
 
 
 def _angle_degrees(left: Sequence[float], right: Sequence[float]) -> float:
-    cosine = sum(a * b for a, b in zip(_unit(left), _unit(right)))
-    return math.degrees(math.acos(max(-1.0, min(1.0, cosine))))
+    unit_left = _unit(left)
+    unit_right = _unit(right)
+    cross_magnitude = _norm(_cross(unit_left, unit_right))
+    dot_product = math.fsum(a * b for a, b in zip(unit_left, unit_right))
+    return math.degrees(math.atan2(cross_magnitude, dot_product))
 
 
 def audit_orientation_headers(
@@ -343,7 +346,11 @@ def scan_first_inconsistent_series(
     headers_read = 0
     reader_failures = 0
     last_series_headers = 0
+    series_seen = False
     for series_ordinal, paths in enumerate(series_groups, start=1):
+        series_seen = True
+        if not paths:
+            raise ValueError("series_files_missing")
         values: list[object] = []
         series_failures = 0
         for path in paths:
@@ -401,6 +408,9 @@ def scan_first_inconsistent_series(
                 "series_header_read_failure_count": series_failures,
                 "inconsistent_orientation": True, "measurements": summary,
             }
+
+    if not series_seen or headers_read == 0:
+        raise ValueError("series_files_missing")
 
     return {
         "status": "complete", "partial": False, "headers_read": headers_read,
