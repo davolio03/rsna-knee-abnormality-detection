@@ -28,7 +28,7 @@ _SAFE_EXCEPTION_FAMILIES = frozenset({
 
 def _validate_failure_diagnostics(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(value, Mapping) or set(value) - {
-        "stage", "exception_family", "exception_chain", "source"
+        "stage", "exception_family", "exception_chain", "source", "data_reason_code"
     }:
         return None
     stage = value.get("stage")
@@ -53,6 +53,14 @@ def _validate_failure_diagnostics(value: Mapping[str, Any] | None) -> dict[str, 
         safe["source"] = {
             "module": "training.baseline", "function": source["function"], "line": source["line"],
         }
+    data_reason_code = value.get("data_reason_code")
+    if data_reason_code is not None:
+        from rsna_knee.data.training_dataset import TrainingDatasetError
+
+        if (type(data_reason_code) is not str
+                or data_reason_code not in TrainingDatasetError.SAFE_DIAGNOSTIC_REASON_CODES):
+            return None
+        safe["data_reason_code"] = data_reason_code
     return safe
 
 
@@ -102,6 +110,13 @@ def _safe_failure_diagnostics(error: Exception, stage: str) -> dict[str, Any]:
         "exception_family": family,
         "exception_chain": _safe_exception_chain(error),
     }
+    from rsna_knee.data.training_dataset import TrainingDatasetError
+
+    if type(error) is TrainingDatasetError:
+        data_reason_code = getattr(error, "data_reason_code", None)
+        if (type(data_reason_code) is str
+                and data_reason_code in TrainingDatasetError.SAFE_DIAGNOSTIC_REASON_CODES):
+            diagnostics["data_reason_code"] = data_reason_code
     traceback = error.__traceback__
     while traceback is not None:
         frame = traceback.tb_frame

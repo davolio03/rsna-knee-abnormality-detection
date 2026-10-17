@@ -78,11 +78,16 @@ class KaggleFirstFoldNotebookTests(unittest.TestCase):
         self.assertIn("raise RuntimeError(reason) from None", code)
         self.assertIn("SAFE_REASON_CODES = frozenset", code)
 
-    def test_ignored_launch_cell_is_the_exact_notebook_code_cell(self):
+    def test_ignored_launch_cell_snapshot_is_preserved_without_rewriting_history(self):
         _, code, _ = load_notebook_code()
-        launch = IGNORED_LAUNCH_PATH.read_text(encoding="utf-8")
+        launch_bytes = IGNORED_LAUNCH_PATH.read_bytes()
+        launch = launch_bytes.decode("utf-8")
         self.assertTrue(launch.startswith('"""Paste this complete cell'))
-        self.assertEqual(launch.split("\n", 1)[1], code)
+        self.assertEqual(
+            hashlib.sha256(launch_bytes).hexdigest(),
+            "eb11981109c0500d44b7bef5d8beed3fee8c1b673b91b571d6f44693008a3e33",
+        )
+        self.assertNotEqual(launch.split("\n", 1)[1], code)
 
     def test_public_config_matches_notebook_frozen_trial(self):
         config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))

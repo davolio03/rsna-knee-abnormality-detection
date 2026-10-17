@@ -1,7 +1,7 @@
-# E026 — First full-fold Kaggle scratch baseline (V1 failed; diagnostic run02 pending)
+# E026 — First full-fold Kaggle scratch baseline (V1 and diagnostic run02 failed)
 
 - **Date:** 2026-10-17
-- **Status:** Version 1 failed with unknown cause and no artifacts. The separately authorized diagnostic run02 was accepted and observed running; no result is available yet. Its single-run authorization is consumed; do not restart or launch another run.
+- **Status:** Version 1 failed with unknown cause and no artifacts. Separately authorized diagnostic run02 failed after 400.7 seconds with 0 B output; its safe event still localizes only to training. Both single-run authorizations are consumed; do not restart or launch another run.
 - **Parent:** E025
 - **Hypothesis:** The unchanged scratch study-level CNN can complete one full
   deterministic development fold on the existing Kaggle GPU runtime.
@@ -56,7 +56,9 @@
   the redaction and fail-closed behavior. This code was not present in private
   Kaggle package Version 3 or the failed Version 1, and cannot retroactively
   identify that run's cause. The separately authorized diagnostic run02 below
-  uses a matching provenance-preserving package version; its result is pending.
+  used a matching provenance-preserving package version but also failed without
+  preserving the safe categorical cause from dataset loading. The local fix below
+  is not retroactive and was not present in either private run.
   New local notebook cell SHA-256: `837f39df3b4f7bb9d4085dd7d36c1cfa2193f005ca61e239826154aea920171a`
   (18,249 bytes); the historical launched-cell hash above remains unchanged.
 - **Launch evidence:** Screenshot
@@ -84,11 +86,12 @@
   even after using a writable workspace temp directory. Notebook JSON, syntax,
   empty outputs, config parity, exact local launch-cell parity, and
   `git diff --check` passed.
-- **Conclusion:** Version 1 failed with its underlying cause unavailable. No
-  model-performance or adoption conclusion can be drawn. The separately
-  authorized diagnostic run02 is still running; no result is yet available.
+- **Conclusion:** Both full-fold runs failed without a reliable model-performance
+  result. Version 1's underlying cause remains unknown. Run02 establishes only a
+  value-family failure at the training call site; the exact cause remains
+  unknown, and the local correction does not retrospectively fix either run.
 
-## Authorized diagnostic relaunch (run02) — running; result pending
+## Authorized diagnostic relaunch (run02) — failed; cause detail incomplete
 
 - **Authorization and scope:** The user explicitly authorized one new private
   diagnostic run using the existing Kaggle account/session, private dataset and
@@ -128,7 +131,37 @@
   (SHA-256 `b3d9428c2f380e92e1e99f0bff76ef30e7ea93bb398b4d68972c845e2cc93e06`),
   and `data/private/kaggle-first-fold-background/run02-preparation-v2/run02-running-proof.jpg`
   (SHA-256 `ca77fdbe115d19797fb727777ec198b61dd30c93c2bfff422c85a38e63f3a082`).
-- **Interpretation:** The launch is recorded, not a successful training run.
-  Until terminal evidence is observed, the cause, completed steps, metrics,
-  checkpoint, and output artifacts remain unknown. Do not infer success or
-  failure from the short running snapshot.
+- **Interpretation at launch:** The initial launch snapshot was not a successful
+  training result. The terminal evidence is recorded below; do not infer the
+  exact cause from the snapshot or later coarse diagnostics.
+
+## Terminal run02 result and local follow-up
+
+- **Observed terminal result:** Parent-observed execution `359359350` failed
+  after 400.7 seconds with 0 B output. At 390.4 seconds, its safe event reported
+  `stage=training`, `exception_family=value`, `exception_chain=[value]`, and
+  source `training.baseline.run_training:477`. The exact deployed source line
+  evaluates `_sample_loss(model, train_dataset[row_index], loss_function,
+  device)`. Python evaluates `train_dataset[row_index]` before entering
+  `_sample_loss`; the trusted source collector's deepest frame `_sample_loss`
+  therefore does not prove the helper was entered. The failure may be from
+  dataset access or the loss path. Do not infer a specific decoder, preprocessing,
+  numeric-loss, or OOM cause.
+- **Evidence limits:** The event's family and call-site are observed, not the
+  wrapped exception text or exact root cause. No metrics, report, predictions,
+  or checkpoint were produced. The run02 authorization is consumed; no relaunch.
+- **Local correction:** The dataset now carries only a `DicomPreprocessingError`
+  with an exact allowlisted type and known categorical code through a safe
+  `TrainingDatasetError`; the runner revalidates and reports that code through
+  the shared diagnostic validator used by the CLI and notebook. Unknown codes,
+  other exception classes, arbitrary fields, messages, paths, and identifiers
+  remain excluded. This is a local code/test correction only; no package rebuild,
+  remote upload, or training run occurred. It does not identify the historical
+  run02 cause.
+- **Verification:** Strict TDD observed RED before production changes (focused
+  regression suite: 3 tests, 1 failure and 1 error due to missing propagated
+  category/schema support). After the fix the focused suite passed 98 tests.
+  `git diff --check`, notebook JSON/syntax/output/default checks, and synthetic
+  end-to-end dataset → runner → CLI/notebook diagnostic checks passed. The
+  ignored prior launch-cell snapshot was preserved unchanged; no historical
+  package or launch artifact was rewritten.

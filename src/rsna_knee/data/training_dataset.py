@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from rsna_knee.data.dicom_benchmark import _safe_component
-from rsna_knee.data.dicom_preprocessing import preprocess_dicom_series
+from rsna_knee.data.dicom_preprocessing import DicomPreprocessingError, preprocess_dicom_series
 from rsna_knee.labels.subscription import LABEL_COLUMNS
 from rsna_knee.validation.cohort import build_grouped_training_folds
 
@@ -18,10 +18,16 @@ from rsna_knee.validation.cohort import build_grouped_training_folds
 class TrainingDatasetError(ValueError):
     """Safe categorical error that never includes identifiers or file paths."""
 
-    def __init__(self, reason_code: str) -> None:
+    SAFE_DIAGNOSTIC_REASON_CODES = DicomPreprocessingError.SAFE_REASON_CODES
+
+    def __init__(self, reason_code: str, *, data_reason_code: str | None = None) -> None:
         if not re.fullmatch(r"[a-z0-9_]{1,48}", reason_code):
             reason_code = "invalid_input"
         self.reason_code = reason_code
+        self.data_reason_code = (
+            data_reason_code if type(data_reason_code) is str
+            and data_reason_code in self.SAFE_DIAGNOSTIC_REASON_CODES else None
+        )
         super().__init__(f"Training data unavailable ({reason_code}).")
 
 
@@ -149,7 +155,14 @@ class TrainingStudyDataset:
                 images_by_series.append(torch.as_tensor(images.copy(), dtype=torch.float32))
                 masks_by_series.append(torch.as_tensor(valid_mask.copy(), dtype=torch.bool))
             labels = torch.tensor([record["labels"][name] for name in LABEL_COLUMNS], dtype=torch.float32)
-        except Exception:
+        except Exception as error:
             # Decoder exceptions can contain private IDs or paths; expose only a category.
-            raise TrainingDatasetError("study_load_failed") from None
+            data_reason_code = None
+            if (type(error) is DicomPreprocessingError
+                    and type(getattr(error, "reason_code", None)) is str
+                    and error.reason_code in DicomPreprocessingError.SAFE_REASON_CODES):
+                data_reason_code = error.reason_code
+            raise TrainingDatasetError(
+                "study_load_failed", data_reason_code=data_reason_code,
+            ) from None
         return images_by_series, masks_by_series, labels, index

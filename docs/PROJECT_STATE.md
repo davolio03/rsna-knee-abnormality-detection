@@ -1,6 +1,6 @@
 # Project State
 
-## First full-fold Kaggle baseline: V1 failed; diagnostic run02 in progress (2026-10-17)
+## First full-fold Kaggle baseline: V1 and diagnostic run02 failed (2026-10-17)
 
 FB-01/02 and launch recording are complete; private Version 1 / execution
 `359170889` failed after 258.3 seconds with 0 B output. Logs at 247.3 seconds
@@ -11,10 +11,15 @@ stage, and completed step count remain unknown; do not infer GPU out-of-memory
 or a specific failed step. The original Version 1 authorization was consumed.
 After a new explicit user authorization, exactly one diagnostic run was
 prepared, uploaded as private package Version 4, and launched as notebook
-Version 1 / execution `359359350`. At the 14:38:09 Europe/Madrid observation,
-the versioned run had been running for 32.6 seconds on T4x2 with 0 B output;
-no completion, failure, diagnostics, metrics, checkpoint, or other result was
-observed. The new one-run authorization is consumed; do not retry or restart.
+Version 1 / execution `359359350`. The parent observed failure after 400.7
+seconds with 0 B output. At 390.4 seconds, the safe event reported
+`stage=training`, `exception_family=value`, `exception_chain=[value]`, and
+source `training.baseline.run_training:477`. That expression evaluates
+`train_dataset[row_index]` before entering `_sample_loss`, so the location does
+not prove a dataset/preprocessor failure; the origin may be dataset access or
+the loss path. Do not infer a specific decoder, preprocessing, numeric-loss,
+or OOM cause. No metrics, report, predictions, or checkpoint were produced.
+The one-run authorization is consumed; do not retry or restart.
 
 Local diagnostics now preserve only allowlisted exception family and bounded
 exception-family chain, coarse stage, and validated internal source location; notebook and CLI tests verify raw error
@@ -22,8 +27,11 @@ text, paths, IDs, reports, and locals are not exposed. This code was not include
 in Kaggle package Version 3 or the failed Version 1, so it cannot diagnose that
 historical run. The separately authorized diagnostic run02 used the matching
 Version 4 package with the same fixed trial/provenance and a distinct `run02`
-output directory; its result remains pending. See
-[E026](../experiments/E026_kaggle_first_fold_baseline.md).
+output directory. A local strict-TDD correction now preserves only known
+allowlisted `DicomPreprocessingError` reason codes through the dataset, runner,
+CLI, and notebook diagnostic validation. It does not determine the historical
+run02 cause, change data/model policy, or authorize a package rebuild or new
+remote run. See [E026](../experiments/E026_kaggle_first_fold_baseline.md).
 
 ## Kaggle eight-study overfit completed; no validation or publication (2026-10-17)
 

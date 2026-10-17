@@ -18,8 +18,20 @@ from rsna_knee.data.preprocessing import (
 )
 
 
+_SAFE_DIAGNOSTIC_REASON_CODES = frozenset({
+    "decoded_metadata_mismatch", "duplicate_slice_position", "header_read_failed",
+    "incomplete_intensity_metadata", "inconsistent_orientation", "inconsistent_pixel_layout",
+    "inconsistent_spacing", "invalid_intensity_metadata", "missing_dependency", "missing_geometry",
+    "pixel_decode_failed", "preprocessing_failed", "series_files_missing",
+    "series_path_unavailable", "symlink_path", "unsupported_frame_count",
+    "unsupported_modality_lut", "unsupported_pixel_layout", "invalid_limit",
+})
+
+
 class DicomPreprocessingError(ValueError):
     """Safe categorical failure that never embeds a path or decoder detail."""
+
+    SAFE_REASON_CODES = _SAFE_DIAGNOSTIC_REASON_CODES
 
     def __init__(self, reason_code: str, message: str):
         super().__init__(message)
@@ -44,6 +56,8 @@ _ABSENT = object()
 
 
 def _fail(code: str, message: str) -> None:
+    if code not in _SAFE_DIAGNOSTIC_REASON_CODES:
+        code = "preprocessing_failed"
     raise DicomPreprocessingError(code, message)
 
 
