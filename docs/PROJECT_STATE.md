@@ -1,8 +1,12 @@
 # Project State
 
-## Authorized run03 queued; result pending (2026-10-17)
+## Authorized CPU orientation-header audit running; measurement pending (2026-10-17)
 
-Parent completed one private Version 5 upload (22 `data/src` files) and launched the fresh private run03 notebook once with the unchanged fold0/seed42 scratch protocol, T4x2, competition attached, and interactive session off. Execution `359370509` was observed **Queued** at 15:16:20 Europe/Madrid with 0 B output; training start and outcome are not established. The one-run authorization is consumed; no retry or restart. Local preparation, exact hashes, and launch evidence remain in E026 and ignored run03 provenance. Parent reports 18 pre-upload and 6 post-upload checks passed; focused suite passed 98 tests.
+Parent launched exactly one private, CPU-only orientation-header audit in notebook Version 1 / execution `359458891`, using the existing private reader dataset Version 5 and attached official competition input. The corrected notebook was read back with only `RUN_AUDIT = False` changed to `True`; enabled cell SHA-256 `c920522b9a6b4f5e6e65ea67ada6d1f52f811a01302bc1e5b2901326b264154d`. At the initial viewer snapshot it showed `Running` for 12.1 seconds, `Accelerator None`, and 0 B output. This is not a completed measurement: results remain pending and no retry/restart is authorized. The run reads headers only; no training, GPU, pixel decoding, reports, labels, or threshold change. See [E026](../experiments/E026_kaggle_first_fold_baseline.md) for hashes, verifier counts, and proof location.
+
+## Run03 controlled retry failed; no further retry (2026-10-17)
+
+The prior queued run03 execution `359370509` was canceled; the one explicitly authorized identical retry, execution `359386220`, failed after 289.4 seconds with 0 B output. Its safe event reported only `data_reason_code=inconsistent_orientation`, family `training`, source `run_training:492`; actual orientation deltas and failing series remain unknown. That training retry authorization is consumed. See E026 for the preserved cancellation evidence and history.
 
 ## First full-fold Kaggle baseline: V1 and diagnostic run02 failed (2026-10-17)
 
