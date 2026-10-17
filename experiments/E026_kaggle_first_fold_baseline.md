@@ -1,7 +1,7 @@
-# E026 — First full-fold Kaggle scratch baseline (failed; cause unknown)
+# E026 — First full-fold Kaggle scratch baseline (V1 failed; diagnostic run02 pending)
 
 - **Date:** 2026-10-17
-- **Status:** Inconclusive failure; no metrics or checkpoint. Historical run ended; no retry authorized.
+- **Status:** Version 1 failed with unknown cause and no artifacts. The separately authorized diagnostic run02 was accepted and observed running; no result is available yet. Its single-run authorization is consumed; do not restart or launch another run.
 - **Parent:** E025
 - **Hypothesis:** The unchanged scratch study-level CNN can complete one full
   deterministic development fold on the existing Kaggle GPU runtime.
@@ -44,8 +44,10 @@
 - **Results:** No metrics, report, predictions, or checkpoint were produced.
   The actual exception, failure stage, and completed step count are unknown;
   the prior wrapper suppressed the cause with `from None`. Do not infer GPU
-  out-of-memory or any specific failure step. The one-run authorization is
-  consumed; do not retry or restart.
+  out-of-memory or any specific failure step. The Version 1 authorization was
+  consumed. A later, separate user authorization permitted exactly one
+  diagnostic relaunch with a fresh package; that authorization is now also
+  consumed. Do not retry or restart either execution.
 - **Diagnostic follow-up:** Locally, the training runner now retains only an
   allowlisted exception family and bounded exception-family chain, coarse
   execution stage, and validated internal source location for unexpected exceptions. The notebook and local CLI emit
@@ -53,8 +55,8 @@
   IDs, reports, and locals remain excluded. Synthetic regression tests verify
   the redaction and fail-closed behavior. This code was not present in private
   Kaggle package Version 3 or the failed Version 1, and cannot retroactively
-  identify that run's cause. A future diagnostic run would require separately
-  authorized remote work and a matching provenance-preserving package version.
+  identify that run's cause. The separately authorized diagnostic run02 below
+  uses a matching provenance-preserving package version; its result is pending.
   New local notebook cell SHA-256: `837f39df3b4f7bb9d4085dd7d36c1cfa2193f005ca61e239826154aea920171a`
   (18,249 bytes); the historical launched-cell hash above remains unchanged.
 - **Launch evidence:** Screenshot
@@ -82,6 +84,51 @@
   even after using a writable workspace temp directory. Notebook JSON, syntax,
   empty outputs, config parity, exact local launch-cell parity, and
   `git diff --check` passed.
-- **Conclusion:** The single private batch failed with its underlying cause
-  unavailable. No model-performance or adoption conclusion can be drawn; any
-  additional remote diagnostic execution requires new explicit authorization.
+- **Conclusion:** Version 1 failed with its underlying cause unavailable. No
+  model-performance or adoption conclusion can be drawn. The separately
+  authorized diagnostic run02 is still running; no result is yet available.
+
+## Authorized diagnostic relaunch (run02) — running; result pending
+
+- **Authorization and scope:** The user explicitly authorized one new private
+  diagnostic run using the existing Kaggle account/session, private dataset and
+  competition attachment. No model, fold, cohort, or training-setting changes;
+  no Gold-58 use. This second one-run authorization is consumed. No retry or
+  restart is authorized.
+- **Package:** The exact locally audited ZIP was uploaded once as private
+  dataset Version 4. The success dialog confirmed completion and 22 private
+  files in the `data/` and `src/` layout. The competition dataset remained
+  attached. ZIP SHA-256:
+  `1e454db9f9aba9d574cb9e37a7323166e3b5ab8be89dcd80c47e986014950cff`;
+  inventory SHA-256:
+  `7b1b1bd51357f7b6a7e4ad7b2c88edaf11fde3a768b5c4425f9cc592a278da73`.
+  Manifest and fold hashes remain unchanged from the values above.
+- **Notebook and source:** A new private notebook, “RSNA Knee First Fold
+  Diagnostic Run02,” was created after the old editor remained stuck loading.
+  Its explicit package input is Version 4; visibility is private. The full
+  edited code cell was read back from the clipboard (17,884 characters), SHA-256
+  `b3d9428c2f380e92e1e99f0bff76ef30e7ea93bb398b4d68972c845e2cc93e06`. It
+  differs from the prepared notebook only by `RUN_TRAINING = False` to
+  `RUN_TRAINING = True`. The output remains the distinct `run02` directory.
+- **Launch:** One Save Version -> Save & Run All action was accepted. Version
+  name: `E026 Run02 - fold0 - safe diagnostics`; notebook Version 1, execution
+  ID `359359350`; status URL:
+  [private run02 status](https://www.kaggle.com/code/davidsulleiro/rsna-knee-first-fold-diagnostic-run02?scriptVersionId=359359350).
+  Launch was observed at approximately 14:37 Europe/Madrid on 2026-10-17; the
+  exact launch time was not captured. At 14:38:09 Europe/Madrid, the selected
+  viewer showed “Running for 32.6s,” T4x2, Latest Container Image, and 0 B
+  output. No completion, failure, diagnostic event, or training result was
+  observed. The interactive session was off while the versioned execution
+  remained running.
+- **Evidence:** Ignored local provenance record:
+  `data/private/kaggle-first-fold-background/run02-launch-provenance.json`.
+  Proof files: `data/private/kaggle-first-fold-background/run02-preparation-v2/dataset-v4-proof.jpg`
+  (SHA-256 `d86b5b239fca821ea02495626f91523ccb0ec3088c5c237f05af2034443df97d`),
+  `data/private/kaggle-first-fold-background/run02-preparation-v2/executed-cell.py`
+  (SHA-256 `b3d9428c2f380e92e1e99f0bff76ef30e7ea93bb398b4d68972c845e2cc93e06`),
+  and `data/private/kaggle-first-fold-background/run02-preparation-v2/run02-running-proof.jpg`
+  (SHA-256 `ca77fdbe115d19797fb727777ec198b61dd30c93c2bfff422c85a38e63f3a082`).
+- **Interpretation:** The launch is recorded, not a successful training run.
+  Until terminal evidence is observed, the cause, completed steps, metrics,
+  checkpoint, and output artifacts remain unknown. Do not infer success or
+  failure from the short running snapshot.

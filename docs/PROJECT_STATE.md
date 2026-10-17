@@ -1,6 +1,6 @@
 # Project State
 
-## First full-fold Kaggle baseline failed; cause unknown (2026-10-17)
+## First full-fold Kaggle baseline: V1 failed; diagnostic run02 in progress (2026-10-17)
 
 FB-01/02 and launch recording are complete; private Version 1 / execution
 `359170889` failed after 258.3 seconds with 0 B output. Logs at 247.3 seconds
@@ -8,16 +8,21 @@ reported `training_blocked` / `training_failed`, followed by Papermill
 `RuntimeError(training_failed)` from notebook main line 232. No metrics, report,
 predictions, or checkpoint were produced. The underlying exception, failure
 stage, and completed step count remain unknown; do not infer GPU out-of-memory
-or a specific failed step. The one-run authorization is consumed: never relaunch
-or restart without new explicit authorization.
+or a specific failed step. The original Version 1 authorization was consumed.
+After a new explicit user authorization, exactly one diagnostic run was
+prepared, uploaded as private package Version 4, and launched as notebook
+Version 1 / execution `359359350`. At the 14:38:09 Europe/Madrid observation,
+the versioned run had been running for 32.6 seconds on T4x2 with 0 B output;
+no completion, failure, diagnostics, metrics, checkpoint, or other result was
+observed. The new one-run authorization is consumed; do not retry or restart.
 
 Local diagnostics now preserve only allowlisted exception family and bounded
 exception-family chain, coarse stage, and validated internal source location; notebook and CLI tests verify raw error
 text, paths, IDs, reports, and locals are not exposed. This code was not included
 in Kaggle package Version 3 or the failed Version 1, so it cannot diagnose that
-historical run. Any diagnostic remote run requires separate authorization and a
-matching provenance-preserving package version. The notebook remains disabled
-by default and its fixed trial/provenance is unchanged. See
+historical run. The separately authorized diagnostic run02 used the matching
+Version 4 package with the same fixed trial/provenance and a distinct `run02`
+output directory; its result remains pending. See
 [E026](../experiments/E026_kaggle_first_fold_baseline.md).
 
 ## Kaggle eight-study overfit completed; no validation or publication (2026-10-17)
