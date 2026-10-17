@@ -142,11 +142,11 @@
   `stage=training`, `exception_family=value`, `exception_chain=[value]`, and
   source `training.baseline.run_training:477`. The exact deployed source line
   evaluates `_sample_loss(model, train_dataset[row_index], loss_function,
-  device)`. Python evaluates `train_dataset[row_index]` before entering
-  `_sample_loss`; the trusted source collector's deepest frame `_sample_loss`
-  therefore does not prove the helper was entered. The failure may be from
-  dataset access or the loss path. Do not infer a specific decoder, preprocessing,
-  numeric-loss, or OOM cause.
+  device)`. The trusted frame collector allows `_sample_loss`, but reported the
+  caller line instead. This points to failure while evaluating the call
+  arguments, most plausibly `train_dataset[row_index]` before `_sample_loss`
+  entry; it does not prove a specific decoder/preprocessor failure or exact
+  `ValueError` cause. Do not infer a numeric-loss or OOM cause.
 - **Evidence limits:** The event's family and call-site are observed, not the
   wrapped exception text or exact root cause. No metrics, report, predictions,
   or checkpoint were produced. The run02 authorization is consumed; no relaunch.
@@ -161,6 +161,9 @@
 - **Verification:** Strict TDD observed RED before production changes (focused
   regression suite: 3 tests, 1 failure and 1 error due to missing propagated
   category/schema support). After the fix the focused suite passed 98 tests.
+  Independent parent verification also passed the 98-test focused suite and
+  separately passed all 3 dataset-diagnostic tests; no code or privacy blockers
+  were found.
   `git diff --check`, notebook JSON/syntax/output/default checks, and synthetic
   end-to-end dataset → runner → CLI/notebook diagnostic checks passed. The
   ignored prior launch-cell snapshot was preserved unchanged; no historical
