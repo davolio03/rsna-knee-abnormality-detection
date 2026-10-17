@@ -7,6 +7,7 @@ import json
 import platform
 import random
 import re
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,8 +57,11 @@ def _validate_failure_diagnostics(value: Mapping[str, Any] | None) -> dict[str, 
 
 
 def _safe_exception_family(error: Exception) -> str:
+    torch_module = sys.modules.get("torch")
+    cuda_module = getattr(torch_module, "cuda", None)
+    cuda_oom_type = getattr(cuda_module, "OutOfMemoryError", None)
     if isinstance(error, MemoryError) or (
-        type(error).__module__ == "torch.cuda" and type(error).__name__ == "OutOfMemoryError"
+        isinstance(cuda_oom_type, type) and isinstance(error, cuda_oom_type)
     ):
         return "memory"
     if isinstance(error, OSError):
@@ -109,7 +113,6 @@ def _safe_failure_diagnostics(error: Exception, stage: str) -> dict[str, Any]:
                 "function": code.co_name,
                 "line": int(traceback.tb_lineno),
             }
-            break
         traceback = traceback.tb_next
     return diagnostics
 

@@ -155,6 +155,32 @@ class BaselineRunnerTests(unittest.TestCase):
         self.assertIsInstance(source["line"], int)
         self.assertNotIn(secret, str(error))
 
+    def test_actual_torch_cuda_oom_type_is_classified_as_memory_without_gpu_work(self):
+        from rsna_knee.training.baseline import _safe_exception_family, _safe_failure_diagnostics
+
+        error = torch.cuda.OutOfMemoryError("sensitive sentinel")
+        self.assertEqual(_safe_exception_family(error), "memory")
+        diagnostics = _safe_failure_diagnostics(error, "training")
+        self.assertEqual(diagnostics["exception_family"], "memory")
+        self.assertEqual(diagnostics["exception_chain"], ["memory"])
+        self.assertNotIn("sensitive sentinel", repr(diagnostics))
+
+        spoofed_type = type("OutOfMemoryError", (RuntimeError,), {"__module__": "torch.cuda"})
+        self.assertEqual(_safe_exception_family(spoofed_type("spoof sentinel")), "runtime")
+
+    def test_safe_source_location_prefers_deepest_trusted_internal_frame(self):
+        from rsna_knee.training.baseline import _safe_failure_diagnostics
+
+        namespace = {}
+        source = "def run_training():\n    _sample_loss()\ndef _sample_loss():\n    raise RuntimeError('private sentinel')\n"
+        exec(compile(source, "C:/workspace/src/rsna_knee/training/baseline.py", "exec"), namespace)
+        try:
+            namespace["run_training"]()
+        except RuntimeError as error:
+            diagnostics = _safe_failure_diagnostics(error, "training")
+        self.assertEqual(diagnostics["source"]["function"], "_sample_loss")
+        self.assertNotIn("private sentinel", repr(diagnostics))
+
     def test_cli_emits_only_allowlisted_training_diagnostics(self):
         from scripts.train_baseline import main
         from rsna_knee.training.baseline import TrainingRunError
