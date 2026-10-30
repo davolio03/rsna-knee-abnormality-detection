@@ -1,0 +1,36 @@
+# E037 — Private masked decode preflight
+
+## Status
+
+The authorized bounded private decode preflight completed successfully in Version 2 / execution `362966961`: 8/8 studies, 43 series, 344 selected slices. No model or training was run. This confirms only the bounded decode smoke test, not full-cohort coverage, training runtime feasibility, or clinical image quality.
+## Hypothesis and protocol
+
+The corrected run05 package, built from the independently verified run04 inputs, will exercise the same production DICOM preprocessing on a bounded eight-study sample while keeping full training disabled. This is a narrow input/decode smoke test, not visual image-quality certification, representativeness, training feasibility, or model-quality evidence.
+
+The first stage-only notebook used the run04 source ZIP and had stage `decode_preflight`, `RUN_FULL_TRAINING=False`, and `max_studies=8`; its source ZIP omitted `rsna_knee.inference.offline_codec_bootstrap`, a dynamically loaded module not discoverable by the AST visitor. Strict-TDD RED reproduced the same missing-package import from the actual extracted archive in isolated Python. The minimal correction adds this allowlisted module as an explicit entry module. Fresh package run05 source ZIP SHA-256 `b930ae587d12db626a521b4157b5a6e6f986c6b032eb84a0487447d7a21f2276` (26 members), inventory SHA-256 `9b8da17a588593248edc54cc83e542166618914ad3f3bbe61ddf2fcf501a238c`, and notebook SHA-256 `c031b53ac96460b52ccee21aaf8d1e623c2c2af69001e6161f2d6950e6cbcb19`. New stage-only notebook `data/private/masked-soft-preflight-launch/run02/kaggle_masked_soft_decode_preflight.ipynb` has SHA-256 `8902a24653de222372719c1cf6eccf9acc7d2fec86819444dde726c552aa6f4e`; it differs from run05 only by `RUN_STAGE = "decode_preflight"`, preserves full-training false, max_studies=8, empty outputs, and compiles. Parent independent verification passed: all 26 source members were checked, the previous 24 members were byte-identical, all four owned runtime imports resolved from the extracted archive in isolated Python, and package/input pins matched. The original run04, failed Version 1, and earlier stage variant remain preserved.
+
+## Parent-reported setup (not terminal execution)
+
+- Private dataset [RSNA Knee Masked Soft Inputs Run04](https://www.kaggle.com/datasets/davidsulleiro/rsna-knee-masked-soft-inputs-run04) is now Version 2, Private. Parent replaced only the source archive, inventory, and PLAN notebook with run05; E034 labels/folds, weights, and codecs remain unchanged.
+- Private notebook draft: [RSNA Knee Masked Decode Preflight Run01](https://www.kaggle.com/code/davidsulleiro/notebookaec26b0c39/edit). The imported stage variant and source/inventory pins were visible. Share dialog showed Private/owner-only.
+- Version 2 uses `data/private/masked-soft-preflight-launch/run02/kaggle_masked_soft_decode_preflight.ipynb` in the same private notebook [RSNA Knee Masked Decode Preflight Run01](https://www.kaggle.com/code/davidsulleiro/rsna-knee-masked-decode-preflight-run01?scriptVersionId=362966961). Parent read back source/inventory pins, stage `decode_preflight`, full training false, max eight; Version 2 selected and official competition input retained, Internet off, no accelerator, original environment. Save & Run All name: `Decode 8 only - bootstrap source fixed`.
+- Dataset-creation screenshot: `data/private/masked-soft-preflight-launch/run01/kaggle-private-dataset-created.png`.
+
+## Current progress
+
+RDP.1–RDP.4 are complete. Version 1 / execution `362964411` failed before decoding due to the missing packaged runtime import. Corrected run05 passed independent verification and the same private dataset/notebook were updated. Version 2 / execution `362966961` completed successfully; exact aggregate result and limitations are below.
+## Limits and next step
+
+No further operation is authorized or required by this task. Do not train, infer, submit, publish, or repeat the preflight. Preserve private evidence; do not expose identifiers or report contents. This bounded smoke test does not qualify the remaining cohort, training runtime, or clinical image quality.
+## RDP.4 correction evidence
+
+The selected 12-module test command ran 122 tests (121 passed, one existing Windows symlink skip); py_compile and scoped git diff --check exited 0. The parent independently spot-checked 17 focused tests in 4.595s. The new isolated-import regression first failed with ModuleNotFoundError: No module named 'rsna_knee.inference' from the actual packaged archive, then passed after adding the bootstrap entry module. A second isolated python -I test executed the actual generated PLAN against pinned metadata and returned planned (2,850 train / 1,448 validation); it did not import pydicom, install codecs, read images, create training output, or deserialize weights. No actual DICOM decode, package upload, browser action, training or model operation occurred in this local correction. Parent independent verification passed. Version 2 later completed the bounded decode-only run; see the terminal result below.
+
+## Version 2 parent-reported setup and terminal result
+
+The same private dataset is Version 2 and contains the run05 source ZIP/inventory/PLAN notebook updates; labels, folds, weights and codecs were retained. The parent imported the verified stage-only notebook into the same private notebook and read back source/inventory pins, the Version 2 dataset input plus official competition input, `RUN_STAGE=decode_preflight`, `RUN_FULL_TRAINING=False`, max eight studies, Internet OFF, no accelerator and the original environment. Version 2 / execution `362966961` at [the private notebook](https://www.kaggle.com/code/davidsulleiro/rsna-knee-masked-decode-preflight-run01?scriptVersionId=362966961) completed successfully in 58.3 seconds. Its safe aggregate report is `complete`: attempted/decoded studies 8/8, 43 decoded series, 344 selected slices, decode elapsed 28.306837669999965 seconds. CPU/None accelerator, Internet OFF, dataset Version 2, stage `decode_preflight`, and `RUN_FULL_TRAINING=False`; `model_constructed=false`. The parent saved `data/private/masked-soft-preflight-launch/run02/kaggle-version2-terminal-summary.json`, `kaggle-version2-logs.txt`, and `kaggle-version2-success.png`. Version 1 failure evidence remains preserved. This smoke test does not qualify full-cohort coverage, training runtime, or clinical image quality.
+
+
+## Version 2 terminal result
+
+Parent-observed private notebook Version 2 / execution `362966961` reached terminal success in 58.3 seconds. Aggregate preflight status `complete`; 8 studies attempted and decoded, 43 series decoded, and 344 selected slices; preprocessing elapsed 28.306837669999965 seconds. CPU/None accelerator, Internet OFF, prepared dataset Version 2, stage `decode_preflight`, `RUN_FULL_TRAINING=False`, and no model constructed. Evidence: `data/private/masked-soft-preflight-launch/run02/kaggle-version2-terminal-summary.json`, `kaggle-version2-logs.txt`, and `kaggle-version2-success.png`. No training or inference occurred. This bounded smoke test does not qualify all 4,298 eligible studies, full-cohort training runtime, or clinical image quality; no broader or additional run is authorized by this task.
