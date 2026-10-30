@@ -160,6 +160,13 @@ class TrainingConfig:
     device: str = "cpu"
     learning_rate: float = 0.001
     feature_width: int = 64
+    model_kind: str = "scratch_study_cnn"
+    model_seed: int = 42
+    weights_path: Path | None = None
+    weights_sha256: str | None = None
+    weights_size: int | None = None
+    slice_microbatch: int = 2
+    freeze_backbone: bool = False
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "TrainingConfig":
@@ -178,12 +185,12 @@ class TrainingConfig:
                 raise ValueError(f"{name} is outside its allowed range")
             return number
 
-        epochs = integer("epochs", 1, 1, 100)
+        epochs = integer("epochs", 1, 1, 30 if mode == "overfit" else 100)
         raw_steps = value.get("max_steps", 20 if mode == "overfit" else None)
         if raw_steps is not None and (type(raw_steps) is not int or raw_steps < 1):
             raise ValueError("max_steps must be a positive integer or null")
-        if mode == "overfit" and (raw_steps is None or raw_steps > 40):
-            raise ValueError("overfit max_steps must be between 1 and 40")
+        if mode == "overfit" and (raw_steps is None or raw_steps > 240):
+            raise ValueError("overfit max_steps must be between 1 and 240")
         raw_limit = value.get("overfit_limit", 8 if mode == "overfit" else None)
         if raw_limit is not None and (type(raw_limit) is not int or not 1 <= raw_limit <= 16):
             raise ValueError("overfit_limit must be between 1 and 16 or null")
@@ -196,6 +203,28 @@ class TrainingConfig:
         output_size = integer("output_size", 256, 8, 768)
         max_slices = integer("max_slices", 8, 1, 8)
         feature_width = integer("feature_width", 64, 8, 1024)
+        model_kind = value.get("model_kind", "scratch_study_cnn")
+        if type(model_kind) is not str or model_kind not in {
+            "scratch_study_cnn", "resnet18_random", "resnet18_imagenet1k_v1",
+        }:
+            raise ValueError("model_kind is invalid")
+        model_seed = integer("model_seed", integer("seed", 42, 0, 2**32 - 1), 0, 2**32 - 1)
+        slice_microbatch = integer("slice_microbatch", 2, 1, 8)
+        freeze_backbone = value.get("freeze_backbone", False)
+        if type(freeze_backbone) is not bool:
+            raise ValueError("freeze_backbone must be a boolean")
+        if freeze_backbone and model_kind != "resnet18_imagenet1k_v1":
+            raise ValueError("freeze_backbone is only valid for ImageNet V1")
+        weights_path_value = value.get("weights_path")
+        weights_sha256 = value.get("weights_sha256")
+        weights_size = value.get("weights_size")
+        if model_kind == "resnet18_imagenet1k_v1":
+            if (not isinstance(weights_path_value, str) or not weights_path_value.strip()
+                    or weights_sha256 != "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+                    or type(weights_size) is not int or weights_size != 46830571):
+                raise ValueError("offline pretrained weights must be fully pinned")
+        elif any(item is not None for item in (weights_path_value, weights_sha256, weights_size)):
+            raise ValueError("weights are valid only for the ImageNet-initialized arm")
         device = value.get("device", "cpu")
         if not isinstance(device, str) or device not in {"cpu", "cuda"}:
             raise ValueError("device must be 'cpu' or 'cuda'")
@@ -219,6 +248,13 @@ class TrainingConfig:
             device=device,
             learning_rate=float(learning_rate),
             feature_width=feature_width,
+            model_kind=model_kind,
+            model_seed=model_seed,
+            weights_path=Path(weights_path_value) if weights_path_value is not None else None,
+            weights_sha256=weights_sha256,
+            weights_size=weights_size,
+            slice_microbatch=slice_microbatch,
+            freeze_backbone=freeze_backbone,
         )
 
 
@@ -266,8 +302,12 @@ def _validate_config(config: TrainingConfig) -> TrainingConfig:
     for name in (
         "mode", "fold", "seed", "epochs", "max_steps", "overfit_limit",
         "output_size", "max_slices", "device", "learning_rate", "feature_width",
+        "model_kind", "model_seed", "weights_sha256", "weights_size", "slice_microbatch",
+        "freeze_backbone",
     ):
         values[name] = getattr(config, name)
+    if config.weights_path is not None:
+        values["weights_path"] = str(config.weights_path)
     try:
         return TrainingConfig.from_mapping(values)
     except (TypeError, ValueError, OverflowError):
@@ -336,28 +376,81 @@ def _sample_loss(model: Any, sample: Any, loss_function: Any, device: Any):
     return loss, logits
 
 
-def _mean_loss(model: Any, rows: Any, loss_function: Any, device: Any) -> float:
+def _mean_loss(
+    model: Any,
+    rows: Any,
+    loss_function: Any,
+    device: Any,
+    *,
+    include_subset_diagnostics: bool = False,
+) -> float | tuple[float, dict[str, Any]]:
     import torch
 
     model.eval()
     losses = []
+    labels_by_study: list[list[int]] = []
+    probabilities_by_study: list[list[float]] = []
     with torch.no_grad():
         for row in rows:
-            loss, _ = _sample_loss(model, row, loss_function, device)
+            loss, logits = _sample_loss(model, row, loss_function, device)
             losses.append(float(loss.detach().cpu()))
+            if include_subset_diagnostics:
+                labels_by_study.append(row[2].detach().cpu().to(torch.int64).tolist())
+                probabilities_by_study.append(torch.sigmoid(logits[0]).detach().cpu().to(torch.float32).tolist())
     if not losses:
         raise TrainingRunError("training_subset_empty")
-    return float(sum(losses) / len(losses))
+    mean_loss = float(sum(losses) / len(losses))
+    if not include_subset_diagnostics:
+        return mean_loss
+
+    import numpy as np
+
+    labels = np.asarray(labels_by_study, dtype=np.int64)
+    probabilities = np.asarray(probabilities_by_study, dtype=np.float64)
+    from rsna_knee.validation.metrics import multilabel_roc_auc
+    metrics = multilabel_roc_auc(labels, probabilities)
+    per_target = []
+    for index, target_name in enumerate(metrics.target_names):
+        target_labels = labels[:, index]
+        per_target.append({
+            "target": target_name,
+            "positive_count": int(target_labels.sum()),
+            "negative_count": int(len(target_labels) - target_labels.sum()),
+            "auc": metrics.per_target[index],
+            "probability_mean": float(np.mean(probabilities[:, index])),
+            "probability_std": float(np.std(probabilities[:, index])),
+            "probability_min": float(np.min(probabilities[:, index])),
+            "probability_max": float(np.max(probabilities[:, index])),
+        })
+    diagnostics = {
+        "training_study_count": len(labels_by_study),
+        "per_target": per_target,
+        "missing_class_targets": list(metrics.missing_class_targets),
+        "interpretation_limit": (
+            "Same bounded training-subset diagnostic only; not validation, generalization, or clinical evidence."
+        ),
+    }
+    return mean_loss, diagnostics
 
 
 def _safe_config(config: TrainingConfig) -> dict[str, Any]:
-    return {
+    safe = {
         "mode": config.mode, "fold": config.fold, "seed": config.seed,
         "epochs": config.epochs, "max_steps": config.max_steps,
         "overfit_limit": config.overfit_limit, "output_size": config.output_size,
         "max_slices": config.max_slices, "device": config.device,
         "learning_rate": config.learning_rate, "feature_width": config.feature_width,
     }
+    if config.model_kind != "scratch_study_cnn":
+        safe.update({
+            "model_kind": config.model_kind,
+            "model_seed": config.model_seed,
+            "weights_sha256": config.weights_sha256,
+            "weights_size": config.weights_size,
+            "slice_microbatch": config.slice_microbatch,
+            "freeze_backbone": config.freeze_backbone,
+        })
+    return safe
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -377,6 +470,39 @@ def _reset_peak_cuda_memory(device: Any) -> None:
         torch.cuda.reset_peak_memory_stats(device)
 
 
+def _emit_resnet_epoch_progress(
+    config: TrainingConfig,
+    *,
+    epoch: int,
+    epoch_step_count: int,
+    steps_completed: int,
+    planned_steps: int,
+    loss_mean: float,
+    started: float,
+    device: Any,
+) -> None:
+    """Emit only bounded aggregate run progress for the explicit ResNet arms."""
+    import torch
+
+    peak_memory = None
+    if getattr(device, "type", None) == "cuda":
+        torch.cuda.synchronize(device)
+        peak_memory = int(torch.cuda.max_memory_allocated(device))
+    event = {
+        "event": "resnet18_training_progress",
+        "model_kind": config.model_kind,
+        "epoch": int(epoch),
+        "epoch_step_count": int(epoch_step_count),
+        "steps_completed": int(steps_completed),
+        "planned_steps": int(planned_steps),
+        "online_optimization_step_loss_mean": float(loss_mean),
+        "elapsed_seconds": float(time.perf_counter() - started),
+        "peak_cuda_memory_bytes": peak_memory,
+        "device": config.device,
+    }
+    print(json.dumps(event, allow_nan=False, sort_keys=True), flush=True)
+
+
 def _runtime_metadata(config: TrainingConfig, elapsed_seconds: float, *, device: Any) -> dict[str, Any]:
     import numpy as np
     import torch
@@ -386,7 +512,7 @@ def _runtime_metadata(config: TrainingConfig, elapsed_seconds: float, *, device:
     if is_cuda:
         torch.cuda.synchronize(device)
         peak_memory = int(torch.cuda.max_memory_allocated(device))
-    return {
+    metadata = {
         "python_version": platform.python_version(),
         "platform": platform.system(),
         "architecture": platform.machine(),
@@ -398,6 +524,14 @@ def _runtime_metadata(config: TrainingConfig, elapsed_seconds: float, *, device:
         "elapsed_seconds": float(elapsed_seconds),
         "peak_cuda_memory_bytes": peak_memory,
     }
+    if config.model_kind != "scratch_study_cnn":
+        try:
+            from importlib.metadata import version
+
+            metadata["torchvision_version"] = version("torchvision")
+        except Exception:
+            metadata["torchvision_version"] = None
+    return metadata
 
 
 def run_training(
@@ -469,23 +603,60 @@ def run_training(
         _seed_everything(config.seed, config.device)
         stage = "model_initialization"
         if model_factory is None:
-            from rsna_knee.models.baseline import ScratchStudyCNN
+            if config.model_kind == "scratch_study_cnn":
+                from rsna_knee.models.baseline import ScratchStudyCNN
 
-            model = ScratchStudyCNN(feature_width=config.feature_width)
+                model = ScratchStudyCNN(feature_width=config.feature_width)
+            else:
+                from rsna_knee.models.resnet18 import build_resnet18_study_model
+
+                model = build_resnet18_study_model(
+                    config.model_kind,
+                    head_seed=config.model_seed,
+                    weights_path=config.weights_path,
+                    expected_weights_sha256=config.weights_sha256,
+                    expected_weights_size=config.weights_size,
+                    slice_microbatch=config.slice_microbatch,
+                    checkpoint_trunk=True,
+                    freeze_backbone=config.freeze_backbone,
+                )
         else:
             model = model_factory(config)
         model = model.to(device)
         _reset_peak_cuda_memory(device)
         loss_function = torch.nn.BCEWithLogitsLoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+        trainable_parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
+        if not trainable_parameters:
+            raise TrainingRunError("trainable_parameters_empty")
+        optimizer = torch.optim.Adam(trainable_parameters, lr=config.learning_rate)
+        if config.model_kind != "scratch_study_cnn":
+            trainable_count = sum(parameter.numel() for parameter in trainable_parameters)
+            head = getattr(model, "classifier", None)
+            head_trainable_count = (sum(parameter.numel() for parameter in head.parameters()
+                                         if parameter.requires_grad) if head is not None else 0)
+            event = {
+                "event": "resnet18_training_start",
+                "model_kind": config.model_kind,
+                "backbone_frozen": bool(getattr(model, "freeze_backbone", False)),
+                "trainable_parameter_count": trainable_count,
+                "head_trainable_parameter_count": head_trainable_count,
+                "activation_checkpointing": bool(getattr(model, "activation_checkpointing", False)),
+                "batchnorm_running_statistics": (
+                    "frozen_eval_affine_frozen" if getattr(model, "freeze_backbone", False)
+                    else "frozen_eval_affine_trainable"
+                ),
+            }
+            print(json.dumps(event, allow_nan=False, sort_keys=True), flush=True)
         losses_by_step: list[float] = []
+        training_loss_by_epoch: list[dict[str, Any]] = []
         stage = "training"
         initial_loss = _mean_loss(model, train_dataset, loss_function, device) if config.mode == "overfit" else None
         model.train()
         steps_completed = 0
         planned_steps = config.epochs * len(train_dataset)
         step_limit = config.max_steps if config.max_steps is not None else planned_steps
-        for _epoch in range(config.epochs):
+        for epoch_index in range(config.epochs):
+            epoch_losses: list[float] = []
             for row_index in range(len(train_dataset)):
                 if steps_completed >= step_limit:
                     break
@@ -493,8 +664,27 @@ def run_training(
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
-                losses_by_step.append(float(loss.detach().cpu()))
+                step_loss = float(loss.detach().cpu())
+                epoch_losses.append(step_loss)
+                losses_by_step.append(step_loss)
                 steps_completed += 1
+            if epoch_losses:
+                completed_studies = len(epoch_losses)
+                training_loss_by_epoch.append({
+                    "epoch": epoch_index + 1,
+                    "planned_study_count": len(train_dataset),
+                    "completed_study_count": completed_studies,
+                    "completed_step_count": len(epoch_losses),
+                    "status": "complete" if completed_studies == len(train_dataset) else "partial",
+                    "optimization_step_loss_mean": float(sum(epoch_losses) / len(epoch_losses)),
+                })
+                if config.model_kind != "scratch_study_cnn":
+                    _emit_resnet_epoch_progress(
+                        config, epoch=epoch_index + 1, epoch_step_count=len(epoch_losses),
+                        steps_completed=steps_completed, planned_steps=planned_steps,
+                        loss_mean=float(sum(epoch_losses) / len(epoch_losses)),
+                        started=started, device=device,
+                    )
             if steps_completed >= step_limit:
                 break
 
@@ -502,15 +692,23 @@ def run_training(
             # Re-evaluate the exact same bounded training rows; never instantiate or touch validation.
             if not losses_by_step:
                 raise TrainingRunError("no_training_steps")
-            end_loss = _mean_loss(model, train_dataset, loss_function, device)
+            end_loss, final_subset_diagnostics = _mean_loss(
+                model, train_dataset, loss_function, device, include_subset_diagnostics=True,
+            )
             report: dict[str, Any] = {
                 **plan,
                 "status": "completed",
                 "steps_completed": steps_completed,
+                "training_loss_by_epoch": training_loss_by_epoch,
+                "training_loss_semantics": (
+                    "Per-epoch means are online per-study BCE losses measured before each optimizer update; "
+                    "train_loss_start and train_loss_end are fixed-subset evaluation losses."
+                ),
                 "train_loss_by_step": losses_by_step,
                 "train_loss_start": initial_loss,
                 "train_loss_end": end_loss,
-                "model_kind": "scratch_study_cnn",
+                "final_subset_diagnostics": final_subset_diagnostics,
+                "model_kind": config.model_kind,
                 "training_subset_only": True,
                 "interpretation_limit": "Bounded train-subset smoke test only; not clinical evidence, validation, or a generalization claim.",
             }
@@ -545,13 +743,16 @@ def run_training(
                 "partition": "validation",
                 "fold": config.fold,
                 "seed": config.seed,
-                "model_kind": "scratch_study_cnn",
+                "model_kind": config.model_kind,
                 "target_names": list(metrics.target_names),
                 "model_config": {
-                    "feature_width": config.feature_width,
+                    **({"architecture": "resnet18", "slice_microbatch": config.slice_microbatch}
+                       if config.model_kind != "scratch_study_cnn" else {
+                           "feature_width": config.feature_width,
+                           "output_size": config.output_size,
+                           "max_slices": config.max_slices,
+                       }),
                     "output_count": 12,
-                    "output_size": config.output_size,
-                    "max_slices": config.max_slices,
                 },
                 "input_sha256": {"manifest": manifest_sha256, "folds": folds_sha256},
                 "runtime": _runtime_metadata(config, time.perf_counter() - started, device=device),
@@ -564,14 +765,41 @@ def run_training(
                 "epochs_requested": config.epochs,
                 "training_steps_planned": planned_steps,
                 "steps_completed": steps_completed,
+                "training_loss_by_epoch": training_loss_by_epoch,
+                "training_loss_semantics": (
+                    "Per-epoch means are online per-study BCE losses measured before each optimizer update; "
+                    "no additional training-set or validation evaluation pass is performed for this telemetry."
+                ),
                 "per_target_auc": dict(zip(metrics.target_names, metrics.per_target)),
                 "macro_auc": metrics.macro_auc,
                 "missing_class_targets": list(metrics.missing_class_targets),
                 "validation_study_count": len(prediction_rows),
-                "model_kind": "scratch_study_cnn",
+                "model_kind": config.model_kind,
                 "interpretation_limit": "Single fixed development fold; provisional silver labels, not clinical evidence or a final generalization claim.",
             }
 
+        if config.model_kind != "scratch_study_cnn":
+            report["model_initialization"] = {
+                "architecture": "torchvision_resnet18",
+                "initialization": "random" if config.model_kind == "resnet18_random" else "imagenet1k_v1",
+                "model_seed": config.model_seed,
+                "weights_sha256": config.weights_sha256,
+                "weights_size": config.weights_size,
+                "trainable_parameter_count": sum(
+                    parameter.numel() for parameter in model.parameters() if parameter.requires_grad
+                ),
+                "freeze_backbone": bool(getattr(model, "freeze_backbone", False)),
+                "head_trainable_parameter_count": (
+                    sum(parameter.numel() for parameter in model.classifier.parameters()
+                        if parameter.requires_grad) if hasattr(model, "classifier") else None
+                ),
+                "slice_microbatch": config.slice_microbatch,
+                "activation_checkpointing": bool(getattr(model, "activation_checkpointing", False)),
+                "batchnorm_running_statistics": (
+                    "frozen_eval_affine_frozen" if getattr(model, "freeze_backbone", False)
+                    else "frozen_eval_affine_trainable"
+                ),
+            }
         stage = "checkpoint"
         try:
             # Save only the model tensor mapping; never load user-supplied checkpoints.

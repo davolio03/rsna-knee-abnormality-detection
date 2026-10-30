@@ -244,6 +244,12 @@ class SeriesPreprocessingTests(unittest.TestCase):
             preprocess_series([slice_([[1]], photometric_interpretation="MONOCHROME2",
                                       modality_lut_sequence_present=True)])
 
+    def test_direct_array_spacing_contract_is_still_exact(self):
+        base = slice_([[1, 2]], photometric_interpretation="MONOCHROME2", pixel_spacing=(0.5, 0.5))
+        near = slice_([[1, 2]], photometric_interpretation="MONOCHROME2", pixel_spacing=(0.500001, 0.5))
+        with self.assertRaisesRegex(ValueError, "pixel spacing must be consistent"):
+            preprocess_series([base, near])
+
     def test_invalid_parameters_and_spacing_are_rejected(self):
         image = slice_([[1, 2]], photometric_interpretation="MONOCHROME2")
         for kwargs in ({"output_size": 0}, {"max_slices": 0}, {"lower_percentile": -1},

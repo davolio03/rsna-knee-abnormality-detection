@@ -55,6 +55,39 @@ def _load_artifacts(manifest_path: str | Path, folds_path: str | Path):
     return records, assignments, digest
 
 
+def load_series_images(
+    series_path: Path,
+    *,
+    preprocessor: Callable[..., Any],
+    output_size: int,
+    max_slices: int,
+):
+    """Load one series and enforce the shared image/pixel-mask tensor contract."""
+    import numpy as np
+    import torch
+
+    result = preprocessor(series_path, max_slices=max_slices, output_size=output_size)
+    images = np.asarray(result.images)
+    masks = np.asarray(result.valid_mask)
+    expected_shape = (images.shape[0], 1, output_size, output_size) if images.ndim else ()
+    if (images.ndim != 4 or images.shape[0] < 1 or images.shape[0] > max_slices
+            or images.shape != expected_shape or masks.shape != images.shape
+            or not np.issubdtype(images.dtype, np.number) or not np.isrealobj(images)
+            or not np.isfinite(images).all() or not np.isfinite(masks).all()
+            or np.any(images < 0.0) or np.any(images > 1.0)
+            or not np.isin(masks, (0, 1, False, True)).all()):
+        raise ValueError("series_tensor_invalid")
+    if not np.isfinite(images.astype(np.float32, copy=False)).all():
+        raise ValueError("series_tensor_invalid")
+    valid_mask = masks.astype(np.bool_, copy=False)
+    if np.any(~valid_mask.reshape(valid_mask.shape[0], -1).any(axis=1)):
+        raise ValueError("series_tensor_invalid")
+    if np.any(images[~valid_mask] != 0):
+        raise ValueError("series_tensor_invalid")
+    return (torch.as_tensor(images.copy(), dtype=torch.float32),
+            torch.as_tensor(valid_mask.copy(), dtype=torch.bool))
+
+
 class TrainingStudyDataset:
     """One partition of validated studies, decoded on demand one study at a time."""
 
@@ -132,28 +165,12 @@ class TrainingStudyDataset:
                 if series_path.is_symlink() or not series_path.is_dir():
                     raise ValueError
                 series_path.resolve(strict=True).relative_to(self.image_root)
-                result = self.preprocessor(
-                    series_path, max_slices=self.max_slices, output_size=self.output_size,
+                images, pixel_masks = load_series_images(
+                    series_path, preprocessor=self.preprocessor,
+                    output_size=self.output_size, max_slices=self.max_slices,
                 )
-                images = np.asarray(result.images)
-                masks = np.asarray(result.valid_mask)
-                expected_shape = (images.shape[0], 1, self.output_size, self.output_size) if images.ndim else ()
-                if (images.ndim != 4 or images.shape[0] < 1 or images.shape[0] > self.max_slices
-                        or images.shape != expected_shape or masks.shape != images.shape
-                        or not np.issubdtype(images.dtype, np.number) or not np.isrealobj(images)
-                        or not np.isfinite(images).all() or not np.isfinite(masks).all()
-                        or np.any(images < 0.0) or np.any(images > 1.0)
-                        or not np.isin(masks, (0, 1, False, True)).all()):
-                    raise ValueError
-                if not np.isfinite(images.astype(np.float32, copy=False)).all():
-                    raise ValueError
-                valid_mask = masks.astype(np.bool_, copy=False)
-                if np.any(~valid_mask.reshape(valid_mask.shape[0], -1).any(axis=1)):
-                    raise ValueError
-                if np.any(images[~valid_mask] != 0):
-                    raise ValueError
-                images_by_series.append(torch.as_tensor(images.copy(), dtype=torch.float32))
-                masks_by_series.append(torch.as_tensor(valid_mask.copy(), dtype=torch.bool))
+                images_by_series.append(images)
+                masks_by_series.append(pixel_masks)
             labels = torch.tensor([record["labels"][name] for name in LABEL_COLUMNS], dtype=torch.float32)
         except Exception as error:
             # Decoder exceptions can contain private IDs or paths; expose only a category.

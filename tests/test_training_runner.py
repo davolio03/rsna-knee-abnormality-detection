@@ -1,7 +1,7 @@
 import json
 import io
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -65,6 +65,211 @@ class BaselineRunnerTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.make_config(root, device="auto")
 
+    def test_resnet_training_config_is_explicit_and_keeps_scratch_defaults(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_inputs(root)
+            scratch = self.make_config(root)
+            self.assertEqual(scratch.model_kind, "scratch_study_cnn")
+            self.assertEqual(scratch.model_seed, 73)
+            self.assertEqual(scratch.slice_microbatch, 2)
+            configured = self.make_config(
+                root, model_kind="resnet18_imagenet1k_v1", model_seed=101,
+                weights_path=str(root / "offline.pth"),
+                weights_sha256="f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec",
+                weights_size=46830571, slice_microbatch=2,
+            )
+            self.assertEqual(configured.model_kind, "resnet18_imagenet1k_v1")
+            self.assertEqual(configured.model_seed, 101)
+            with self.assertRaises(ValueError):
+                self.make_config(root, model_kind="resnet18_imagenet1k_v1")
+            with self.assertRaises(ValueError):
+                self.make_config(root, model_kind="resnet18_random", weights_path=str(root / "offline.pth"))
+            with self.assertRaises(ValueError):
+                self.make_config(root, slice_microbatch=0)
+            frozen = self.make_config(
+                root, model_kind="resnet18_imagenet1k_v1", freeze_backbone=True,
+                weights_path=str(root / "offline.pth"),
+                weights_sha256="f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec",
+                weights_size=46830571,
+            )
+            self.assertTrue(frozen.freeze_backbone)
+            self.assertFalse(scratch.freeze_backbone)
+            for invalid in (1, "true", None):
+                with self.subTest(freeze_backbone=invalid), self.assertRaises(ValueError):
+                    self.make_config(root, freeze_backbone=invalid)
+            with self.assertRaises(ValueError):
+                self.make_config(root, model_kind="resnet18_random", freeze_backbone=True)
+
+    def test_frozen_resnet_runner_reports_only_trainable_head_and_actual_checkpointing(self):
+        from rsna_knee.training.baseline import run_training
+
+        class Dataset:
+            def __len__(self):
+                return 1
+            def bounded_training_subset(self, _limit):
+                return self
+            def __getitem__(self, index):
+                if index != 0:
+                    raise IndexError
+                image = torch.rand(1, 1, 32, 32)
+                return [image], [torch.ones_like(image, dtype=torch.bool)], torch.tensor([0, 1] * 6, dtype=torch.float32), index
+
+        class TinyFrozenModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.model_kind = "resnet18_imagenet1k_v1"
+                self.weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+                self.weights_size = 46830571
+                self.head_seed = 73
+                self.freeze_backbone = True
+                self.checkpoint_trunk = False
+                self.activation_checkpointing = False
+                self.backbone = torch.nn.Linear(1, 1)
+                self.classifier = torch.nn.Linear(1, 12)
+                for parameter in self.backbone.parameters():
+                    parameter.requires_grad_(False)
+            def forward(self, *_args):
+                return self.classifier(torch.ones(1, 1))
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_inputs(root)
+            config = self.make_config(
+                root, model_kind="resnet18_imagenet1k_v1", freeze_backbone=True,
+                weights_path=str(root / "offline.pth"),
+                weights_sha256="f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec",
+                weights_size=46830571, model_seed=73,
+            )
+            report = run_training(config, execute=True, dataset_factory=lambda *_: Dataset(),
+                                  model_factory=lambda _config: TinyFrozenModel())
+        self.assertEqual(report["model_initialization"]["trainable_parameter_count"], 24)
+        self.assertTrue(report["model_initialization"]["freeze_backbone"])
+        self.assertEqual(report["model_initialization"]["batchnorm_running_statistics"], "frozen_eval_affine_frozen")
+        self.assertFalse(report["model_initialization"]["activation_checkpointing"])
+
+    def test_frozen_runner_start_event_uses_actual_official_model_parameter_counts(self):
+        from rsna_knee.models.resnet18 import build_resnet18_study_model
+        from rsna_knee.training.baseline import run_training
+
+        class Dataset:
+            def __len__(self):
+                return 1
+            def bounded_training_subset(self, _limit):
+                return self
+            def __getitem__(self, index):
+                if index != 0:
+                    raise IndexError
+                image = torch.rand(1, 1, 32, 32)
+                return [image], [torch.ones_like(image, dtype=torch.bool)], torch.tensor([0, 1] * 6, dtype=torch.float32), index
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_inputs(root)
+            config = self.make_config(
+                root, model_kind="resnet18_imagenet1k_v1", freeze_backbone=True,
+                weights_path="data/private/resnet18-comparison/weights/resnet18-f37072fd.pth",
+                weights_sha256="f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec",
+                weights_size=46830571, model_seed=42, slice_microbatch=1,
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                report = run_training(
+                    config, execute=True, dataset_factory=lambda *_: Dataset(),
+                    model_factory=lambda cfg: build_resnet18_study_model(
+                        cfg.model_kind, head_seed=cfg.model_seed, weights_path=cfg.weights_path,
+                        expected_weights_sha256=cfg.weights_sha256, expected_weights_size=cfg.weights_size,
+                        slice_microbatch=cfg.slice_microbatch, freeze_backbone=cfg.freeze_backbone,
+                    ),
+                )
+        start_event = json.loads(output.getvalue().splitlines()[0])
+        self.assertEqual(start_event["event"], "resnet18_training_start")
+        self.assertTrue(start_event["backbone_frozen"])
+        self.assertEqual(start_event["trainable_parameter_count"], 6156)
+        self.assertEqual(start_event["head_trainable_parameter_count"], 6156)
+        self.assertFalse(start_event["activation_checkpointing"])
+        self.assertEqual(start_event["batchnorm_running_statistics"], "frozen_eval_affine_frozen")
+        self.assertEqual(report["model_initialization"]["trainable_parameter_count"], 6156)
+
+    def test_runner_selects_resnet_arm_and_reports_initialization_provenance(self):
+        from rsna_knee.training.baseline import run_training
+
+        class Dataset:
+            def __len__(self):
+                return 1
+            def bounded_training_subset(self, _limit):
+                return self
+            def __getitem__(self, index):
+                if index != 0:
+                    raise IndexError
+                image = torch.rand(1, 1, 32, 32)
+                mask = torch.ones_like(image, dtype=torch.bool)
+                labels = torch.tensor([0, 1] * 6, dtype=torch.float32)
+                return [image], [mask], labels, index
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_inputs(root)
+            config = self.make_config(
+                root, model_kind="resnet18_random", model_seed=73,
+                slice_microbatch=1, output_size=32, max_steps=1, overfit_limit=1,
+            )
+            progress = io.StringIO()
+            with redirect_stdout(progress):
+                report = run_training(config, execute=True, dataset_factory=lambda *_: Dataset())
+            serialized = json.loads((config.output_dir / "report.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["model_kind"], "resnet18_random")
+        self.assertEqual(report["model_initialization"]["weights_sha256"], None)
+        self.assertEqual(report["model_initialization"]["model_seed"], 73)
+        self.assertGreater(report["model_initialization"]["trainable_parameter_count"], 11_000_000)
+        self.assertEqual(serialized["model_kind"], "resnet18_random")
+        self.assertNotIn("weights_path", serialized["config"])
+        self.assertIn("torchvision_version", report["runtime"])
+        events = [json.loads(line) for line in progress.getvalue().splitlines()]
+        self.assertEqual([event["event"] for event in events], ["resnet18_training_start", "resnet18_training_progress"])
+        self.assertEqual(events[0]["model_kind"], "resnet18_random")
+        self.assertEqual(events[0]["trainable_parameter_count"], report["model_initialization"]["trainable_parameter_count"])
+        self.assertFalse(events[0]["backbone_frozen"])
+        self.assertEqual(events[1]["model_kind"], "resnet18_random")
+        self.assertEqual(events[1]["epoch"], 1)
+        self.assertEqual(events[1]["steps_completed"], 1)
+        self.assertEqual(events[1]["planned_steps"], 1)
+        self.assertGreaterEqual(events[1]["online_optimization_step_loss_mean"], 0.0)
+        self.assertEqual(events[1]["peak_cuda_memory_bytes"], None)
+        self.assertNotIn("labels", progress.getvalue())
+        self.assertNotIn("probabilities", progress.getvalue())
+        self.assertNotIn("row_index", progress.getvalue())
+
+    def test_overfit_sanity_protocol_bounds_allow_30_epochs_and_240_steps(self):
+        from rsna_knee.training.baseline import TrainingConfig
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_inputs(root)
+            config = self.make_config(root, epochs=30, max_steps=240, overfit_limit=8)
+            self.assertEqual(config.epochs, 30)
+            self.assertEqual(config.max_steps, 240)
+            self.assertEqual(config.overfit_limit, 8)
+
+            defaults = self.make_config(root)
+            self.assertEqual(defaults.epochs, 1)
+            self.assertEqual(defaults.max_steps, 2)
+            configured_defaults = TrainingConfig.from_mapping({
+                "mode": "overfit",
+                "manifest_path": str(root / "manifest.json"),
+                "folds_path": str(root / "folds.json"),
+                "image_root": str(root / "images"),
+                "output_dir": str(root / "default-output"),
+            })
+            self.assertEqual(configured_defaults.epochs, 1)
+            self.assertEqual(configured_defaults.max_steps, 20)
+            self.assertEqual(configured_defaults.overfit_limit, 8)
+            for invalid in (
+                {"epochs": 31, "max_steps": 240},
+                {"epochs": 30, "max_steps": 241},
+            ):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    self.make_config(root, **invalid)
     def test_run_revalidates_dataclass_replacements_before_factory_or_output(self):
         from rsna_knee.training.baseline import TrainingConfig, TrainingRunError, run_training
 
@@ -74,7 +279,7 @@ class BaselineRunnerTests(unittest.TestCase):
             config = self.make_config(root)
             factory_calls = []
             invalid_configs = (
-                replace(config, epochs=3, overfit_limit=17, max_steps=41),
+                replace(config, epochs=3, overfit_limit=17, max_steps=241),
                 replace(config, epochs=True),
                 replace(config, manifest_path=17),
             )
@@ -265,8 +470,11 @@ class BaselineRunnerTests(unittest.TestCase):
             root = Path(tempdir)
             self.write_inputs(root)
             config = self.make_config(root, max_steps=2, overfit_limit=2)
-            result = run_training(config, execute=True, dataset_factory=factory)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = run_training(config, execute=True, dataset_factory=factory)
             self.assertEqual(made, ["train"])
+            self.assertEqual(output.getvalue(), "")
             self.assertEqual(dataset.limit, 2)
             self.assertEqual(result["steps_completed"], 2)
             self.assertEqual(len(result["train_loss_by_step"]), 2)
@@ -342,6 +550,141 @@ class BaselineRunnerTests(unittest.TestCase):
             self.assertEqual(plan["status"], "plan_only")
             self.assertFalse((root / "new-output").exists())
 
+    def test_epoch_loss_telemetry_aggregates_optimization_steps_for_both_modes(self):
+        from rsna_knee.training.baseline import run_training
+
+        labels = torch.tensor([i % 2 for i in range(12)], dtype=torch.float32)
+        class Dataset:
+            def __init__(self, partition): self.partition = partition
+            def __len__(self): return 2
+            def __getitem__(self, index):
+                return ([torch.full((1, 1, 8, 8), float(index + 1))],
+                        [torch.ones((1, 1, 8, 8), dtype=torch.bool)], labels, index)
+            def bounded_training_subset(self, limit): return [self[i] for i in range(limit)]
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_inputs(root)
+            overfit = run_training(
+                self.make_config(root, epochs=2, max_steps=4, output_dir=str(root / "overfit-output")),
+                execute=True,
+                dataset_factory=lambda _config, partition: Dataset(partition),
+            )
+            fold = run_training(
+                self.make_config(root, mode="fold", epochs=2, max_steps=None, overfit_limit=None,
+                                 output_dir=str(root / "fold-output")),
+                execute=True,
+                dataset_factory=lambda _config, partition: Dataset(partition),
+            )
+
+            expected_keys = {
+                "epoch", "planned_study_count", "completed_study_count",
+                "completed_step_count", "status", "optimization_step_loss_mean",
+            }
+            for report in (overfit, fold):
+                telemetry = report["training_loss_by_epoch"]
+                self.assertEqual(len(telemetry), 2)
+                self.assertEqual([row["epoch"] for row in telemetry], [1, 2])
+                self.assertEqual([row["planned_study_count"] for row in telemetry], [2, 2])
+                self.assertEqual([row["completed_study_count"] for row in telemetry], [2, 2])
+                self.assertEqual([row["completed_step_count"] for row in telemetry], [2, 2])
+                self.assertEqual([row["status"] for row in telemetry], ["complete", "complete"])
+                self.assertTrue(all(set(row) == expected_keys for row in telemetry))
+                self.assertTrue(all(np.isfinite(row["optimization_step_loss_mean"]) for row in telemetry))
+
+            self.assertEqual(overfit["steps_completed"], 4)
+            self.assertEqual(len(overfit["train_loss_by_step"]), 4)
+            self.assertIn("train_loss_start", overfit)
+            self.assertIn("train_loss_end", overfit)
+            self.assertEqual(fold["steps_completed"], 4)
+            self.assertNotIn("train_loss_by_step", fold)
+            self.assertNotIn("train_loss_start", fold)
+            self.assertNotIn("train_loss_end", fold)
+            serialized = (root / "fold-output" / "report.json").read_text(encoding="utf-8")
+            self.assertNotIn("study-identifier", serialized)
+            self.assertNotIn("manifest.json", serialized)
+            self.assertNotIn("optimization_step_losses", serialized)
+
+    def test_epoch_loss_telemetry_marks_a_capped_partial_epoch(self):
+        from rsna_knee.training.baseline import run_training
+
+        labels = torch.tensor([i % 2 for i in range(12)], dtype=torch.float32)
+        class Dataset:
+            def __len__(self): return 2
+            def __getitem__(self, index):
+                return ([torch.ones(1, 1, 8, 8)], [torch.ones(1, 1, 8, 8, dtype=torch.bool)], labels, index)
+            def bounded_training_subset(self, limit): return [self[i] for i in range(limit)]
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_inputs(root)
+            report = run_training(
+                self.make_config(root, epochs=3, max_steps=3), execute=True,
+                dataset_factory=lambda *_: Dataset(),
+            )
+        telemetry = report["training_loss_by_epoch"]
+        self.assertEqual(len(telemetry), 2)
+        self.assertEqual([row["completed_study_count"] for row in telemetry], [2, 1])
+        self.assertEqual([row["completed_step_count"] for row in telemetry], [2, 1])
+        self.assertEqual([row["status"] for row in telemetry], ["complete", "partial"])
+        self.assertTrue(all(np.isfinite(row["optimization_step_loss_mean"]) for row in telemetry))
+        self.assertEqual(report["steps_completed"], 3)
+    def test_overfit_final_subset_diagnostics_are_computed_during_existing_final_pass(self):
+        from rsna_knee.training.baseline import run_training
+
+        class Dataset:
+            def __init__(self):
+                self.read_count = 0
+                self.labels = []
+                for index in range(8):
+                    row = [0] * 12
+                    row[0] = index % 2
+                    row[1] = 1
+                    self.labels.append(torch.tensor(row, dtype=torch.float32))
+            def __len__(self): return 8
+            def __getitem__(self, index):
+                if not 0 <= index < len(self):
+                    raise IndexError
+                self.read_count += 1
+                return ([torch.ones(1, 1, 8, 8)], [torch.ones(1, 1, 8, 8, dtype=torch.bool)],
+                        self.labels[index], index)
+            def bounded_training_subset(self, limit): return self
+
+        class SyntheticModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                # The same target logits are emitted for every study, but vary by target.
+                self.logits = torch.nn.Parameter(torch.linspace(-1.0, 1.0, 12))
+            def forward(self, images, masks): return self.logits.reshape(1, 12)
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_inputs(root)
+            dataset = Dataset()
+            report = run_training(
+                self.make_config(root, epochs=1, max_steps=2, overfit_limit=8), execute=True,
+                dataset_factory=lambda *_: dataset,
+                model_factory=lambda _config: SyntheticModel(),
+            )
+        diagnostics = report["final_subset_diagnostics"]
+        self.assertEqual(diagnostics["training_study_count"], 8)
+        self.assertEqual(dataset.read_count, 18)  # 8 start + 2 steps + 8 final; no extra evaluation pass.
+        target_records = diagnostics["per_target"]
+        self.assertEqual([item["target"] for item in target_records], list(LABEL_COLUMNS))
+        self.assertTrue(all(np.isfinite(item["probability_std"]) for item in target_records))
+        self.assertTrue(all(item["probability_std"] == 0.0 for item in target_records))
+        self.assertTrue(all(0.0 <= item["probability_min"] <= item["probability_mean"] <= item["probability_max"] <= 1.0 for item in target_records))
+        self.assertGreater(target_records[-1]["probability_mean"], target_records[0]["probability_mean"])
+        self.assertEqual(target_records[0]["positive_count"], 4)
+        self.assertEqual(target_records[0]["negative_count"], 4)
+        self.assertEqual(target_records[0]["auc"], 0.5)
+        self.assertEqual(target_records[1]["positive_count"], 8)
+        self.assertEqual(target_records[1]["negative_count"], 0)
+        self.assertIsNone(target_records[1]["auc"])
+        self.assertNotIn("probabilities", diagnostics)
+        self.assertNotIn("labels", diagnostics)
+        self.assertNotIn("row_index", diagnostics)
+        self.assertIn("training-subset diagnostic", diagnostics["interpretation_limit"].lower())
     def test_deterministic_initialization_and_checkpoint_is_state_dict(self):
         from rsna_knee.training.baseline import run_training
 

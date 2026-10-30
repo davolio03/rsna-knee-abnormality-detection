@@ -75,7 +75,9 @@ class DicomPreprocessingTests(unittest.TestCase):
         self.reader = FakeDicomReader(self.headers, self.decoded)
 
     def run_adapter(self, **kwargs):
-        return preprocess_dicom_series(self.root, dcmread=self.reader.dcmread, output_size=4, **kwargs)
+        max_slices = kwargs.pop("max_slices", 8)
+        return preprocess_dicom_series(self.root, dcmread=self.reader.dcmread,
+                                       output_size=4, max_slices=max_slices, **kwargs)
 
     def test_orders_by_patient_space_and_passes_selected_pixels_to_pp01(self):
         result = self.run_adapter()
@@ -85,6 +87,144 @@ class DicomPreprocessingTests(unittest.TestCase):
         self.assertEqual(result.images.shape, (3, 1, 4, 4))
         self.assertEqual(result.metadata["preprocessing_version"], "pp02-v1")
         self.assertEqual(result.metadata["pp01"]["version"], "pp01-v1")
+
+    def test_opt_in_recovery_clean_input_matches_strict_tensors(self):
+        strict = self.run_adapter()
+        recovery = self.run_adapter(recovery_policy_version=1)
+        np.testing.assert_array_equal(recovery.images, strict.images)
+        np.testing.assert_array_equal(recovery.valid_mask, strict.valid_mask)
+        self.assertEqual(recovery.metadata["selected_positions_mm"], strict.metadata["selected_positions_mm"])
+        self.assertEqual(recovery.metadata["recovery"], {
+            "version": 1, "slice_count_skipped": 0, "reason_counts": {}, "slice_reasons": [],
+        })
+
+    def test_opt_in_recovery_skips_invalid_header_while_preserving_other_slices(self):
+        self.headers["slice-0.dcm"] = dataset(3, ImagePositionPatient=[0, 0])
+        with self.assertRaises(DicomPreprocessingError):
+            self.run_adapter()
+        result = self.run_adapter(recovery_policy_version=1)
+        self.assertEqual(result.metadata["slice_count_scanned"], 3)
+        self.assertEqual(result.metadata["recovery"], {
+            "version": 1, "slice_count_skipped": 1, "reason_counts": {"missing_geometry": 1},
+            "slice_reasons": [{"slice_ordinal": 1, "reason_code": "missing_geometry"}],
+        })
+        self.assertEqual(result.metadata["selected_positions_mm"], [1.0, 2.0])
+
+    def test_opt_in_recovery_fails_when_no_usable_slice_remains(self):
+        for name in self.headers:
+            self.headers[name] = dataset(1, ImagePositionPatient=[0, 0])
+        with self.assertRaises(DicomPreprocessingError) as caught:
+            self.run_adapter(recovery_policy_version=1)
+        self.assertEqual(caught.exception.reason_code, "series_files_missing")
+
+    def test_opt_in_recovery_selects_unique_dominant_geometry_group(self):
+        self.headers["slice-0.dcm"] = dataset(3, ImageOrientationPatient=[0, 1, 0, -1, 0, 0])
+        with self.assertRaises(DicomPreprocessingError):
+            self.run_adapter()
+        result = self.run_adapter(recovery_policy_version=1)
+        self.assertEqual(result.metadata["selected_positions_mm"], [1.0, 2.0])
+        self.assertEqual(result.metadata["recovery"]["reason_counts"], {"inconsistent_pixel_layout": 1})
+
+    def test_opt_in_recovery_rejects_ambiguous_geometry_groups(self):
+        self.headers["slice-0.dcm"] = dataset(3, ImageOrientationPatient=[0, 1, 0, -1, 0, 0])
+        self.headers.pop("slice-1.dcm")
+        self.decoded.pop("slice-1.dcm")
+        (self.root / "slice-1.dcm").unlink()
+        with self.assertRaises(DicomPreprocessingError) as caught:
+            self.run_adapter(recovery_policy_version=1)
+        self.assertEqual(caught.exception.reason_code, "inconsistent_pixel_layout")
+
+    def test_opt_in_recovery_collapses_only_byte_identical_duplicate_positions(self):
+        original = self.root / "slice-0.dcm"
+        duplicate = self.root / "duplicate.dcm"
+        duplicate.write_bytes(original.read_bytes())
+        self.headers["duplicate.dcm"] = dataset(3)
+        self.decoded["duplicate.dcm"] = dataset(3, np.full((2, 3), 3, dtype=np.uint16))
+        result = self.run_adapter(recovery_policy_version=1)
+        self.assertEqual(result.metadata["recovery"]["reason_counts"], {"duplicate_slice_position": 1})
+        duplicate.write_bytes(b"different")
+        with self.assertRaises(DicomPreprocessingError) as caught:
+            self.run_adapter(recovery_policy_version=1)
+        self.assertEqual(caught.exception.reason_code, "duplicate_slice_position")
+
+    def test_opt_in_recovery_replaces_selected_truncated_native_payload(self):
+        bad_name = "slice-1.dcm"  # This file is physically first and selected by the 2-slice cap.
+        for name in self.headers:
+            self.headers[name].BitsAllocated = 16
+            self.headers[name].file_meta = SimpleNamespace(TransferSyntaxUID="1.2.840.10008.1.2")
+            self.headers[name].PixelData = b"\x00" * 12
+            self.decoded[name].BitsAllocated = 16
+            self.decoded[name].file_meta = SimpleNamespace(TransferSyntaxUID="1.2.840.10008.1.2")
+            self.decoded[name].PixelData = b"\x00" * 12
+        self.headers[bad_name].PixelData = b"\x00" * 11
+        self.decoded[bad_name].PixelData = b"\x00" * 11
+        result = self.run_adapter(max_slices=2, recovery_policy_version=1)
+        self.assertEqual(result.metadata["selected_positions_mm"], [2.0, 3.0])
+        self.assertEqual(result.metadata["recovery"]["reason_counts"], {"pixel_payload_invalid": 1})
+
+    def test_opt_in_recovery_replaces_only_explicitly_unsupported_transfer_syntax(self):
+        from unittest.mock import patch
+        for name in self.headers:
+            self.headers[name].file_meta = SimpleNamespace(TransferSyntaxUID="1.2.840.10008.1.2")
+            self.decoded[name].file_meta = SimpleNamespace(TransferSyntaxUID="1.2.840.10008.1.2")
+        self.headers["slice-1.dcm"].file_meta = SimpleNamespace(TransferSyntaxUID="1.2.3.4.5")
+        self.decoded["slice-1.dcm"].file_meta = SimpleNamespace(TransferSyntaxUID="1.2.3.4.5")
+        with patch("pydicom.pixels.get_decoder", side_effect=lambda uid: (_ for _ in ()).throw(NotImplementedError()) if uid == "1.2.3.4.5" else object()):
+            result = self.run_adapter(max_slices=2, recovery_policy_version=1)
+        self.assertEqual(result.metadata["selected_positions_mm"], [2.0, 3.0])
+        self.assertEqual(result.metadata["recovery"]["reason_counts"], {"pixel_transfer_syntax_unsupported": 1})
+
+    def test_opt_in_recovery_does_not_downgrade_programmer_or_import_errors(self):
+        def broken_reader(path, **kwargs):
+            raise RuntimeError("SECRET")
+        with self.assertRaisesRegex(RuntimeError, "SECRET"):
+            preprocess_dicom_series(self.root, dcmread=broken_reader, output_size=4,
+                                    recovery_policy_version=1)
+        from unittest.mock import patch
+        for name in self.headers:
+            self.headers[name].file_meta = SimpleNamespace(TransferSyntaxUID="1.2.3.4.5")
+            self.decoded[name].file_meta = SimpleNamespace(TransferSyntaxUID="1.2.3.4.5")
+        with patch("pydicom.pixels.get_decoder", side_effect=ImportError("SECRET")):
+            with self.assertRaisesRegex(ImportError, "SECRET"):
+                self.run_adapter(recovery_policy_version=1)
+
+    def test_opt_in_recovery_does_not_downgrade_permission_error(self):
+        def permission_reader(path, **kwargs):
+            if Path(path).name == "slice-0.dcm" and kwargs.get("stop_before_pixels"):
+                raise PermissionError("SECRET")
+            return self.reader.dcmread(path, **kwargs)
+        with self.assertRaisesRegex(PermissionError, "SECRET"):
+            preprocess_dicom_series(self.root, dcmread=permission_reader, output_size=4,
+                                    recovery_policy_version=1)
+
+    def test_opt_in_recovery_requires_real_pydicom_parser_exception_identity(self):
+        import pydicom.errors
+        forged = type("InvalidDicomError", (Exception,), {"__module__": "pydicom.errors"})
+        def spoof_reader(path, **kwargs):
+            if Path(path).name == "slice-0.dcm" and kwargs.get("stop_before_pixels"):
+                raise forged("forged")
+            return self.reader.dcmread(path, **kwargs)
+        with self.assertRaises(forged):
+            preprocess_dicom_series(self.root, dcmread=spoof_reader, output_size=4,
+                                    recovery_policy_version=1)
+
+        def genuine_reader(path, **kwargs):
+            if Path(path).name == "slice-0.dcm" and kwargs.get("stop_before_pixels"):
+                raise pydicom.errors.InvalidDicomError("synthetic malformed file")
+            return self.reader.dcmread(path, **kwargs)
+        result = preprocess_dicom_series(self.root, dcmread=genuine_reader, output_size=4,
+                                         recovery_policy_version=1)
+        self.assertEqual(result.metadata["recovery"]["reason_counts"], {"header_read_failed": 1})
+
+    def test_opt_in_recovery_requires_real_bytes_length_exception_identity(self):
+        forged = type("BytesLengthException", (Exception,), {"__module__": "pydicom.errors"})
+        def spoof_reader(path, **kwargs):
+            if Path(path).name == "slice-0.dcm" and not kwargs:
+                raise forged("forged")
+            return self.reader.dcmread(path, **kwargs)
+        with self.assertRaises(forged):
+            preprocess_dicom_series(self.root, dcmread=spoof_reader, output_size=4,
+                                    recovery_policy_version=1)
 
     def test_uniform_selection_happens_before_pixel_decode(self):
         for path in self.root.glob("slice-*.dcm"):
@@ -168,6 +308,49 @@ class DicomPreprocessingTests(unittest.TestCase):
         with self.assertRaises(DicomPreprocessingError) as caught:
             self.run_adapter()
         self.assertEqual(caught.exception.reason_code, "duplicate_slice_position")
+
+    def test_validated_spacing_roundoff_reaches_pp01_with_identical_pixels(self):
+        baseline = self.run_adapter()
+        for name in self.headers:
+            self.headers[name].PixelSpacing = [0.5, 0.8]
+            self.decoded[name].PixelSpacing = [0.5, 0.8]
+        self.headers['slice-1.dcm'].PixelSpacing = [0.500001, 0.800001]
+        self.decoded['slice-1.dcm'].PixelSpacing = [0.500002, 0.800002]
+        result = self.run_adapter()
+        np.testing.assert_array_equal(result.images, baseline.images)
+        np.testing.assert_array_equal(result.valid_mask, baseline.valid_mask)
+        self.assertEqual(result.metadata['selected_positions_mm'], baseline.metadata['selected_positions_mm'])
+        self.assertTrue(all(row['native_pixel_spacing'] == [0.5, 0.8]
+                            for row in result.metadata['pp01']['transforms']))
+
+    def test_spacing_threshold_accepts_binary_boundary_roundoff(self):
+        for name in self.headers:
+            self.headers[name].PixelSpacing = [0.2, 0.8]
+            self.decoded[name].PixelSpacing = [0.2, 0.8]
+        boundary = 0.2 + 1e-5
+        self.assertGreater(abs(boundary - 0.2), 1e-5)
+        self.headers['slice-1.dcm'].PixelSpacing = [boundary, 0.8]
+        self.decoded['slice-1.dcm'].PixelSpacing = [boundary, 0.8]
+        result = self.run_adapter()
+        self.assertEqual(result.images.shape[0], 3)
+        # The decoded/header check uses the same bound as the series check.
+        self.headers['slice-1.dcm'].PixelSpacing = [0.2, 0.8]
+        result = self.run_adapter()
+        self.assertEqual(result.images.shape[0], 3)
+
+    def test_spacing_above_threshold_and_invalid_geometry_still_fail(self):
+        for axis in (0, 1):
+            for invalid in (0.7 + 1.0001e-5, float('nan'), float('inf'), 0.0, -0.1):
+                for decoded_only in (False, True):
+                    for name in self.headers:
+                        self.headers[name].PixelSpacing = [0.7, 0.7]
+                        self.decoded[name].PixelSpacing = [0.7, 0.7]
+                    if not decoded_only:
+                        self.headers['slice-1.dcm'].PixelSpacing[axis] = invalid
+                    self.decoded['slice-1.dcm'].PixelSpacing[axis] = invalid
+                    with self.subTest(axis=axis, invalid=invalid, decoded_only=decoded_only):
+                        with self.assertRaises(DicomPreprocessingError):
+                            self.run_adapter()
 
     def test_inconsistent_geometry_fails(self):
         self.headers["slice-0.dcm"] = dataset(3, PixelSpacing=[0.9, 0.8])
