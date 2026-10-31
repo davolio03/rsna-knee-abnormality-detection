@@ -1,3 +1,7 @@
+## Current: LOC-03 cache-bound local epoch runner prepared; epoch two not launched (2026-10-31)
+
+The seven full-cache archives are now locally present and verified (4,298 studies, 23,765 series, 190,120 slices; 2,850 train / 1,448 validation; zero Gold overlap), superseding earlier pending-cache notes below. New `scripts/local_masked_full_cache.py` rechecks pins, ZIP integrity and canonical coverage; `scripts/train_local_radimagenet_epoch.py` defaults to plan-only and only runs a single continuation epoch with explicit `--train`. The pinned CUDA environment passed seven focused adapter tests. The training path enforces one visible CUDA GPU, at least 3 GiB free memory, FP32, TF32 off, highest float32 matmul precision and autocast off at the frozen native call. Its real-cache one-study GPU benchmark restored epoch-one model/Adam and discarded a single step in RAM: 1.546 seconds, 351.2 MiB peak allocated / 392.0 MiB reserved, five series / forty slices / three observed targets. The original and migrated checkpoints remain pinned; no epoch-two run or checkpoint exists. See [E044](../experiments/E044_local_radimagenet_epoch02.md). Independent verification is still required before the one authorized full epoch.
+
 ## Publication verification (2026-10-30)
 
 The 30 changed/new test modules passed offline in the training environment: 289 tests. The separate SIWC authentication, Responses and CLI suites passed in the existing labeler environment: 155 tests. A parent spot-check of the ResNet50 adapter, runner and package passed 13 tests. Whole-project discovery in the training environment is **not green**: 527 tests, four failures, twelve errors and four skips. Missing labeler dependencies explain the SIWC errors and three failures in that environment; a Windows synthetic child-process timeout cleanup failure remains unresolved. These scoped successes do not replace a whole-project pass. No live provider inference or new training was performed during publication verification.
@@ -20,6 +24,14 @@ HSR11 private Run02 execution `362520997` completed successfully after 12,871.8 
 
 HSR12 partial-recovery v1 remains opt-in and strict defaults are preserved. Parent verification found and paused v4 before import/execution; the bounded safety corrections now pass 132 applicable tests. Parent independently verified finalized v5-final and completed the private visible canary (3/3 studies, 15 series, zero recoveries). Exactly one authorized competition submission was made from the candidate; the competition currently shows “Notebook Running (after deadline)” and score is pending. No hidden logs are available; the original failure cause and HSR05 remain unresolved. See [HSR tracker](../odd/tasks/hidden-submission-repair.md), [E032](../experiments/E032_hidden_submission_candidate.md), and D026.
 # Project State
+
+## Current: LOC-03 one-GPU checkpoint migration prepared; full cache pending (2026-10-30)
+
+The separate migration utility and its focused tests validate the pinned epoch-one checkpoint against the unchanged frozen recipe reader, then create a distinct one-GPU candidate that changes only its environment fingerprint and CUDA RNG-state list. The original checkpoint remains unchanged. A real local-CUDA integration test passed strict original/migrated resume validation, optimizer/model/history checks, and CUDA RNG restoration; its temporary migrated output was removed. The plan-only CLI was verified, but `--execute` has not been run and no durable migrated checkpoint was created. See [E043](../experiments/E043_local_radimagenet_checkpoint_migration.md).
+
+The first full-format cache chunk (`validation-002`, 8 studies / 40 series) completed in the parent-owned private CPU export and was locally hash-verified: archive SHA-256 `3587b4b7908a4d4287b774dbfc8841ee135cab13b9074d2deaf2c2521fd750f2`. This is only a chunk-format check. The other six whole-study exports and a strict full-cohort cache aggregator/reader remain pending; no complete 4,298-study cache exists yet. LOC-02's 8+8 smoke and one-study GPU feasibility benchmark are recorded in [E042](../experiments/E042_local_selected_slice_cache_export.md).
+
+The authorized next full local epoch has **not** started. No checkpoint migration has been used for training, and no epoch-two checkpoint exists. Preserve the original epoch-one checkpoint and require independent verification of the migration plus exact full-cache coverage before the one authorized epoch launch.
 
 ## Current: masked soft-label training implementation independently verified (2026-10-27)
 
