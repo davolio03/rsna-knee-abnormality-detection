@@ -13,6 +13,7 @@ from scripts import local_masked_full_cache as cache
 from scripts import local_radimagenet_checkpoint_migration as migration
 
 EPOCH_TWO_SHA256="bd1abee90e19256292a57d04d31eced4341ad7207c403125d03b150cdeacaf72"
+EPOCH_THREE_SHA256="05f0442abf4e3d53713464476b230a6ef45895eb24c58f49fb989a340fc0fcb1"
 NATIVE_FINGERPRINT="5c08ab6be89773802ce4f18fa2209a7e85ec88f2703b5caaded9bd940025a920"
 
 def _hash(path: Path) -> str:
@@ -58,6 +59,23 @@ def _resolve_resume(root: Path, completed_epochs: int) -> dict:
         if checkpoint_sha!=data.get("migrated_checkpoint_sha256"): raise ValueError("migration_checkpoint_pin_mismatch")
         return {"completed_epochs":1,"checkpoint":checkpoint,"checkpoint_sha256":checkpoint_sha,
                 "native_fingerprint":expected,"evidence":receipt}
+    if completed_epochs==3:
+        checkpoint=private.parent/"local-radimagenet-epoch03/epoch03-run01/checkpoint-epoch-03.pt"
+        report_path=checkpoint.parent/"training-report.json"
+        provenance_path=checkpoint.parent.parent/"epoch03-run01-provenance.json"
+        for path in (checkpoint,report_path,provenance_path):
+            if migration._has_symlink_component(path) or not path.is_file(): raise ValueError("epoch_three_resume_evidence_unavailable")
+        actual_sha=migration._sha256_file(checkpoint)
+        if actual_sha!=EPOCH_THREE_SHA256: raise ValueError("epoch_three_checkpoint_pin_mismatch")
+        try:
+            report=json.loads(report_path.read_text(encoding="utf-8")); provenance=json.loads(provenance_path.read_text(encoding="utf-8"))
+        except (OSError,UnicodeError,json.JSONDecodeError): raise ValueError("epoch_three_resume_evidence_invalid") from None
+        _validate_epoch_three_report(report,provenance,checkpoint,actual_sha,
+            epoch_two_checkpoint=private/"epoch02-run01/checkpoint-epoch-02.pt",
+            epoch_two_checkpoint_sha256=EPOCH_TWO_SHA256)
+        return {"completed_epochs":3,"checkpoint":checkpoint,"checkpoint_sha256":actual_sha,
+                "native_fingerprint":NATIVE_FINGERPRINT,"evidence":report_path,"provenance":provenance_path,
+                "next_epoch":4}
     if completed_epochs!=2: raise ValueError("resume_epoch_unsupported")
     checkpoint=private/"epoch02-run01/checkpoint-epoch-02.pt"
     report_path=private/"epoch02-run01/training-report.json"
@@ -79,6 +97,7 @@ def _output_for_resume(root: Path, completed_epochs: int) -> Path:
     root=Path(root).resolve()
     if completed_epochs==1: return root/"data/private/local-radimagenet-epoch02/epoch02-run01"
     if completed_epochs==2: return root/"data/private/local-radimagenet-epoch03/epoch03-run01"
+    if completed_epochs==3: return root/"data/private/local-radimagenet-final-epochs/final-run01"
     raise ValueError("resume_epoch_unsupported")
 
 def _validate_epoch_two_report(report: dict, provenance: dict, checkpoint: Path, actual_sha: str,
@@ -100,8 +119,32 @@ def _validate_epoch_two_report(report: dict, provenance: dict, checkpoint: Path,
         or provenance.get("target_epochs")!=5):
         raise ValueError("epoch_two_provenance_mismatch")
 
-def make_plan(root: Path, *, train=False, resume_epoch: int = 1) -> dict:
-    if type(resume_epoch) is not int or resume_epoch not in (1,2): raise ValueError("resume_epoch_unsupported")
+def _validate_epoch_three_report(report: dict, provenance: dict, checkpoint: Path, actual_sha: str,
+                                 *, epoch_two_checkpoint: Path, epoch_two_checkpoint_sha256: str) -> None:
+    if type(report) is not dict: raise ValueError("epoch_three_training_report_mismatch")
+    epochs=report.get("epochs"); report_checkpoint=report.get("checkpoint_path")
+    if (report.get("status")!="paused_checkpoint_available" or report.get("completed_epochs")!=3
+        or report.get("fingerprint")!=NATIVE_FINGERPRINT or report.get("checkpoint_sha256")!=actual_sha
+        or type(report_checkpoint) is not str or Path(report_checkpoint).resolve()!=Path(checkpoint).resolve()
+        or type(epochs) is not list or len(epochs)!=3 or any(type(row) is not dict for row in epochs)
+        or [row.get("epoch") for row in epochs]!=[1,2,3]):
+        raise ValueError("epoch_three_training_report_mismatch")
+    resume_path=provenance.get("resume_checkpoint_path") if type(provenance) is dict else None
+    if (type(provenance) is not dict or provenance.get("schema_version")!="local-radimagenet-epoch03-provenance-v1"
+        or provenance.get("native_fingerprint")!=NATIVE_FINGERPRINT or provenance.get("completed_epochs_before")!=2
+        or provenance.get("epochs_to_run")!=1 or provenance.get("target_epochs")!=5
+        or provenance.get("resume_checkpoint_sha256")!=epoch_two_checkpoint_sha256
+        or type(resume_path) is not str or Path(resume_path).resolve()!=Path(epoch_two_checkpoint).resolve()):
+        raise ValueError("epoch_three_provenance_mismatch")
+
+def _validate_run_cap(resume_epoch: int, epochs_this_run: int) -> None:
+    if type(epochs_this_run) is not int or epochs_this_run not in (1,2): raise ValueError("run_epoch_cap_unsupported")
+    if epochs_this_run==2 and resume_epoch!=3: raise ValueError("two_epoch_run_requires_epoch_three")
+    if type(resume_epoch) is not int or resume_epoch not in (1,2,3) or epochs_this_run>5-resume_epoch:
+        raise ValueError("run_epoch_cap_exceeds_target")
+
+def make_plan(root: Path, *, train=False, resume_epoch: int = 1, epochs_this_run: int = 1) -> dict:
+    _validate_run_cap(resume_epoch,epochs_this_run)
     root=Path(root).resolve(); private=root/"data/private/local-radimagenet-epoch02"
     cohort=cache.validate_full_cache(root)
     original=private/"checkpoint-epoch-01.pt"
@@ -114,7 +157,7 @@ def make_plan(root: Path, *, train=False, resume_epoch: int = 1) -> dict:
         or migration_data.get("migrated_checkpoint_sha256")!=_hash(migrated)
         or migration_data.get("completed_epochs")!=1 or migration_data.get("migrated_fingerprint")!=NATIVE_FINGERPRINT):
         raise ValueError("migration_receipt_invalid")
-    if train and resume_epoch==2 and resume["completed_epochs"]>=5: raise ValueError("training_target_already_complete")
+    if train and resume["completed_epochs"]+epochs_this_run>5: raise ValueError("training_target_already_complete")
     import torch
     cuda_memory=None
     if train: cuda_memory=_require_training_cuda(torch)
@@ -130,24 +173,29 @@ def make_plan(root: Path, *, train=False, resume_epoch: int = 1) -> dict:
                 and candidate.get("migrated_checkpoint_sha256")==_hash(migrated)):
             benchmark={k:candidate[k] for k in ("seconds","peak_allocated_mib","peak_reserved_mib","series","slices","observed_targets")}
     output_dir=_output_for_resume(root,resume_epoch)
-    payload=( {k:migration_data.get(k) for k in ("completed_epochs","history_entry_count","optimizer_validation","target_rng_restore_validation","migrated_fingerprint","target_runtime")}
-        if resume_epoch==1 else {"completed_epochs":2,"history_entry_count":len(json.loads((private/"epoch02-run01/training-report.json").read_text(encoding="utf-8"))["epochs"]),"native_fingerprint":NATIVE_FINGERPRINT,"checkpoint_sha256":resume["checkpoint_sha256"]})
+    if resume_epoch==1:
+        payload={k:migration_data.get(k) for k in ("completed_epochs","history_entry_count","optimizer_validation","target_rng_restore_validation","migrated_fingerprint","target_runtime")}
+    else:
+        payload={"completed_epochs":resume_epoch,"history_entry_count":resume_epoch,
+                 "native_fingerprint":NATIVE_FINGERPRINT,"checkpoint_sha256":resume["checkpoint_sha256"]}
     return {"mode":"train" if train else "plan","cohort":cohort,"completed_epochs":resume_epoch,
-            "target_epochs":5,"epochs_to_run":min(1,5-resume_epoch),"next_epoch":resume_epoch+1,"output_dir":str(output_dir),
+            "target_epochs":5,"epochs_to_run":epochs_this_run,"next_epoch":resume_epoch+1,
+            "final_epoch":resume_epoch+epochs_this_run,"output_dir":str(output_dir),
             "original_checkpoint_sha256":migration.CHECKPOINT_SHA256,
             "migrated_checkpoint_sha256":_hash(migrated) if migrated.is_file() else None,
             "resume_checkpoint":str(resume["checkpoint"]),"resume_checkpoint_sha256":resume["checkpoint_sha256"],
             "resume_payload":payload,
-            "resource_observation":{"cuda_device":cuda_memory,"max_runtime_seconds":28800,"epoch_cap":1,"benchmark":benchmark},
+            "resource_observation":{"cuda_device":cuda_memory,"max_runtime_seconds":28800,"epoch_cap":epochs_this_run,"benchmark":benchmark},
             "training_requires_explicit_flag":"--train"}
 
-def run_one_epoch(root: Path, *, resume_epoch: int = 1) -> dict:
-    """Run unchanged frozen native recipe with only its documented dataset seam replaced."""
-    plan=make_plan(root,train=True,resume_epoch=resume_epoch); root=Path(root).resolve(); private=root/"data/private/local-radimagenet-epoch02"
+def run_one_epoch(root: Path, *, resume_epoch: int = 1, epochs_this_run: int = 1) -> dict:
+    """Run a bounded continuation with the frozen native recipe and cached dataset seam."""
+    plan=make_plan(root,train=True,resume_epoch=resume_epoch,epochs_this_run=epochs_this_run); root=Path(root).resolve(); private=root/"data/private/local-radimagenet-epoch02"
+    resume=_resolve_resume(root,resume_epoch)
     receipt=private/"checkpoint-migration-run01/migration-receipt.json"
     output=Path(plan["output_dir"])
     if output.exists() or output.is_symlink(): raise ValueError("training_output_not_fresh")
-    if resume_epoch==2 and (output.parent.exists() or migration._has_symlink_component(output.parent)):
+    if resume_epoch>=2 and (output.parent.exists() or migration._has_symlink_component(output.parent)):
         raise ValueError("training_output_parent_not_fresh")
     archive=private/"resnet50-recipe-source.zip"
     if not archive.exists(): archive=root/"data/private/resnet50-pretraining-preparation/run01/resnet50-recipe-source.zip"
@@ -171,7 +219,7 @@ def run_one_epoch(root: Path, *, resume_epoch: int = 1) -> dict:
         config=native.RecipeConfig(arm="radimagenet",weights_path=root/"data/private/resnet50-pretraining-assets/run01/resnet50-radimagenet.pt",
             output_dir=output,image_root=private,manifest_path=root/"data/private/full-cohort-prefilter/run01/full-cohort-soft-label-manifest.json",
             folds_path=root/"data/private/full-cohort-prefilter/run01/full-cohort-grouped-folds.json",mode="train",device="cuda",
-            source_root=source_root,max_epochs_per_run=1,max_runtime_seconds=28800,
+            source_root=source_root,max_epochs_per_run=epochs_this_run,max_runtime_seconds=28800,
             resume_checkpoint=Path(plan["resume_checkpoint"]),
             resume_sha256=plan["resume_checkpoint_sha256"])
         config.validate()
@@ -187,9 +235,10 @@ def run_one_epoch(root: Path, *, resume_epoch: int = 1) -> dict:
             raise ValueError("native_resume_history_mismatch")
         provenance_path=output.with_name(output.name+"-provenance.json")
         if provenance_path.exists() or provenance_path.is_symlink(): raise ValueError("training_provenance_not_fresh")
-        if resume_epoch==2: output.parent.mkdir(parents=True,exist_ok=False)
+        if resume_epoch>=2: output.parent.mkdir(parents=True,exist_ok=False)
         proofs={cid:_hash(root/"data/private/local-radimagenet-epoch02"/f"cache-{cid}-independent-proof.json") for cid in cache.PARTS}
-        provenance={"schema_version":f"local-radimagenet-epoch{resume_epoch+1:02d}-provenance-v1","mode":"one_incremental_epoch",
+        provenance={"schema_version":"local-radimagenet-final-epochs-provenance-v1" if epochs_this_run==2 else f"local-radimagenet-epoch{resume_epoch+1:02d}-provenance-v1",
+            "mode":"two_incremental_epochs" if epochs_this_run==2 else "one_incremental_epoch",
             "source_archive_sha256":migration.SOURCE_SHA256,"source_members_sha256":hashes and hashlib.sha256(json.dumps(hashes,sort_keys=True,separators=(",",":")).encode()).hexdigest(),
             "cache_adapter_sha256":_hash(Path(cache.__file__),),"training_adapter_sha256":_hash(Path(__file__)),
             "cache_plan_sha256":cache.PLAN,"archive_sha256":{k:v[1] for k,v in cache.PARTS.items()},"independent_proof_sha256":proofs,
@@ -197,7 +246,9 @@ def run_one_epoch(root: Path, *, resume_epoch: int = 1) -> dict:
             "migration_receipt_sha256":_hash(receipt),
             "original_checkpoint_sha256":migration.CHECKPOINT_SHA256,"migrated_checkpoint_sha256":plan["migrated_checkpoint_sha256"],
             "resume_checkpoint_path":plan["resume_checkpoint"],"resume_checkpoint_sha256":plan["resume_checkpoint_sha256"],
-            "native_fingerprint":native_fingerprint,"completed_epochs_before":resume_epoch,"epochs_to_run":1,"target_epochs":5,
+            "resume_evidence_sha256":_hash(Path(resume["evidence"])),
+            "resume_provenance_sha256":_hash(Path(resume["provenance"])) if resume.get("provenance") else None,
+            "native_fingerprint":native_fingerprint,"completed_epochs_before":resume_epoch,"epochs_to_run":epochs_this_run,"target_epochs":5,
             "train_count":len(train),"validation_count":len(validation),"weight_sha256":migration.WEIGHTS_SHA256,
             "device":"cuda:0","precision":"float32_tf32_off_autocast_off"}
         temp=provenance_path.with_name(provenance_path.name+".tmp")
@@ -207,7 +258,8 @@ def run_one_epoch(root: Path, *, resume_epoch: int = 1) -> dict:
         os.replace(temp,provenance_path)
         def factory(cfg,partition): return cache.FullCacheDataset(root,cfg,partition,already_validated=True)
         result=_execute_native_training(native,config,factory,lambda cfg:model_module.load_resnet50_recipe("radimagenet",cfg.weights_path))
-    return {"status":result.get("status"),"result":result,"resume_checkpoint_sha256":plan["resume_checkpoint_sha256"],"source_members":len(hashes),"provenance_path":str(provenance_path)}
+    return {"status":result.get("status"),"result":result,"resume_checkpoint_sha256":plan["resume_checkpoint_sha256"],
+            "epochs_requested":epochs_this_run,"source_members":len(hashes),"provenance_path":str(provenance_path)}
 
 def benchmark_one_cached_study(root: Path) -> dict:
     """Exercise one real full-cache study and discard all optimizer updates in RAM."""
@@ -285,10 +337,13 @@ def benchmark_one_cached_study(root: Path) -> dict:
         return result
 
 def main(argv=None):
-    p=argparse.ArgumentParser(description=__doc__); mode=p.add_mutually_exclusive_group();mode.add_argument("--train",action="store_true",help="explicitly run one epoch from the selected verified checkpoint");mode.add_argument("--benchmark-study",action="store_true",help="run one real cached study in discarded RAM without saving")
-    p.add_argument("--resume-epoch",type=int,choices=(1,2),default=1,help="select the prior completed epoch checkpoint; default preserves the epoch-two plan")
+    p=argparse.ArgumentParser(description=__doc__); mode=p.add_mutually_exclusive_group();mode.add_argument("--train",action="store_true",help="explicitly run the bounded epoch count from the selected verified checkpoint");mode.add_argument("--benchmark-study",action="store_true",help="run one real cached study in discarded RAM without saving")
+    p.add_argument("--resume-epoch",type=int,choices=(1,2,3),default=1,help="select the prior completed epoch checkpoint; default preserves the original epoch-two plan")
+    p.add_argument("--epochs-this-run",type=int,default=1,help="incremental epoch cap (2 is accepted only when resuming epoch three)")
     p.add_argument("--root",type=Path,default=Path(__file__).resolve().parents[1]); args=p.parse_args(argv)
-    result=run_one_epoch(args.root,resume_epoch=args.resume_epoch) if args.train else (benchmark_one_cached_study(args.root) if args.benchmark_study else make_plan(args.root,resume_epoch=args.resume_epoch))
+    _validate_run_cap(args.resume_epoch,args.epochs_this_run)
+    if args.benchmark_study and (args.resume_epoch!=1 or args.epochs_this_run!=1): raise ValueError("benchmark_selector_unsupported")
+    result=run_one_epoch(args.root,resume_epoch=args.resume_epoch,epochs_this_run=args.epochs_this_run) if args.train else (benchmark_one_cached_study(args.root) if args.benchmark_study else make_plan(args.root,resume_epoch=args.resume_epoch,epochs_this_run=args.epochs_this_run))
     print(json.dumps(result,sort_keys=True,allow_nan=False,default=str)); return 0
 
 if __name__=="__main__": raise SystemExit(main())
