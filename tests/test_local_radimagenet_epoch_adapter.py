@@ -9,15 +9,55 @@ from scripts import train_local_radimagenet_epoch as runner
 
 
 class FullCacheAdapterTests(unittest.TestCase):
+    def test_epoch_three_resume_is_pinned_to_verified_epoch_two(self):
+        root=Path(__file__).resolve().parents[1]
+        resume=runner._resolve_resume(root,2)
+        self.assertEqual(resume["completed_epochs"],2)
+        self.assertEqual(resume["checkpoint_sha256"],"bd1abee90e19256292a57d04d31eced4341ad7207c403125d03b150cdeacaf72")
+        self.assertEqual(resume["native_fingerprint"],"5c08ab6be89773802ce4f18fa2209a7e85ec88f2703b5caaded9bd940025a920")
+        self.assertEqual(resume["next_epoch"],3)
+        self.assertEqual(resume["checkpoint"].name,"checkpoint-epoch-02.pt")
+        with self.assertRaisesRegex(ValueError,"resume_epoch_unsupported"):
+            runner._resolve_resume(root,5)
+
+    def test_epoch_three_rejects_wrong_checkpoint_sha_and_bad_report_history(self):
+        root=Path(__file__).resolve().parents[1]
+        with unittest.mock.patch.object(runner.migration,"_sha256_file",return_value="0"*64):
+            with self.assertRaisesRegex(ValueError,"epoch_two_checkpoint_pin_mismatch"):
+                runner._resolve_resume(root,2)
+        report={"status":"paused_checkpoint_available","completed_epochs":2,
+                "fingerprint":runner.NATIVE_FINGERPRINT,"checkpoint_sha256":"a"*64,
+                "checkpoint_path":"C:/private/checkpoint.pt","epochs":[{"epoch":1},{"epoch":2}]}
+        provenance={"schema_version":"local-radimagenet-epoch02-provenance-v1",
+                    "native_fingerprint":runner.NATIVE_FINGERPRINT,"completed_epochs_before":1,
+                    "epochs_to_run":1,"migrated_checkpoint_sha256":"b"*64,"target_epochs":5}
+        runner._validate_epoch_two_report(report,provenance,Path("C:/private/checkpoint.pt"),"a"*64,migrated_checkpoint_sha256="b"*64)
+        for change in ({"completed_epochs":1},{"epochs":[{"epoch":1}]},{"status":"complete"}):
+            with self.subTest(change=change):
+                altered=dict(report);altered.update(change)
+                with self.assertRaisesRegex(ValueError,"epoch_two_training_report_mismatch"):
+                    runner._validate_epoch_two_report(altered,provenance,Path("C:/private/checkpoint.pt"),"a"*64,migrated_checkpoint_sha256="b"*64)
+
+    def test_epoch_three_has_fresh_output_and_default_keeps_epoch_two_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            epoch_two=runner._output_for_resume(root,1)
+            target=runner._output_for_resume(root,2)
+            self.assertEqual(epoch_two,root/"data/private/local-radimagenet-epoch02/epoch02-run01")
+            self.assertEqual(target,root/"data/private/local-radimagenet-epoch03/epoch03-run01")
+            self.assertFalse(target.exists())
+
     def test_native_training_call_enforces_precision_inside_call(self):
         import torch
         native = Mock()
+        config={"resume_checkpoint":"pinned-epoch-2","resume_sha256":"bd1abee90e19256292a57d04d31eced4341ad7207c403125d03b150cdeacaf72"}
         def capture(*args,**kwargs):
             native.observed = (torch.backends.cuda.matmul.allow_tf32,
                                torch.backends.cudnn.allow_tf32,
                                torch.backends.cudnn.benchmark,
                                torch.get_float32_matmul_precision(),
                                torch.is_autocast_enabled("cuda"))
+            native.resume=(args[0]["resume_checkpoint"],args[0]["resume_sha256"])
             return {"status": "captured"}
         native.run_recipe_training.side_effect = capture
         previous=(torch.backends.cuda.matmul.allow_tf32,torch.backends.cudnn.allow_tf32,
@@ -28,9 +68,10 @@ class FullCacheAdapterTests(unittest.TestCase):
             torch.backends.cudnn.benchmark=True
             torch.set_float32_matmul_precision("medium")
             with torch.autocast(device_type="cuda",enabled=True):
-                result=runner._execute_native_training(native,{},lambda *_:None,lambda *_:None)
+                result=runner._execute_native_training(native,config,lambda *_:None,lambda *_:None)
             self.assertEqual(result,{"status":"captured"})
             self.assertEqual(native.observed,(False,False,False,"highest",False))
+            self.assertEqual(native.resume,("pinned-epoch-2","bd1abee90e19256292a57d04d31eced4341ad7207c403125d03b150cdeacaf72"))
         finally:
             torch.backends.cuda.matmul.allow_tf32,torch.backends.cudnn.allow_tf32,torch.backends.cudnn.benchmark=previous[:3]
             torch.set_float32_matmul_precision(previous[3])
@@ -85,6 +126,8 @@ class FullCacheAdapterTests(unittest.TestCase):
         self.assertEqual(plan["completed_epochs"], 1)
         self.assertEqual(plan["target_epochs"], 5)
         self.assertEqual(plan["epochs_to_run"], 1)
+        self.assertEqual(Path(plan["output_dir"]),Path("data/private/local-radimagenet-epoch02/epoch02-run01").resolve())
+        self.assertEqual(Path(plan["resume_checkpoint"]).name,"checkpoint-epoch-01-migrated.pt")
 
 
 if __name__ == "__main__":
