@@ -1,6 +1,6 @@
 # E049 — E048 epoch-five attention submission package (prepared)
 
-**Status:** corrected local private candidate `run02` prepared; no upload, remote execution, or submission has occurred. Earlier `run01` is preserved as invalid negative evidence and must not be transferred.
+**Status:** corrected candidate `run02` was privately uploaded, both canary and full inference notebooks completed, and the full notebook was submitted once. Kaggle's Submissions/SubmissionDetails UI still showed **Notebook Running** after the deadline, with no score yet; do not claim terminal hidden-set completion. Earlier local package `run01` remains preserved as invalid negative evidence and must not be transferred.
 
 ## Hypothesis and boundary
 
@@ -30,7 +30,17 @@ The earlier `run01` directory is intentionally untouched. Independent verificati
 | Canary notebook | `kaggle_radimagenet_attention_canary.ipynb`; SHA-256 `987d8666c448f2ced0a02664849c5c98eebf317f87f593592775d89912c98c67`; max 3 studies |
 | Full notebook | `kaggle_radimagenet_attention_submission.ipynb`; SHA-256 `7fa642242911a8f37d78d06a2ce353fd5fa76483544c9742a969477eb54eee64`; uncapped |
 
-The inference closure keeps the existing fold-0 submission writer, test-study/DICOM preprocessing and offline codec bootstrap, plus the frozen ResNet-50 and attention model sources. It excludes training modules, source cache, run plan, optimizer/RNG tensors, and raw DICOM/report data. The dataset mount is `/kaggle/input/datasets/davidsulleiro/rsna-knee-attention-epoch05`; the official competition input and Internet-offline policy are inherited from the accepted codec package. The full submission input remains private; no upload or Kaggle UI interaction is authorized by this local package work.
+The inference closure keeps the existing fold-0 submission writer, test-study/DICOM preprocessing and offline codec bootstrap, plus the frozen ResNet-50 and attention model sources. It excludes training modules, source cache, run plan, optimizer/RNG tensors, and raw DICOM/report data. Following the user's explicit `Si` authorization for these two files, the parent created the private dataset `davidsulleiro/rsna-knee-attention-epoch05` Version 1 with only `attention-model-epoch-05.pt` and aggregate `training-report.json` (license remains unknown, unchanged). The dataset mount is `/kaggle/input/datasets/davidsulleiro/rsna-knee-attention-epoch05`; the official competition input and Internet-offline policy are inherited from the accepted codec package.
+
+## Kaggle execution and submission status
+
+| Event | Observed status |
+|---|---|
+| Canary | Private notebook `rsna-knee-attention-epoch05-submission-run01`, Version 1 / execution `364641216`; completed successfully in 47.7 seconds total, with 20.712336 seconds in inference. It processed 3/3 visible studies, skipped zero series/slices, reported `canary=true`, and matched the expected attention fingerprint, model/report pins, 224px / eight-slice / microbatch-two configuration. It wrote the root CSV and was **not submitted**. |
+| Full inference | The same private notebook, Version 2 / execution `364641924`, ran with `RUN_INFERENCE=True`, `MAX_STUDIES=None`, T4x2, Internet OFF, the original environment, and quota 00:01 / 30 h. It completed successfully in 68.3 seconds total, with 24.260236 seconds in inference; it processed 3/3 visible studies, skipped zero series/slices, reported `canary=false`, and wrote the root CSV with the expected attention/pin evidence. |
+| Competition submission | The exact full Version 2 was submitted once. The parent verified the competition Submissions and SubmissionDetails UI; it showed **Notebook Running** after the deadline, and no score was available. This is the current terminal-evidence gap, not a hidden-set result. **Do not resubmit.** |
+
+Parent-observed private browser evidence is retained under `data/private/attention-model-submission/browser-proof/`: `canary-v1.log`, `full-v2.log`, `canary-v1-success.png`, `private-dataset-created.png`, and `submission-v2-running.png`. E047's public/private `0.825 / 0.802` remain context only, not a causal comparison or an E049 outcome. No training was launched. No autonomous monitoring is promised; if a terminal Kaggle result is later observed, record it without rerunning or resubmitting.
 
 ## Verification and limitations
 
@@ -42,8 +52,8 @@ The inference closure keeps the existing fold-0 submission writer, test-study/DI
 - The post-correction combined requested regression command passed 65 tests; the two new focus modules passed 11 tests. This is not a whole-project test claim.
 - The report had no DICOM UID-formatted identifiers; package closure contains no training module, run plan, cache, raw report, optimizer/RNG tensors, or DICOM data.
 - The attention adapter preserves direct 224-pixel preprocessing, max eight slices, microbatch two, masked spatial pooling, and separate trained target-specific slice/series attention. A canary can publish the root CSV only when every visible test row was processed; unexpected inference/provenance failures are fatal and do not publish a partial CSV.
-- Package output path refuses overwrite. No remote execution, upload, credential/session access, push, or submission occurred. Parent owns review, authorization, and any later Kaggle action.
+- The corrected package output path refuses overwrite. The authorized private upload and one full submission were performed by the parent. No new training, push, or resubmission occurred.
 
 ## Next step
 
-Parent independently verifies the frozen package and resolves any required explicit consent before considering a private upload. Do not infer hidden-set results from local validation metrics or a visible canary.
+Await any later user-requested inspection of the pending Kaggle status. Do not resubmit, infer hidden-set results from local validation or canary execution, or claim a score before the UI reports it.
