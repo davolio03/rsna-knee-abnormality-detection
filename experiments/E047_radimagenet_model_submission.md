@@ -40,10 +40,10 @@ The private dataset `davidsulleiro/rsna-knee-radimagenet-final-epochs` Version 1
 | Candidate | Kaggle execution | Observed outcome |
 |---|---:|---|
 | Capped canary Version 1 | `364367354` | Succeeded in 60.2 seconds; 3/3 visible studies; zero skipped series/slices. |
-| Uncapped notebook Version 2 | `364368425` | Succeeded in 51.6 seconds; actual inference 25.202 seconds; 3/3 visible studies; `canary=false`; 224px, eight slices, microbatch 2; checkpoint/report pins matched; zero skipped series/slices; root `submission.csv` verified. |
+| Uncapped notebook Version 2 | `364368425` | Succeeded in 51.6 seconds; actual inference 25.202 seconds; 3/3 visible studies; `canary=false`; 224px, eight slices, microbatch 2; checkpoint/report pins matched; zero skipped series/slices; root `submission.csv` verified. After the deadline, terminal submission result was success with public score **0.825** and private score **0.802**. |
 
-The parent submitted **exactly Version 2, once**, through the Kaggle UI. The Submissions and Submission Details views show **Notebook Running (after deadline)**, with no score yet. This is not a terminal hidden-test success. No additional training or push occurred. The prior masked-model public/private scores (0.701/0.683) remain context only; they do not isolate RadImageNet's effect. Private evidence is retained in `data/private/radimagenet-model-submission/browser-proof/full-v2.log` and the browser proof.
+The parent submitted **exactly Version 2, once**, through the Kaggle UI. The post-deadline terminal result was successful (public/private **0.825 / 0.802**). This confirms the submitted inference candidate completed; it does not establish that RadImageNet or any single recipe component caused a score change. No additional training or push occurred. The prior masked-model scores (0.701/0.683) remain context only and are not a controlled causal comparator. Private evidence is retained in `data/private/radimagenet-model-submission/browser-proof/full-v2.log` and the browser proof.
 
 ## Next step
 
-Wait for the exact Version 2 hidden result and record it when available. Keep the RMS04 follow-up pending until that terminal outcome is visible. Do not make another submission or start additional training based solely on the current running status. No whole-project test pass or leaderboard result is claimed here.
+The Version 2 result is terminal and recorded above. No further submission is required by this experiment. Keep any future model comparison separate and controlled; do not interpret this score as causal evidence for the pretraining recipe. No whole-project test pass is claimed here.
