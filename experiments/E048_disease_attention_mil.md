@@ -1,6 +1,6 @@
 # E048 — Disease-specific hierarchical attention MIL (prepared)
 
-**Status:** local preparation and synthetic contract tests complete; neither a cache-backed GPU smoke nor an epoch has been run. There are no model-quality results yet.
+**Status:** paired training is in progress after a successful bounded smoke. No epoch has completed and no model-quality result is available yet.
 
 ## Question and controlled comparison
 
@@ -40,9 +40,18 @@ The run plan records each arm through `not_started → started → checkpointed 
 - Result: 17 focused model/training tests pass on CPU. The checkpoint tamper test includes fail-closed subcases for missing proof, implicit fresh restart, history gaps/nonfinite values and cell-count mismatch, incomplete status, model NaN/dtype/shape mismatch, optimizer group/LR/options/state mismatch or corruption, and missing/malformed RNG. Paired-resume tests confirm a checkpointed or completed control can resume with the treatment arm still `not_started`; a started arm without a checkpoint still fails before data/model/output mutation. This verifies synthetic model and preparation contracts only; it does not establish cache readability on GPU, runtime cost, or model quality.
 - Final plan-only command `& $python scripts/train_local_attention_mil.py --output data/private/disease-attention-mil/e048-plan-check-lifecycle` completed successfully in about 55 seconds after checkpoint and pair-lifecycle hardening. It verified the local seven-archive cache, fold-0 data counts, pinned pretrained weights, final source/config fingerprint, and initial `not_started` arm states. Neither the plan-check directory nor the default training output directory was created.
 - Requested regression command ran 37 tests successfully: `tests.test_resnet50_recipes`, `tests.test_resnet50_training`, `tests.test_local_radimagenet_epoch_adapter`, `tests.test_local_masked_tensor_cache`, and `tests.test_local_masked_cache_chunk_plan`.
-- Static checks: compileall and CLI `--help` succeeded. `git diff --check` emitted no whitespace errors for tracked changes; the new files are untracked until parent integrates them.
-- Actual experiment result: **not run**. No epochs, checkpoints, or predictions were produced. Do not interpret this preparation as validated attention performance.
+- Static checks: compileall and CLI `--help` succeeded. `git diff --check` emitted no whitespace errors for tracked changes; the implementation was committed locally before this runtime launch.
+- The bounded smoke completed successfully; the paired training run below is in progress. No epoch, checkpoint, prediction, or attention-quality comparison is yet established.
 
 ## Next step
 
-The GPU smoke remains unrun: the local device showed 5,994 MiB free and 0% utilization, but the CUDA-process query returned five PIDs as `[Insufficient Permissions]`. Therefore, no-concurrent-job status could not be established safely. After independent review and confirming the GPU is idle with sufficient free VRAM, run the one-study smoke once and record exact elapsed time and peak memory. Only a separately authorized `--train` run can produce the paired five-epoch comparison.
+The smoke and full-run authorization have been consumed for this execution. See the timestamped status below; do not launch another smoke or training run.
+
+## Execution update (2026-11-01)
+
+The explicit one-study smoke exited successfully: one cached training study, one forward/backward pass and one Adam update; finite loss `0.68979001045`; elapsed time `1.5778135` seconds; peak CUDA memory 350 MiB allocated / 398 MiB reserved; approximately 5.01 GiB free before the update. The enclosing command took 61 seconds. This is a single-study cost observation, not an epoch benchmark. The returned JSON did not itself assert that gradients and updated parameters were finite; those structural contracts are covered by synthetic tests, not by this smoke output.
+
+The paired `--train` run began at `2026-11-01T11:38:07Z` (12:38 Europe/Madrid), using the isolated output `data/private/disease-attention-mil/e048-run01`. It trains five fresh equal-mean epochs followed by five fresh attention epochs, both initialized from the original pinned RadImageNet weights under the same frozen configuration. At the 12:40 Europe/Madrid status check, the private runtime proof at `data/private/runtime-proof/e048-runtime01/training.status.json` reported `RUNNING`; the wrapper process was retained and stderr was empty. The run plan showed `equal_mean=started`, `target_attention=not_started`; no epoch checkpoint had yet been observed. These are progress facts only, not terminal evidence.
+
+A preliminary compute-only projection is about 12.5 hours: 28,500 training-study optimizer updates across both five-epoch arms multiplied by the single-smoke 1.578-second observation. It excludes validation, startup, I/O, and variability among studies, so it is **not an ETA**. Do not claim completed epochs, attention performance, or a quality comparison until the paired run produces verified terminal evidence. No power settings were changed; no autonomous monitoring is promised.
+
