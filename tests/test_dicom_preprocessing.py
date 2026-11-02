@@ -247,10 +247,73 @@ class DicomPreprocessingTests(unittest.TestCase):
         self.assertEqual(result.metadata["selected_positions_mm"], [1.0])
         self.assertEqual(result.images.shape[0], 1)
 
-    def test_limit_cannot_exceed_eight(self):
+    def test_limit_cannot_exceed_sixteen(self):
         with self.assertRaises(DicomPreprocessingError) as caught:
-            self.run_adapter(max_slices=9)
+            self.run_adapter(max_slices=17)
         self.assertEqual(caught.exception.reason_code, "invalid_limit")
+
+    def test_explicit_sixteen_selects_sixteen_unique_uniform_sources(self):
+        for path in self.root.glob("slice-*.dcm"):
+            path.unlink()
+        headers, decoded = {}, {}
+        for index in range(24):
+            name = f"slice-{index:02}.dcm"
+            (self.root / name).write_bytes(b"x")
+            headers[name] = dataset(index)
+            decoded[name] = dataset(index, np.full((2, 3), index, dtype=np.uint16))
+        reader = FakeDicomReader(headers, decoded)
+        result = preprocess_dicom_series(
+            self.root, dcmread=reader.dcmread, output_size=4, max_slices=16,
+        )
+        self.assertEqual(result.images.shape, (16, 1, 4, 4))
+        selected = result.metadata["selected_positions_mm"]
+        self.assertEqual(len(set(selected)), 16)
+        self.assertEqual(selected, sorted(selected))
+        self.assertEqual((selected[0], selected[-1]), (0.0, 23.0))
+
+    def test_explicit_sixteen_recovery_keeps_sixteen_unique_usable_sources(self):
+        for path in self.root.glob("slice-*.dcm"):
+            path.unlink()
+        headers, decoded = {}, {}
+        for index in range(17):
+            name = f"slice-{index:02}.dcm"
+            (self.root / name).write_bytes(b"x")
+            headers[name] = dataset(index)
+            decoded[name] = dataset(index, np.full((2, 3), index, dtype=np.uint16))
+        headers["slice-00.dcm"] = dataset(0, ImagePositionPatient=[0, 0])
+        reader = FakeDicomReader(headers, decoded)
+        result = preprocess_dicom_series(
+            self.root, dcmread=reader.dcmread, output_size=4, max_slices=16,
+            recovery_policy_version=1,
+        )
+        self.assertEqual(result.images.shape[0], 16)
+        self.assertEqual(len(set(result.metadata["selected_positions_mm"])), 16)
+        self.assertEqual(result.metadata["recovery"]["slice_count_skipped"], 1)
+
+    def test_explicit_sixteen_never_duplicates_when_series_has_fewer_sources(self):
+        result = self.run_adapter(max_slices=16)
+        self.assertEqual(result.images.shape[0], 3)
+        self.assertEqual(len(set(result.metadata["selected_positions_mm"])), 3)
+
+    def test_explicit_eight_matches_default_eight_outputs(self):
+        for path in self.root.glob("slice-*.dcm"):
+            path.unlink()
+        headers, decoded = {}, {}
+        for index in range(11):
+            name = f"slice-{index:02}.dcm"
+            (self.root / name).write_bytes(b"x")
+            headers[name] = dataset(index)
+            decoded[name] = dataset(index, np.full((2, 3), index, dtype=np.uint16))
+        implicit = preprocess_dicom_series(
+            self.root, dcmread=FakeDicomReader(headers, decoded).dcmread, output_size=4,
+        )
+        explicit = preprocess_dicom_series(
+            self.root, dcmread=FakeDicomReader(headers, decoded).dcmread,
+            output_size=4, max_slices=8,
+        )
+        np.testing.assert_array_equal(implicit.images, explicit.images)
+        np.testing.assert_array_equal(implicit.valid_mask, explicit.valid_mask)
+        self.assertEqual(implicit.metadata, explicit.metadata)
 
     def test_dicom_decimal_strings_become_native_pp01_intensity_metadata(self):
         for name in self.headers:
