@@ -453,8 +453,8 @@ def preprocess_dicom_series(
     A limit of one selects the first slice in ascending projected patient-space
     coordinate. No filename or instance-number order is used for slice selection.
     """
-    if isinstance(max_slices, bool) or not isinstance(max_slices, int) or not 1 <= max_slices <= 8:
-        _fail("invalid_limit", "max_slices must be an integer from one through eight.")
+    if isinstance(max_slices, bool) or not isinstance(max_slices, int) or not 1 <= max_slices <= 16:
+        _fail("invalid_limit", "max_slices must be an integer from one through sixteen.")
     if recovery_policy_version not in (None, 1) or isinstance(recovery_policy_version, bool):
         _fail("invalid_limit", "Unsupported partial-input recovery policy version.")
     if recovery_policy_version == 1:
