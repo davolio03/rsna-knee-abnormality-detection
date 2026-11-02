@@ -555,6 +555,7 @@ def preprocess_dicom_series(
     metadata = {
         "preprocessing_version": "pp02-v1",
         "slice_count_scanned": len(paths),
+        "slice_count_eligible": len(ordered),
         "slice_count_selected": len(selected),
         "selected_positions_mm": [float(item[0]) for item in selected],
         "pp01": output.metadata,

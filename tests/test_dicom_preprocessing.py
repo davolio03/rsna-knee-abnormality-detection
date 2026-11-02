@@ -83,6 +83,7 @@ class DicomPreprocessingTests(unittest.TestCase):
         result = self.run_adapter()
         self.assertEqual(result.metadata["selected_positions_mm"], [1.0, 2.0, 3.0])
         self.assertEqual(result.metadata["slice_count_scanned"], 3)
+        self.assertEqual(result.metadata["slice_count_eligible"], 3)
         self.assertEqual(result.metadata["slice_count_selected"], 3)
         self.assertEqual(result.images.shape, (3, 1, 4, 4))
         self.assertEqual(result.metadata["preprocessing_version"], "pp02-v1")
