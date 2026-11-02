@@ -627,3 +627,5 @@ Prepared, but did not upload or run, the private CPU Kaggle cache package at `da
 ## E050 actual canary and pending full export — 2026-11-02
 
 The actual private CPU canary `364872368` passed in 293.3 seconds and its downloaded ZIP independently verified eight training studies, 43 series and 688 genuine cuts (sixteen per series). Whole-cohort generation is not complete: full executions train-000 `364876456`, train-001 `364876786`, validation-000 `364877211` were observed running; eight other chunks remain unlaunched. The explicit-opt-in sixteen-slice attention trainer is implemented and independently checked (23 targeted tests; parent five tests), with no training launched. It must refuse until all eleven new cache chunks are downloaded and verified. See E050 for artifact pins, limits and the immutable run05 package.
+
+E050 export update: five full CPU jobs are active (train000/001/002/003 and validation000). The native five-session limit prevented the next launch; six chunks remain pending. No complete full-cache or training result is claimed. Full execution identities are recorded in E050 and the private task tracker.
