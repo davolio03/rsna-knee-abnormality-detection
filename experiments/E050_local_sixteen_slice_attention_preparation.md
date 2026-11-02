@@ -1,6 +1,6 @@
 # E050 — Isolated sixteen-slice attention preparation
 
-**Status:** read-only preparation contract only; no cache or training run was produced.
+**Status:** all eleven sixteen-slice cache exports downloaded and verified; the real-cache training plan passed. Training has not started. Earlier sections preserve preparation-stage evidence; the final completion section records the current outcome.
 
 ## Question and frozen comparison
 
@@ -54,3 +54,19 @@ An executable local attention-only trainer is prepared in `scripts/train_local16
 
 ### Five-session CPU export limit
 Two further full exports were observed running: train-002 `364878024` and train-003 `364878382`. Kaggle refused the sixth concurrent CPU launch with its explicit five-session cap; that dialog was cancelled without stopping any job or creating a validation-001 execution. The five accepted full jobs remain in progress; train-000 reached 46/416 studies at log time 577.6 seconds. Six chunks remain unlaunched. No full ZIP has yet been declared complete or downloaded. Cache code is committed as `967d31a`, opt-in trainer as `6278905`; neither was pushed.
+
+## Complete cache and verified training preparation — 2026-11-02
+
+All eleven private CPU export versions succeeded and their ZIPs were downloaded and copied without overwrite to `data/private/attention-sixteen-slices/cache-local-run01/archives`. Aggregate archive size is **61,211,348,960 bytes**. Each original and copied SHA-256, ZIP CRC, exact member set and every NPZ hash passed independent verification against canonical study/series-order hashes, labels, masks, fold membership and frozen run05 provenance. All per-chunk proofs are private and deliberately do not claim full-cohort verification on their own.
+
+The actual default `scripts/prepare_local16_attention.py` invocation then ran the full verifier over all eleven archives and produced a plan successfully, with no `--train`. The complete verified cohort is **4,298 studies** (2,850 training, 1,448 validation), **23,765 series**, and **379,631 actual cuts**. No study is missing, extra or shared between the partitions; Gold-58 remains excluded. Actual slice-count distribution: 50 series have 11 cuts, 39 have 12, eight have 13, twelve have 14, 155 have 15, and 23,501 have 16. Shorter series are not padded with duplicate images.
+
+Private evidence:
+- `cache-local-run01/verification/full-cache-preparation-proof.json` binds all eleven archive, manifest and per-chunk proof hashes and the complete-cohort readback.
+- `cache-local-run01/verification/default-preparation-plan.json` is the exact successful CLI output, SHA-256 `4231d7010454bad87a6d5e7bf572c29efb8b0ddf64f63413d49e63b9c9f0d939`.
+- Prepared run fingerprint: `477fde596e9abd13e3a6fec49d743f69c27995824fa3546ad79a0a5fe379ade5`.
+- The aggregate proof explicitly records `canonical_full_verifier_receipt_persisted: false`; the real CLI performed whole-cohort verification, and a duplicate scan was not performed merely to publish a second receipt. Future launch verifies the archives again.
+
+Original RadImageNet weights and the nineteen-file runtime source closure passed the plan checks. The actual reader/model path preserves raw [0,1] cache values and applies native `2*x-1` normalization exactly once inside the attention model. The single target-attention runtime uses the same seed, fold, trainability, frozen BatchNorm, learning rates, microbatch two and five-epoch recipe. Parent read back both evidence files and reran five runtime/plan tests successfully in 3.136 seconds. No whole-project test claim is made.
+
+**No model was constructed, no training output directory was created, and no GPU training or epoch checkpoint was run.** GPU memory, sustained runtime and sixteen-slice model quality remain unmeasured. A fresh paired eight-slice E050 control has not been rerun; the existing E048/E049 eight-slice artifacts and caches remain intact. All code/data separation safeguards remain in place, and no GitHub push or new competition submission was performed.
