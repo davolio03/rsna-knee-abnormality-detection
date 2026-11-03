@@ -1,6 +1,10 @@
 # E050 — Isolated sixteen-slice attention preparation
 
-**Status:** all eleven sixteen-slice cache exports downloaded and verified; the real-cache training plan passed. Training has not started. Earlier sections preserve preparation-stage evidence; the final completion section records the current outcome.
+**Status:** all eleven sixteen-slice cache exports are verified, and the authorized local five-epoch attention-16 run was launched once on 2026-11-03. It remains in cache-verification preflight; no training progress is yet evidenced. Earlier sections preserve preparation-stage evidence; this dated status supersedes earlier “not started” statements.
+
+## Current launch status — 2026-11-03
+
+The existing opt-in runner was launched exactly once at `2026-11-03T13:56:31.2338503Z` with `python -u scripts/train_local16_attention.py --train` (the runtime records the full `PYTHONPATH`/interpreter invocation). Private runtime evidence at `data/private/attention-sixteen-slices/runtime-run01/status.json`, observed `2026-11-03T14:03:37.7738953Z`, reports `preflight_running`, runner PID 113952 and Python child PID 65616. Its silent full-cache verification is still in progress. At that observation, the runner log was 0 bytes and the fresh `local16-attention-run01` output directory did not exist. Therefore this confirms launch and live preflight only—not model construction, GPU allocation, epoch start, training progress, completion, metrics, or a runtime estimate. Do not launch a duplicate. The fixed five-epoch recipe and verified source/cache/weight pins remain unchanged; checkpoints are expected only after completed epochs.
 
 ## Question and frozen comparison
 
