@@ -1,6 +1,6 @@
-# E049 — E048 epoch-five attention submission package (prepared)
+# E049 — E048 epoch-five attention submission package
 
-**Status:** corrected candidate `run02` was privately uploaded, both canary and full inference notebooks completed, and the full notebook was submitted once. Kaggle's Submissions/SubmissionDetails UI still showed **Notebook Running** after the deadline, with no score yet; do not claim terminal hidden-set completion. Earlier local package `run01` remains preserved as invalid negative evidence and must not be transferred.
+**Status:** corrected candidate `run02` was privately uploaded, its canary/full inference completed, and the full notebook was submitted once. Parent later verified a private score of **0.848** for Version 2; observed execution time was 68.3 seconds on T4x2. No public score is recorded. Earlier local package `run01` remains preserved as invalid negative evidence and must not be transferred.
 
 ## Hypothesis and boundary
 
@@ -38,9 +38,9 @@ The inference closure keeps the existing fold-0 submission writer, test-study/DI
 |---|---|
 | Canary | Private notebook `rsna-knee-attention-epoch05-submission-run01`, Version 1 / execution `364641216`; completed successfully in 47.7 seconds total, with 20.712336 seconds in inference. It processed 3/3 visible studies, skipped zero series/slices, reported `canary=true`, and matched the expected attention fingerprint, model/report pins, 224px / eight-slice / microbatch-two configuration. It wrote the root CSV and was **not submitted**. |
 | Full inference | The same private notebook, Version 2 / execution `364641924`, ran with `RUN_INFERENCE=True`, `MAX_STUDIES=None`, T4x2, Internet OFF, the original environment, and quota 00:01 / 30 h. It completed successfully in 68.3 seconds total, with 24.260236 seconds in inference; it processed 3/3 visible studies, skipped zero series/slices, reported `canary=false`, and wrote the root CSV with the expected attention/pin evidence. |
-| Competition submission | The exact full Version 2 was submitted once. The parent verified the competition Submissions and SubmissionDetails UI; it showed **Notebook Running** after the deadline, and no score was available. This is the current terminal-evidence gap, not a hidden-set result. **Do not resubmit.** |
+| Competition submission | The exact full Version 2 was submitted once. Parent later verified the private score **0.848**; observed execution time was 68.3 seconds on T4x2. The public score was not reported. Do not resubmit. |
 
-Parent-observed private browser evidence is retained under `data/private/attention-model-submission/browser-proof/`: `canary-v1.log`, `full-v2.log`, `canary-v1-success.png`, `private-dataset-created.png`, and `submission-v2-running.png`. E047's public/private `0.825 / 0.802` remain context only, not a causal comparison or an E049 outcome. No training was launched. No autonomous monitoring is promised; if a terminal Kaggle result is later observed, record it without rerunning or resubmitting.
+Parent-observed private browser evidence is retained under `data/private/attention-model-submission/browser-proof/`: `canary-v1.log`, `full-v2.log`, `canary-v1-success.png`, `private-dataset-created.png`, and `submission-v2-running.png`. E047's public/private `0.825 / 0.802` remain context only, not a causal comparison. No training was launched. The private score does not establish an E050 result or isolate an effect of the sixteen-slice setting.
 
 ## Verification and limitations
 
@@ -56,4 +56,4 @@ Parent-observed private browser evidence is retained under `data/private/attenti
 
 ## Next step
 
-Await any later user-requested inspection of the pending Kaggle status. Do not resubmit, infer hidden-set results from local validation or canary execution, or claim a score before the UI reports it.
+No further E049 execution is needed. Do not resubmit or infer a public score. Keep E049's eight-slice result separate from E050's local sixteen-slice validation evidence.
