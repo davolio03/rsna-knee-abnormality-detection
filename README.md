@@ -18,6 +18,35 @@ The repository is organized around the research lifecycle:
 
 This describes the intended organization of the project; it does not imply that every component or capability is implemented.
 
+## Install and current entry points
+
+The Python package metadata declares Python `>=3.10`. From the repository root, install the package into the environment you intend to use:
+
+```powershell
+python -m pip install -e .
+```
+
+Optional dependencies are separate workload groups and mirror the existing requirement files:
+
+```powershell
+python -m pip install -e ".[images]"
+python -m pip install -e ".[siwc]"
+```
+
+The base package does not install Torch or CUDA. Installing an extra does not validate or replace the project's separately maintained training environment. Use the Python environment already qualified for the intended workflow; the `images` and `siwc` extras do not declare a Torch version.
+
+The current attention16 checkout wrappers are grouped by purpose. Start with `--help`:
+
+```powershell
+python scripts/data/prepare_attention16.py --help
+python scripts/training/train_attention16.py --help
+python scripts/evaluation/export_attention16_validation.py --help
+python scripts/review/prepare_attention16_sample.py --help
+python scripts/packaging/build_attention16_submission.py --help
+```
+
+These wrapper files are repository entry points, not installed console commands. They delegate to the existing root-level scripts and keep those compatibility entry points intact. See [Repository structure and workflow entry points](docs/STRUCTURE.md) for execution semantics, private-artifact safeguards, and the incremental migration boundary.
+
 ## Research and evaluation principles
 
 - Keep studies grouped across leakage-sensitive validation boundaries and document any change to the evaluation design.
