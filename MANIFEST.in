@@ -1,0 +1,15 @@
+include README.md pyproject.toml
+recursive-include src/rsna_knee *.py
+include src/rsna_knee/labels/codex_label_output.schema.json
+
+global-exclude *.py[cod]
+global-exclude *.pyo
+
+prune configs
+prune data
+prune docs
+prune experiments
+prune notebooks
+prune outputs
+prune scripts
+prune tests
