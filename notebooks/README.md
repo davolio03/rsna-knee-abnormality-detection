@@ -2,6 +2,8 @@
 
 Use notebooks for focused exploration and visualization when they improve understanding. Keep reusable logic in `src/` and record meaningful conclusions in durable documentation or experiment records. Do not use notebooks to bypass reproducibility, data-safety, or validation rules.
 
+The [workflow inventory and retention guide](../docs/WORKFLOW_INVENTORY.md) distinguishes recommended checkout workflows from preserved experiment history; the [catalog](../docs/WORKFLOW_INVENTORY.csv) includes notebooks as source artifacts without executing them.
+
 ## Phase 0 Kaggle submission smoke check
 
 `phase0_kaggle_submission.py` is the source for the constant-prediction smoke check. It looks only at two explicit competition input roots for `test.csv` and optionally reads `sample_submission.csv`; it does not traverse image files or access reports. It writes `/kaggle/working/submission.csv` with the exact study-level header and 0.5 values for every target, then reads the file back to validate the header, row widths, unique/nonblank identifiers, finite bounded scores, and identifier order.
