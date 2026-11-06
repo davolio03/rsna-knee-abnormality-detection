@@ -2,6 +2,8 @@
 
 Place focused CLI or automation entry points here when a repeatable task needs one. Keep reusable logic in `src/`, expose inputs/configuration explicitly, and avoid hard-coded machine paths or credentials.
 
+For a static map of current workflows and retained history, see the [workflow inventory and retention guide](../docs/WORKFLOW_INVENTORY.md) and its [machine-readable catalog](../docs/WORKFLOW_INVENTORY.csv). Validate source coverage with `python scripts/check_workflow_inventory.py`; this read-only check does not execute any inventoried workflow.
+
 ## Synthetic submission smoke test
 
 Run `python scripts/smoke_submission.py` to create and read back an ignored local, synthetic-only `submission.csv` at `outputs/phase0-smoke/submission.csv`. Pass `--output PATH` to choose another path. The command refuses to overwrite an existing file.

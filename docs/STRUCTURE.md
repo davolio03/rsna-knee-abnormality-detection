@@ -23,6 +23,8 @@ This is the current, incremental repository map. It makes the existing `src/rsna
 
 Directory names describe current responsibilities, not a claim that every workflow has a complete or uniform interface. The broader history and roadmap are intentionally outside this incremental change.
 
+For a source-by-source distinction between recommended workflows and retained history, use the [workflow inventory and retention guide](WORKFLOW_INVENTORY.md) and [CSV catalog](WORKFLOW_INVENTORY.csv). The inventory validator checks static coverage and references only; it never executes a script or notebook.
+
 ## Package and installation boundary
 
 `pyproject.toml` defines the `rsna-knee-abnormality-detection` package from `src/rsna_knee` and declares Python `>=3.10`. Core dependencies are empty. The optional `images` and `siwc` groups mirror [`requirements-images.txt`](../requirements-images.txt) and [`requirements-siwc.txt`](../requirements-siwc.txt), respectively. The package explicitly includes `labels/codex_label_output.schema.json`.

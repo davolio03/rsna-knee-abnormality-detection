@@ -1,6 +1,6 @@
-﻿# Workflow inventory and retention guide
+# Workflow inventory and retention guide
 
-This catalog covers exactly the 52 Git-tracked Python workflow sources in the step-2 baseline: 47 scripts and five notebook sources (three `.ipynb`, two `.py`). The machine-readable, row-level inventory is [`WORKFLOW_INVENTORY.csv`](WORKFLOW_INVENTORY.csv). It is a static map, not a command to execute, a migration plan, or a deletion list.
+This catalog covers the 53 Git-tracked or non-ignored added Python workflow sources in the current checkout: 48 scripts and five notebook sources (three `.ipynb`, two `.py`). The step-2 baseline was 52 sources (47 scripts and five notebook sources); the only additive source is this inventory checker. The machine-readable, row-level inventory is [`WORKFLOW_INVENTORY.csv`](WORKFLOW_INVENTORY.csv). It is a static map, not a command to execute, a migration plan, or a deletion list.
 
 ## How to read the labels
 
@@ -9,7 +9,13 @@ This catalog covers exactly the 52 Git-tracked Python workflow sources in the st
 - **Known consumers** lists only statically confirmed tracked Python runtime sources that import, delegate to, embed, or read the inventoried source. The builder reading a notebook as a template is a runtime-path dependency. Tests, docs, and experiment records belong in **evidence**, never in `known_consumers`. A blank consumer cell means no direct consumer was confirmed in the reviewed source scope, not that a source is unused.
 - **Evidence** links to a source symbol, notebook cell, or specifically relevant test/doc/experiment record. Static review does not prove a complete dynamic dependency graph, package pin closure, or all consumers.
 
-Role counts: current 12, shared 10, historical 30, generated 0. Lifecycle counts: current 15, historical 34, optional 2, research-scoped 1. These are inventory classifications, not activity or execution counts.
+Role counts: current 13, shared 10, historical 30, generated 0. Lifecycle counts: current 16, historical 34, optional 2, research-scoped 1. These are inventory classifications, not activity or execution counts.
+
+## Read-only inventory check
+
+From the repository root, run `python scripts/check_workflow_inventory.py` (or add `--check`). From another working directory, pass the absolute path to that checker. The standard-library checker resolves the repository root from its own path, asks Git for tracked and non-ignored added `.py`/`.ipynb` sources under `scripts/` and `notebooks/`, and verifies exact catalog coverage, unique paths, allowed role/lifecycle values, required row fields, and repository-local evidence/consumer paths. It exits nonzero when Git is unavailable or inventory validation fails; it does not treat unavailable discovery as an empty inventory and never rewrites the catalog.
+
+This is a structural consistency check, not a semantic review of whether a classification is correct. It checks that referenced paths exist, but does not resolve source-symbol or notebook-cell anchors, prove dynamic dependencies, import or execute any inventoried source, open notebook kernels, or authorize a workflow run. Baseline count and current count are intentionally distinguished because the checker adds one current source.
 
 ## Currently recommended checkout workflow
 
@@ -29,7 +35,7 @@ The historical [`kaggle_first_fold_baseline.ipynb`](../notebooks/kaggle_first_fo
 
 ## Evidence limits and retention rules
 
-The review covers Git-tracked sources and bounded static imports, path literals, source lists, template reads, and specific repository evidence. It does not prove dynamic imports, complete package pin closure, generated output contents, runtime readiness, or the absence of untracked consumers. The catalog marks uncertain or unconfirmed consumer relationships honestly. File age and absence of a discovered static reference never justify deletion.
+The review covers Git-tracked sources and bounded static imports, path literals, source lists, template reads, and specific repository evidence. The checker also includes non-ignored, not-yet-tracked source files so a newly added workflow cannot silently escape coverage. It does not prove dynamic imports, complete package pin closure, generated output contents, runtime readiness, or the absence of untracked consumers. The catalog marks uncertain or unconfirmed consumer relationships honestly. File age and absence of a discovered static reference never justify deletion.
 
 No private outputs, reports, IDs, data, image pixels, checkpoints, caches, or local environment contents are cataloged. Generated/ignored output patterns may be described in producer docs, but private artifacts are not rows here. Before any future move/removal, verify source closure, pins, notebooks, tests, and consumers under a separately authorized change; preserve original experiment records.
 
