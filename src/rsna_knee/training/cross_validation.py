@@ -250,8 +250,37 @@ def summarize(prediction_dir: Path, folds: tuple[int, ...]) -> dict[str, Any]:
                             "pooled": pooled["per_target"][column]["auc"],
                             "positives": pooled["per_target"][column]["positives"],
                             "n": pooled["per_target"][column]["n"]}
+    per_target_folds = {name: [row["per_target"][column]["auc"] for row in per_fold]
+                        for column, name in enumerate(TARGETS)}
+    for name in TARGETS:
+        per_target[name]["per_fold"] = per_target_folds[name]
     return {"folds": list(folds), "macro_auc_per_fold": macros.tolist(),
             "macro_auc_mean": float(macros.mean()),
             "macro_auc_std": float(macros.std(ddof=1)) if len(macros) > 1 else None,
             "pooled_oof_macro_auc": pooled["macro_auc"], "studies": int(len(soft)),
             "per_target": per_target, "label_definition": "observed LLM soft labels binarized at 0.5"}
+
+
+def summary_markdown(summary: dict[str, Any]) -> str:
+    """Render a cross-validation summary as Markdown tables (aggregate values only)."""
+    def fmt(value):
+        return "–" if value is None else f"{value:.3f}"
+
+    folds = summary["folds"]
+    std = summary["macro_auc_std"]
+    lines = [f"**Macro ROC-AUC: {summary['macro_auc_mean']:.3f}"
+             + (f" ± {std:.3f}" if std is not None else "")
+             + f"** (mean ± std over {len(folds)} folds) · pooled out-of-fold: "
+             + f"{fmt(summary['pooled_oof_macro_auc'])} · {summary['studies']:,} studies",
+             "",
+             "| Target | " + " | ".join(f"Fold {f}" for f in folds) + " | Mean ± std | Pooled OOF | Positives / n |",
+             "|---|" + "---:|" * (len(folds) + 3)]
+    for name, row in summary["per_target"].items():
+        spread = fmt(row["mean"]) + (f" ± {row['std']:.3f}" if row["std"] is not None else "")
+        lines.append(f"| {name} | " + " | ".join(fmt(v) for v in row["per_fold"])
+                     + f" | {spread} | {fmt(row['pooled'])} | {row['positives']:,} / {row['n']:,} |")
+    lines.append("| **Macro** | " + " | ".join(fmt(v) for v in summary["macro_auc_per_fold"])
+                 + f" | **{fmt(summary['macro_auc_mean'])}"
+                 + (f" ± {std:.3f}" if std is not None else "")
+                 + f"** | {fmt(summary['pooled_oof_macro_auc'])} | |")
+    return "\n".join(lines) + "\n"

@@ -17,7 +17,9 @@ for entry in (ROOT / "src", ROOT):
     if str(entry) not in sys.path:
         sys.path.insert(0, str(entry))
 
-from rsna_knee.training.cross_validation import CachePaths, predict_fold, summarize, train_fold
+from rsna_knee.training.cross_validation import (
+    CachePaths, predict_fold, summarize, summary_markdown, train_fold,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -54,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         result = summarize(runs / "predictions", tuple(args.folds))
         (runs / "cv-summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        (runs / "cv-summary.md").write_text(summary_markdown(result), encoding="utf-8")
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
