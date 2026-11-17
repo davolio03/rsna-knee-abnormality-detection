@@ -105,3 +105,8 @@ Thumbs.db
 /odd/
 .engram/
 /.atl/
+
+# Local Python package build outputs.
+build/
+dist/
+*.egg-info/

@@ -61,14 +61,15 @@ def load_series_images(
     preprocessor: Callable[..., Any],
     output_size: int,
     max_slices: int,
+    return_metadata: bool = False,
 ):
     """Load one series and enforce the shared image/pixel-mask tensor contract."""
     import numpy as np
     import torch
 
-    result = preprocessor(series_path, max_slices=max_slices, output_size=output_size)
-    images = np.asarray(result.images)
-    masks = np.asarray(result.valid_mask)
+    processed = preprocessor(series_path, max_slices=max_slices, output_size=output_size)
+    images = np.asarray(processed.images)
+    masks = np.asarray(processed.valid_mask)
     expected_shape = (images.shape[0], 1, output_size, output_size) if images.ndim else ()
     if (images.ndim != 4 or images.shape[0] < 1 or images.shape[0] > max_slices
             or images.shape != expected_shape or masks.shape != images.shape
@@ -84,8 +85,15 @@ def load_series_images(
         raise ValueError("series_tensor_invalid")
     if np.any(images[~valid_mask] != 0):
         raise ValueError("series_tensor_invalid")
-    return (torch.as_tensor(images.copy(), dtype=torch.float32),
-            torch.as_tensor(valid_mask.copy(), dtype=torch.bool))
+    tensors = (torch.as_tensor(images.copy(), dtype=torch.float32),
+               torch.as_tensor(valid_mask.copy(), dtype=torch.bool))
+    if return_metadata:
+        metadata = getattr(processed, "metadata", None)
+        if (type(metadata) is not dict or type(metadata.get("slice_count_eligible")) is not int
+                or metadata["slice_count_eligible"] < images.shape[0]):
+            raise ValueError("series_metadata_invalid")
+        return (*tensors, metadata["slice_count_eligible"])
+    return tensors
 
 
 class TrainingStudyDataset:
