@@ -182,7 +182,7 @@ class FullCohortSoftDataset:
             raise SoftDatasetError("fold_invalid")
         if type(output_size) is not int or not 8 <= output_size <= 768:
             raise SoftDatasetError("output_size_invalid")
-        if type(max_slices) is not int or not 1 <= max_slices <= 8:
+        if type(max_slices) is not int or not 1 <= max_slices <= 16:
             raise SoftDatasetError("slice_limit_invalid")
         try:
             root = Path(image_root)
@@ -205,6 +205,32 @@ class FullCohortSoftDataset:
 
     def __len__(self) -> int:
         return len(self._records)
+
+    def export_sample(self, index: int):
+        """Return a sample plus source-grounded eligible-DICOM counts for private cache export."""
+        import torch
+        if type(index) is not int or not 0 <= index < len(self._records):
+            raise IndexError("Soft-label sample index is out of range.")
+        record = self._records[index]
+        images_by_series, masks_by_series, eligible_counts = [], [], []
+        try:
+            for item in record["series"]:
+                series_id = _safe_component(item["series_id"], "series")
+                series_path = self.image_root / _safe_component(record["study_id"], "study") / series_id
+                if series_path.is_symlink() or not series_path.is_dir():
+                    raise ValueError
+                series_path.resolve(strict=True).relative_to(self.image_root)
+                image, mask, eligible = load_series_images(
+                    series_path, preprocessor=self.preprocessor, output_size=self.output_size,
+                    max_slices=self.max_slices, return_metadata=True)
+                images_by_series.append(image)
+                masks_by_series.append(mask)
+                eligible_counts.append(eligible)
+            targets = torch.tensor([record["soft_targets"][name] for name in self.target_names], dtype=torch.float32)
+            observed = torch.tensor([record["observed_mask"][name] for name in self.target_names], dtype=torch.bool)
+            return (images_by_series, masks_by_series, targets, observed, index), eligible_counts
+        except Exception:
+            raise SoftDatasetError("study_export_failed") from None
 
     def __getitem__(self, index: int):
         import torch
