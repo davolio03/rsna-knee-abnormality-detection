@@ -1,32 +1,44 @@
-# Project Contributor Guidance
+# Contributor Guidance
 
-## Project goal
+## Goal
 
-This repository studies RSNA Knee Abnormality Detection. Optimize for robust generalization and reproducible evidence, not leaderboard movement alone. Follow the current phase and scope recorded in [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Predict 12 knee abnormalities from complete MRI studies (RSNA Knee Abnormality Detection). Aim for
+robust, reproducible generalization rather than leaderboard movement. Current status and next steps
+are in [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md), and the plan is in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Before substantial work
 
-Read the relevant portions of:
+Read `docs/PROJECT_STATE.md` and `docs/DECISIONS.md`. When competition or data constraints matter,
+also read `docs/COMPETITION.md` and `docs/DATA.md`. Read the related records in `experiments/`
+before planning or recording an experiment.
 
-1. [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) for current status and next steps.
-2. [`docs/ROADMAP.md`](docs/ROADMAP.md) for phase goals and dependencies.
-3. [`docs/DECISIONS.md`](docs/DECISIONS.md) for durable constraints.
-4. [`docs/COMPETITION.md`](docs/COMPETITION.md) and [`docs/DATA.md`](docs/DATA.md) when competition or data constraints matter.
-5. Related records in `experiments/` when planning or recording an experiment.
+## Experiments
 
-## Research and validation
+- Measure model changes with the 3-fold cross-validation protocol in
+  [D034](docs/DECISIONS.md#d034--cross-validation-protocol-2026-11-17)
+  (`scripts/cv_attention16.py`). Report per-target AUC next to the macro AUC.
+- Change one important variable at a time. Fix the selected epoch and the metrics before you look
+  at the results.
+- Record each meaningful experiment in `experiments/EXXX_*.md` and add a row to
+  `experiments/registry.csv`. Include the hypothesis, changed variable, protocol, results,
+  runtime and conclusion. Keep negative and inconclusive results.
+- Treat potential leakage as a blocker. Keep the report-grouped study-level folds.
 
-- State each meaningful experiment's hypothesis, baseline, changed variable, expected mechanism, validation protocol, results, relevant runtime observations, and conclusion. Change one important variable at a time unless studying an interaction.
-- Preserve negative and inconclusive results; never overwrite prior evidence or report only favorable outcomes.
-- Treat potential leakage as a blocker. Preserve required study-level grouping and document any change to folds or validation methodology.
-- Report per-target behavior alongside aggregate metrics. A leaderboard change alone does not establish generalization.
+## Data safety
 
-## Gold-58 and data safety
+- **Gold-58 is reserved** ([D004](docs/DECISIONS.md#d004--gold-58-is-reserved)). Do not use it for
+  training, validation or model selection without a new explicit decision.
+- **Never commit** raw competition data, DICOMs, reports, study identifiers, credentials,
+  checkpoints, predictions or caches. They belong under the git-ignored `data/`. Review every
+  file before committing; `.gitignore` is only a safeguard.
+- **Source files are byte-pinned** by SHA-256 inside the Kaggle packages. Keep LF line endings,
+  which `.gitattributes` enforces.
+- **Respect the competition rules, the RSNA MIRA license and provider terms.** Do not distribute
+  competition-derived artifacts until the license scope is clarified.
 
-Gold-58 may be used only to compare a short, predeclared set of report-labeling prompt strategies through nested study-level cross-validation, as specified in D004. Freeze candidate prompts, the selection protocol, and metrics before evaluating outer folds; use outer folds only to evaluate the inner-selection procedure, never for prompt iteration. These results are not a separate independent final test set. Before any run, inspect per-target prevalence and positive/negative counts and confirm fold feasibility; this has not been checked. Do not use Gold-58 for model training or downstream classifier model selection without separate authorization. Preserve all competition licensing, external-service, and data-privacy constraints. Candidate IDs and expert-label provenance remain unverified from label values.
+## Records
 
-Never commit raw competition data, DICOMs, radiology reports, identifiers, credentials, checkpoints, generated predictions, or caches. `.gitignore` is a safeguard, not a replacement for reviewing every publication candidate. Verify competition rules from official sources before relying on them, and do not assume local-only functionality satisfies the Kaggle inference contract.
-
-## Project records
-
-After substantial work, update `docs/PROJECT_STATE.md` when current status changes, `docs/DECISIONS.md` when a durable decision changes, and `experiments/` when recording meaningful experimental evidence. Change `docs/ROADMAP.md` only when the strategic plan changes. Repository artifacts are authoritative; conversational memory is supplementary.
+When status changes, update `docs/PROJECT_STATE.md`. When a durable decision changes, update
+`docs/DECISIONS.md`. Repository files are authoritative. History before 2026-11-17 is at the git
+tag `competition-archive-2026-11`.
