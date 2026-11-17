@@ -5,13 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rsna-knee-abnormality-detection"
 version = "0.1.0"
-description = "Research code for RSNA knee abnormality detection"
+description = "Study-level knee MRI abnormality detection with target-specific attention MIL"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
 images = ["numpy>=2.0", "Pillow>=10.0", "pydicom>=2.4"]
+# PyTorch is installed separately to match the local CUDA build (see README).
+train = ["numpy>=2.0", "Pillow>=10.0", "pydicom>=2.4", "torch>=2.11", "torchvision>=0.26"]
 siwc = ["Authlib==1.8.0", "requests==2.34.2", "keyring==25.7.0", "truststore==0.10.5", "openai==2.11.0"]
 
 [tool.setuptools]

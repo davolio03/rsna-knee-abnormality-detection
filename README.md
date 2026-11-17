@@ -1,73 +1,130 @@
 # RSNA Knee Abnormality Detection
 
-This research project develops machine-learning workflows to predict 12 abnormalities from complete knee MRI studies for the RSNA Knee Abnormality Detection competition. The modeling unit is a study, not an isolated image:
-
-**Study → DICOM series → ordered slices → pretrained CNN features → target-specific slice and series attention → 12 probabilities**
-
-Some label pipelines retain report-derived soft targets and an observation mask that distinguishes known labels from missing ones. Those are weak labels, not verified expert truth. Image-validity masks used during preprocessing serve a different purpose. Validation groups studies across folds to reduce leakage and supports per-target as well as aggregate evaluation.
-
-## Quick start
-
-1. Read the [competition guide](docs/COMPETITION.md) and [data guide](docs/DATA.md). Obtain competition files from their official source and keep them in local/private storage.
-2. Select the Python environment for your intended workload and install this checkout:
-
-   ```powershell
-   python -m pip install -e .
-   ```
-
-3. Use the workflow steps below to prepare inputs, inspect a plan, train or evaluate, and optionally build a local package.
-
-## Install and inspect commands
-
-The package requires Python 3.10 or later. Core dependencies are empty; optional groups provide image utilities and the optional SIWC report-label workflow:
-
-```powershell
-python -m pip install -e ".[images]"
-python -m pip install -e ".[siwc]"
-```
-
-Run `python -m pip` with the interpreter of the selected environment. The base package and extras do not install PyTorch, torchvision, CUDA, or pretrained weights. Model workflows need a separately configured compatible runtime and locally available verified assets; the model recipes do not download weights automatically. See [baseline setup notes](docs/BASELINE.md).
-
-The grouped entry points below are checkout scripts, not installed console commands. Review their current options with `--help`:
-
-```powershell
-python scripts/data/prepare_attention16.py --help
-python scripts/training/train_attention16.py --help
-python scripts/evaluation/export_attention16_validation.py --help
-python scripts/review/prepare_attention16_sample.py --help
-python scripts/packaging/build_attention16_submission.py --help
-```
-
-Run help from an environment with workflow dependencies available; importing a help command may load training modules. For exact flags, defaults, input paths, and execution behavior, see [STRUCTURE.md](docs/STRUCTURE.md).
-
-## Workflow
-
-1. **Obtain data.** Download or access competition files through the official competition source after reviewing its current terms. There is no automatic competition-data download step.
-2. **Prepare labels (optional).** Report-derived soft-label workflows are separate from the image pipeline. The [SIWC setup guide](docs/SIWC_LABELING_SETUP.md) describes the optional external-service workflow.
-3. **Prepare study metadata and image caches.** Review the prerequisites in [DATA.md](docs/DATA.md) and [BASELINE.md](docs/BASELINE.md). The data-planning wrapper checks existing manifests, folds, packages, and cache artifacts; it does **not** generate the large attention cache. Cache construction and verification are separate prerequisite steps.
-4. **Train and evaluate.** Inspect the plan and resolved inputs before execution. Training starts only with `--train`; validation inference starts only with `--run`. Evaluation can process a bounded canary with `--max-studies` or the full validation cohort when the limit is omitted. The review-sample builder requires `--build`. These commands may read private inputs or write outputs, so check paths and overwrite behavior before running them.
-5. **Build a package if needed.** The submission-package wrapper builds a private local package on normal invocation; it has no plan-only mode. Package construction does not upload a dataset or notebook, launch a Kaggle run, or submit predictions.
-
-## Repository map
+Study-level multi-label classification of **12 knee abnormalities from complete MRI studies**
+(ACL, MCL, medial/lateral meniscus, medial/lateral/patellofemoral OA, effusion, synovitis,
+Baker's cyst, bone contusion, fracture), built for the
+[RSNA Knee Abnormality Detection](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection)
+Kaggle competition. The competition metric is the mean ROC-AUC over the 12 targets.
 
 ```text
-src/rsna_knee/   installable data, labels, models, training, inference, validation
-scripts/         workflow commands and supporting utilities
-configs/         versioned workflow configurations
-docs/            data, competition, modeling, and project guides
-experiments/     experiment registry and durable evidence records
-notebooks/       research and competition notebooks
-tests/           automated contract and regression checks
-data/            local/private inputs and generated artifacts (not versioned data)
+study ─► DICOM series ─► 16 ordered slices / series ─► RadImageNet ResNet-50 features
+      ─► target-specific slice attention ─► target-specific series attention ─► 12 logits
 ```
 
-## Research safeguards
+## Results
 
-Keep raw data, DICOMs, report text, identifiers, credentials, checkpoints, predictions, and caches out of Git; review files before publication. Check current competition, privacy, and licensing requirements before external processing. This project is research code, not a clinically validated diagnostic system, and does not declare an open-source license. Gold-58 is limited to the predeclared report-label prompt comparison in [decision D004](docs/DECISIONS.md#d004---gold-58-nested-prompt-strategy-evaluation); do not use it for model training or downstream classifier selection without separate authorization. Full safeguards are in [DECISIONS.md](docs/DECISIONS.md) and [COMPETITION.md](docs/COMPETITION.md).
+### Cross-validation (3-fold, study-grouped)
 
-## Further reading
+<!-- CV_RESULTS:START -->
+*Pending: folds 1 and 2 are training. See [`docs/RESULTS.md`](docs/RESULTS.md).*
+<!-- CV_RESULTS:END -->
 
-- [Project state and roadmap](docs/PROJECT_STATE.md) · [research direction](docs/ROADMAP.md)
-- [Repository structure and workflow inventory](docs/STRUCTURE.md) · [workflow retention guide](docs/WORKFLOW_INVENTORY.md)
-- [Modeling and data baseline](docs/BASELINE.md) · [experiment records](experiments/README.md)
-- [Competition rules](docs/COMPETITION.md) · [project decisions](docs/DECISIONS.md)
+Local AUC is measured against the **report-derived LLM labels** (observed cells only, binarized
+at 0.5), not against expert labels, so it is a noisy proxy for the hidden-test metric.
+
+### Kaggle leaderboard (late submissions)
+
+Every model submission below was scored **after** the competition deadline (2026-10-22). None of
+them is on the official leaderboard.
+
+| Model | Experiment | Public | Private |
+|---|---|---:|---:|
+| ResNet-18, binary labels, 500 studies | [E032](experiments/archive/E032_hidden_submission_candidate.md) | 0.642 | 0.620 |
+| ResNet-18, masked soft labels, full cohort | [E040](experiments/archive/E040_masked_model_evaluation_submission.md) | 0.701 | 0.683 |
+| RadImageNet ResNet-50, 8 slices, mean pooling | [E047](experiments/archive/E047_radimagenet_model_submission.md) | 0.825 | 0.802 |
+| + target-specific attention MIL | [E049](experiments/archive/E049_attention_model_submission.md) | 0.869 | 0.848 |
+| + 16 slices per series (**current model**) | [E051](experiments/E051_attention16_model_submission.md) | **0.885** | **0.862** |
+
+Consecutive rows change more than one variable and use one validation fold, so they show the path
+the project took. They are not controlled ablations.
+
+## Method
+
+| Stage | Choice |
+|---|---|
+| **Labels** | Report-derived probabilities from the public CC0 dataset [`stevenleehans/rsna-knee-llm-report-labels`](https://www.kaggle.com/datasets/stevenleehans/rsna-knee-llm-report-labels) (v6, `llm_labels_full.csv`). A value of exactly 0.5 means "not mentioned" and is masked out. 4,298 non-Gold studies keep at least one observed target. |
+| **Splits** | 3 folds grouped by normalized-report hash and balanced with an iterative multilabel allocator (seed 42). The 58 expert-labelled "Gold" studies are excluded from all training and model selection. |
+| **Preprocessing** | All series per study; up to 16 uniformly sampled ordered slices per series; 224 × 224; intensities scaled to [0, 1]; pixel validity masks. |
+| **Model** | RadImageNet ResNet-50 backbone (only `layer4` trainable, BatchNorm frozen). Each target has its own attention over slices, then over series. |
+| **Objective** | Masked soft-label binary cross-entropy over observed cells only. |
+| **Training** | Adam (head 1e-3, `layer4` 1e-5), 5 epochs, one study per step, seed 42. The final epoch is fixed in advance, with no early stopping on validation. About 70 min/epoch on an RTX 3060 Laptop (6 GB). |
+| **Inference** | Offline Kaggle notebook: pinned model export and a code-only source archive. It runs in about 30 s on the visible test studies (T4 × 2). |
+
+## Repository layout
+
+```text
+src/rsna_knee/
+  data/         DICOM decoding, slice selection, cohort manifests, cached datasets
+  labels/       report-label tooling (soft-label prefilter, label-source comparison,
+                experimental LLM labeling clients; see docs/LABELING.md)
+  models/       ResNet-50 recipes and target-attention MIL head
+  training/     masked soft-label training loop and k-fold cross-validation
+  inference/    offline Kaggle inference adapter
+  validation/   grouped multilabel folds and AUC metrics
+scripts/        command-line entry points (see scripts/README.md)
+tests/          unit and regression tests (synthetic data only)
+docs/           competition contract, data notes, decisions, results
+experiments/    experiment records (current) and experiments/archive/ (history)
+data/           local, git-ignored inputs, caches, checkpoints and predictions
+```
+
+## Reproducing
+
+All competition data, caches, checkpoints and predictions live under the git-ignored `data/`
+directory. Nothing in Git contains images, reports or study identifiers.
+
+```powershell
+# 1. Environment (Python 3.11). Use the CUDA wheels matching your driver.
+python -m venv .venv; .\.venv\Scripts\Activate.ps1
+pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
+pip install -e ".[images]"
+
+# 2. Labels and folds (needs train.csv, train_series.csv and the public label CSV)
+python scripts/prepare_full_cohort_prefilter.py --help
+
+# 3. 16-slice tensor cache (built as offline Kaggle CPU notebooks, then downloaded)
+python scripts/build_local16_cache_package.py --help
+
+# 4. Cross-validation: train each fold, score its held-out studies, aggregate
+python scripts/cv_attention16.py train   --fold 1
+python scripts/cv_attention16.py predict --fold 1
+python scripts/cv_attention16.py summarize --folds 0 1 2
+
+# 5. Kaggle submission package (model export + offline inference notebook)
+python scripts/build_kaggle_attention_sixteen_submission_package.py --help
+```
+
+Run the tests with:
+
+```powershell
+$env:PYTHONPATH = "src;."; python -m unittest discover -s tests
+```
+
+## Limitations
+
+- **The training and validation labels come from an LLM, not from experts.** Their generation
+  model and prompt are undisclosed, and local AUC inherits their noise.
+- **Each configuration was trained with one seed.** The main reported number is the 3-fold
+  cross-validation estimate.
+- **Earlier comparisons are not controlled ablations.** They used a single fold or several
+  changes at once.
+- **This is research code, not a clinically validated diagnostic system.**
+
+## Data, privacy and licensing
+
+Competition data are covered by the competition rules and the
+[RSNA MIRA license](http://rsna.org/mira-license). The scope of that license over derived
+labels, features and weights has not been clarified with the organizers. Do not redistribute
+competition-derived artifacts or use them commercially until it is. See
+[`docs/COMPETITION.md`](docs/COMPETITION.md) and [`docs/DATA.md`](docs/DATA.md).
+
+## Project records
+
+- [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md): current status and next steps
+- [`docs/RESULTS.md`](docs/RESULTS.md): cross-validation results per fold and target
+- [`docs/DECISIONS.md`](docs/DECISIONS.md): durable decisions
+- [`experiments/`](experiments/): experiment records
+
+The full research history is preserved at the git tag `competition-archive-2026-11`. It includes
+the label-pipeline engineering, superseded models, Kaggle packaging iterations and the detailed
+decision log.
