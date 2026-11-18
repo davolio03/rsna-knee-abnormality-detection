@@ -16,7 +16,19 @@ study ─► DICOM series ─► 16 ordered slices / series ─► RadImageNet R
 ### Cross-validation (3-fold, study-grouped)
 
 <!-- CV_RESULTS:START -->
-*Pending: folds 1 and 2 are training. See [`docs/RESULTS.md`](docs/RESULTS.md).*
+**Macro ROC-AUC 0.861 ± 0.003** over 3 report-grouped folds (pooled out-of-fold 0.860, 4,298
+studies). Per fold: 0.864 / 0.858 / 0.860.
+
+| Target | AUC (mean ± std) | | Target | AUC (mean ± std) |
+|---|---:|---|---|---:|
+| ACL | 0.825 ± 0.013 | | PF OA | 0.840 ± 0.009 |
+| MCL | 0.805 ± 0.008 | | Effusion | 0.839 ± 0.006 |
+| Medial Meniscus | 0.868 ± 0.012 | | Synovitis | 0.917 ± 0.028 |
+| Lateral Meniscus | 0.823 ± 0.020 | | Baker's | 0.887 ± 0.014 |
+| Medial OA | 0.883 ± 0.002 | | Contusion | 0.883 ± 0.010 |
+| Lateral OA | 0.861 ± 0.007 | | Fracture | 0.901 ± 0.011 |
+
+Per-fold and pooled tables: [`docs/RESULTS.md`](docs/RESULTS.md).
 <!-- CV_RESULTS:END -->
 
 Local AUC is measured against the **report-derived LLM labels** (observed cells only, binarized

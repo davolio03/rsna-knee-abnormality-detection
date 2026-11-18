@@ -1,6 +1,6 @@
 # Project State
 
-- **Last updated:** 2026-11-17
+- **Last updated:** 2026-11-18
 - **Phase:** Post-competition consolidation. The competition closed on 2026-10-22, and every model
   submission was scored afterwards as a late submission.
 - **Current model:** RadImageNet ResNet-50 with target-specific slice and series attention, 16
@@ -10,7 +10,7 @@
 - **Best Kaggle score (late):** public 0.885 / private 0.862.
 - **Validation:** 3-fold study-grouped cross-validation, using ROC-AUC against observed
   report-derived labels binarized at 0.5 ([E054](../experiments/E054_attention16_cross_validation.md)).
-  Fold 0 reuses the E050 checkpoint; folds 1 and 2 use the same recipe.
+  Baseline: **macro AUC 0.861 ± 0.003** (pooled OOF 0.860); see [RESULTS.md](RESULTS.md).
 - **Labels:** public LLM report labels (`stevenleehans/rsna-knee-llm-report-labels` v6). These
   are not expert labels.
 - **Gold-58:** reserved. It is excluded from training, validation and model selection
@@ -18,7 +18,8 @@
 
 ## Open items
 
-1. Finish 3-fold cross-validation and record per-target AUC (E054).
+1. Measure the T4 vs. RTX 3060 effect: folds 0 and 1 are being retrained on Kaggle T4 x2
+   (`scripts/build_kaggle_cv_kernel.py`) before experiments mix the two GPU types.
 2. Assess label quality: the qualified blinded review of the E053 disagreement sample is pending.
 3. Run controlled ablations on the CV protocol, for example 8 vs. 16 slices and attention vs. mean
    pooling. The leaderboard history so far confounds these changes.
