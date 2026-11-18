@@ -11,11 +11,13 @@
 | Data layer | Verified 16-slice tensor cache for all 4,298 studies (61 GB). |
 | Modeling | Progression from ResNet-18 (0.620 private) to RadImageNet ResNet-50 with target attention and 16 slices (0.862 private). |
 | Inference | Offline, pinned Kaggle notebook package. |
+| Baseline (E054) | 3-fold CV macro ROC-AUC 0.861 ± 0.003; see [RESULTS.md](RESULTS.md). |
+| Compute | Folds run in parallel on Kaggle T4 x2 sessions and the local GPU (`scripts/build_kaggle_cv_kernel.py`). |
 
 ## Next
 
-1. **Cross-validated baseline (E054).** Run the current recipe on all 3 folds and report
-   per-target ROC-AUC with mean ± std. Every later change is measured against this number.
+1. **Hardware check.** Retrain folds 0 and 1 on Kaggle T4s (running) and compare with the local
+   RTX 3060 folds, so experiments can mix the two GPU types.
 2. **Label quality.** Finish the blinded E053 review. Then decide whether a Gold-58 evaluation of
    the label source is worth changing [D004](DECISIONS.md#d004--gold-58-is-reserved).
 3. **Controlled ablations on CV.** Change one variable at a time: slice count, pooling,
