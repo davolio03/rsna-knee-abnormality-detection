@@ -11,6 +11,7 @@ Command-line entry points in pipeline order. Run them from the repository root; 
 | Cache | `build_local16_cache_package.py` | Generate the Kaggle CPU notebooks that decode DICOMs into the 16-slice tensor cache. |
 | Cache | `local16_cache_chunk_plan.py`, `local16_tensor_cache.py`, `local16_full_cache.py` | Cache chunk planning, export format, verification and dataset reader. |
 | Train / CV | `cv_attention16.py` | Train a fold, score its held-out studies and summarize cross-validated AUC (E054). |
+| Train / CV on Kaggle | `build_kaggle_cv_kernel.py`, `kaggle_cv_runner.py` | Build a private Kaggle kernel that trains and scores folds in parallel, one fold per GPU, resuming across sessions. Needs the private cache and inputs datasets. |
 | Evaluate | `export_local16_validation.py` | Export fold-0 validation probabilities of the E051 model export (E052). |
 | Review | `prepare_local16_review_sample.py` | Build the private blinded disagreement-review sample (E053). |
 | Submit | `build_kaggle_attention_sixteen_submission_package.py` | Package the model export and the offline inference notebook for Kaggle (E051). |
