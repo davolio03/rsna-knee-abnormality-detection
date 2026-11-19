@@ -42,6 +42,11 @@ against expert labels. Gold-58 is excluded.
 
 ## Hardware
 
-Folds were trained on an RTX 3060 Laptop (6 GB), PyTorch 2.11.0+cu128, FP32 with TF32 off.
+The recipe is effectively deterministic across GPUs: retraining folds 0 and 1 on Kaggle T4s
+reproduced the local macro AUC to four decimals (maximum probability difference 0.001), so folds
+from either machine can be combined. On a T4 x2 session, two folds train in parallel in about
+9.8 hours.
+
+Local folds were trained on an RTX 3060 Laptop (6 GB), PyTorch 2.11.0+cu128, FP32 with TF32 off.
 About 75 minutes per epoch; fold 2 took 6.3 hours for 5 epochs. Scoring a fold takes 11–25
 minutes.

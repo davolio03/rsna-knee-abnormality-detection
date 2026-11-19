@@ -16,12 +16,10 @@
 
 ## Next
 
-1. **Hardware check.** Retrain folds 0 and 1 on Kaggle T4s (running) and compare with the local
-   RTX 3060 folds, so experiments can mix the two GPU types.
-2. **Label quality.** Finish the blinded E053 review. Then decide whether a Gold-58 evaluation of
+1. **Label quality.** Finish the blinded E053 review. Then decide whether a Gold-58 evaluation of
    the label source is worth changing [D004](DECISIONS.md#d004--gold-58-is-reserved).
-3. **Controlled ablations on CV.** Change one variable at a time: slice count, pooling,
+2. **Controlled ablations on CV.** Change one variable at a time: slice count, pooling,
    backbone trainability, class weighting and epochs.
-4. **Ensembling.** Average the three fold models at inference, which costs no extra training.
+3. **Ensembling.** Average the three fold models at inference, which costs no extra training.
    Then add seeds.
-5. **Self-contained submission build.** Build the inference archive only from repository sources.
+4. **Self-contained submission build.** Build the inference archive only from repository sources.
