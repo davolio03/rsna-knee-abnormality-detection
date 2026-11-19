@@ -82,5 +82,11 @@ Per-target spread is larger (up to ±0.028 for Synovitis, n = 701), so per-targe
 need care. MCL, Lateral Meniscus and ACL are the weakest targets.
 
 This is the reference for later changes: a candidate should beat 0.861 by clearly more than the
-fold spread, consistently across folds. A T4 replicate of folds 0 and 1 on Kaggle is running to
-measure the hardware effect before experiments mix local and Kaggle GPUs.
+fold spread, consistently across folds.
+
+**Hardware check (2026-11-19).** Folds 0 and 1 were retrained on Kaggle (Tesla T4 x2, one fold per
+GPU, PyTorch 2.11.0+cu130) with the same code commit and inputs. Both reproduced the local results:
+macro AUC 0.8643 and 0.8579 (difference below 0.0001), every per-target difference below 0.0005,
+prediction correlation 1.0000 and maximum absolute probability difference 0.001. Training took
+35,220 s for both folds in parallel and scoring about 1,900 s each. The recipe is effectively
+deterministic across these GPUs, so later experiments can mix local and Kaggle folds.

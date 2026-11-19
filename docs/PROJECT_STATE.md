@@ -18,8 +18,8 @@
 
 ## Open items
 
-1. Measure the T4 vs. RTX 3060 effect: folds 0 and 1 are being retrained on Kaggle T4 x2
-   (`scripts/build_kaggle_cv_kernel.py`) before experiments mix the two GPU types.
+1. Run controlled experiments on the CV protocol. Kaggle T4 x2 sessions and the local GPU give
+   identical results, so folds can run in parallel on both (`scripts/build_kaggle_cv_kernel.py`).
 2. Assess label quality: the qualified blinded review of the E053 disagreement sample is pending.
 3. Run controlled ablations on the CV protocol, for example 8 vs. 16 slices and attention vs. mean
    pooling. The leaderboard history so far confounds these changes.
