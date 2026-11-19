@@ -144,6 +144,8 @@ class RadImageNetContractTests(unittest.TestCase):
 
     def test_actual_checkpoint_and_cached_real_study_logits_match_training_architecture(self):
         archive_path = REPO / "data/private/local-radimagenet-epoch02/full-cache-archives/local-cache-validation-000.zip"
+        if not archive_path.is_file():
+            self.skipTest("private 8-slice cache archive not available")
         with ZipFile(archive_path) as archive:
             cache_manifest = json.loads(archive.read("cache-manifest.json"))
             record = cache_manifest["records"][0]
