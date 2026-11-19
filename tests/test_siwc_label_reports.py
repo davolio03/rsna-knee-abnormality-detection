@@ -1,3 +1,9 @@
+import importlib.util as _importlib_util
+import unittest as _unittest
+
+if not all(_importlib_util.find_spec(name) for name in ("requests", "truststore", "openai", "httpx", "authlib", "keyring")):
+    raise _unittest.SkipTest("optional SIWC dependencies not installed (pip install -e \".[siwc]\")")
+
 import io
 import json
 import builtins

@@ -1,21 +1,22 @@
 # Scripts
 
-Place focused CLI or automation entry points here when a repeatable task needs one. Keep reusable logic in `src/`, expose inputs/configuration explicitly, and avoid hard-coded machine paths or credentials.
+Command-line entry points in pipeline order. Run them from the repository root; each one supports
+`--help`. They read and write only under the git-ignored `data/` directory.
 
-For a static map of current workflows and retained history, see the [workflow inventory and retention guide](../docs/WORKFLOW_INVENTORY.md) and its [machine-readable catalog](../docs/WORKFLOW_INVENTORY.csv). Validate source coverage with `python scripts/check_workflow_inventory.py`; this read-only check does not execute any inventoried workflow.
+| Step | Script | Purpose |
+|---|---|---|
+| Cohort | `prepare_training_cohort.py`, `prepare_training_folds.py` | Build the original 500-study C2 cohort and its folds. The full-cohort prefilter checks them by hash. |
+| Labels | `compare_report_label_sources.py` | Compare the public LLM label source with C2 binary labels (E033). |
+| Labels | `prepare_full_cohort_prefilter.py` | Build the masked soft-label manifest and the 3 report-grouped folds for all non-Gold studies (E034). |
+| Cache | `build_local16_cache_package.py` | Generate the Kaggle CPU notebooks that decode DICOMs into the 16-slice tensor cache. |
+| Cache | `local16_cache_chunk_plan.py`, `local16_tensor_cache.py`, `local16_full_cache.py` | Cache chunk planning, export format, verification and dataset reader. |
+| Train / CV | `cv_attention16.py` | Train a fold, score its held-out studies and summarize cross-validated AUC (E054). |
+| Train / CV on Kaggle | `build_kaggle_cv_kernel.py`, `kaggle_cv_runner.py` | Build a private Kaggle kernel that trains and scores folds in parallel, one fold per GPU, resuming across sessions. Needs the private cache and inputs datasets. |
+| Evaluate | `export_local16_validation.py` | Export fold-0 validation probabilities of the E051 model export (E052). |
+| Review | `prepare_local16_review_sample.py` | Build the private blinded disagreement-review sample (E053). |
+| Submit | `build_kaggle_attention_sixteen_submission_package.py` | Package the model export and the offline inference notebook for Kaggle (E051). |
+| Submit | `build_attention16_weight_swap.py` | Put a new attention16 checkpoint's weights into the pinned E051 model export, so the E051 notebook can run it unchanged (E056). |
+| Labeling (experimental) | `siwc_label_reports.py`, `label_reports.py`, `run_gold58_prompt_comparison.py` | The project's own LLM report-labeling clients and the frozen Gold-58 prompt-comparison protocol. They are not used for the current model. See [LABELING.md](../docs/LABELING.md). |
 
-## Synthetic submission smoke test
-
-Run `python scripts/smoke_submission.py` to create and read back an ignored local, synthetic-only `submission.csv` at `outputs/phase0-smoke/submission.csv`. Pass `--output PATH` to choose another path. The command refuses to overwrite an existing file.
-
-The fixture uses three fictitious study identifiers and twelve constant 0.5 scores. It checks the exact ordered competition header, row width, identifier completeness/uniqueness, and finite probabilities in `[0, 1]`. It does not access competition data or the network, and it does not establish model quality, local competition-data compatibility, or Kaggle runtime/submission behavior. Generated outputs are ignored by Git.
-
-## Subscription-backed report-label pilot
-
-`python scripts/label_reports.py --train-csv <local-train.csv> --gold-exclusions <private-one-column-csv> --max-records <1-14> --subscription-oauth-confirmed` labels eligible reports through `codex exec` and resumes from ignored `data/outputs/codex-report-labels.jsonl`. The combined `--skip-records` offset plus `--max-records` batch size must not exceed 14; for example, `--skip-records 5 --max-records 9` selects fresh eligible rows at offsets 5–13 in one command. The exclusion CSV must have exactly one `StudyInstanceUID` column and exactly 58 unique verified IDs. Every row must provide `StudyInstanceUID`, `Report`, and all 12 target columns; any nonblank target excludes that row. The Gold exclusion file is mandatory and must be verified before use.
-
-Every actual run appends fixed-schema attempt-start and outcome records to ignored `data/outputs/codex-pilot-diagnostics.jsonl` (override with `--diagnostics`). The journal stores only numeric process status/errno when available, allowlisted cause codes with fixed explanations, stage, eligible-row offset, elapsed milliseconds, and aggregate started/completed/failed counts. It never stores CLI output, raw errors, report text, identifiers, model text, credentials, or paths. The journal must remain under `data/outputs` and must not alias the label output; unsafe or failed journal writes stop the run before another inference. Known CLI patterns are classified conservatively; unrecognized failures remain `unknown`. The runner stops on the first error and does not retry.
-
-Subprocess text input is explicitly encoded as UTF-8 so Unicode report text is transported consistently across Windows code pages.
-
-**This command sends report text to the Codex service.** The required confirmation flag is an operator attestation, not an authentication check: before a real run, independently verify that Codex CLI is authenticated through ChatGPT subscription OAuth, not API-key billing, and confirm applicable provider/competition terms. This implementation step did not run the command or transmit data. Keep the exclusion file and generated labels local; output is restricted to ignored `data/outputs/`.
+`build_kaggle_submission_package.py` and `local_masked_full_cache.py` are shared helpers that
+the scripts above import.

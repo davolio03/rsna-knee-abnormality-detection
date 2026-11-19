@@ -1,0 +1,12 @@
+# Byte-stable text: source files are pinned by SHA-256 in Kaggle packages.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.pt binary
+*.npz binary
+*.zip binary
+*.png binary
+
+# The E051 Kaggle source archive pinned this file with CRLF bytes (built from an
+# autocrlf checkout). Keep it CRLF so the shipped package can be rebuilt byte-for-byte.
+src/rsna_knee/models/resnet50.py text eol=crlf

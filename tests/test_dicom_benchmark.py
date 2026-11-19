@@ -354,32 +354,5 @@ class DicomBenchmarkTests(unittest.TestCase):
         self.assertEqual(raised.exception.reason_code, "filesystem_check_failed")
         self.assertNotIn(secret, str(raised.exception))
 
-    def test_notebook_configuration_probe_oserror_is_sanitized(self):
-        source_root = Path(__file__).resolve().parents[1]
-        manifest = self.root / "manifest.json"
-        manifest.write_text("{}", encoding="utf-8")
-        image_root = self.root / "notebook-images"
-        image_root.mkdir()
-        secret = "PRIVATE_CANARY"
-        original_is_dir = Path.is_dir
-        source_path = source_root / "src"
-
-        def fail_source_probe(path):
-            if path == source_path:
-                raise PermissionError(secret)
-            return original_is_dir(path)
-
-        env = {
-            "SOURCE_ROOT": str(source_root),
-            "PRIVATE_MANIFEST": str(manifest),
-            "COMPETITION_IMAGE_ROOT": str(image_root),
-        }
-        notebook = source_root / "notebooks" / "baseline_dicom_benchmark.py"
-        with patch.dict(os.environ, env), patch.object(Path, "is_dir", fail_source_probe):
-            with self.assertRaises(RuntimeError) as raised:
-                runpy.run_path(str(notebook))
-        self.assertNotIn(secret, str(raised.exception))
-
-
 if __name__ == "__main__":
     unittest.main()

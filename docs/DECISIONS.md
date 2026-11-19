@@ -1,321 +1,74 @@
-# Decision Log
+# Decisions
 
-This log contains durable project decisions, not untested hypotheses. Source provenance is explicit; decisions based on bootstrap context are not presented as independently verified competition rules.
+These are the durable decisions in force. The complete dated log (D001–D033), including the
+label-pipeline engineering decisions, is in [archive/DECISIONS_LOG.md](archive/DECISIONS_LOG.md).
+Numbers below match that log where a decision carries over.
 
-## D001 — Project workflow
+## D002 — The repository is the source of truth
 
-- **Date:** 2026-10-01
-- **Status:** Accepted
-- **Decision:** Use Codex as the primary interactive orchestrator with Gentle AI ODD as the normal workflow. Use native subagents selectively when independent fresh context materially helps. Do not use SDD by default.
-- **Rationale:** Keep project direction coherent while using independent context only when useful.
-- **Evidence / source:** Project bootstrap context.
-- **Consequences:** Follow repository-specific guidance together with the installed ODD workflow; this repository does not duplicate orchestration machinery.
-- **Revisit when:** The user explicitly changes the workflow or the environment makes the current workflow unavailable.
+Version-controlled documents and experiment records are authoritative. Conversational or
+assistant memory is supplementary.
 
-## D002 — Repository as durable source of truth
+## D003 — Evidence before adoption
 
-- **Date:** 2026-10-01
-- **Status:** Accepted
-- **Decision:** Version-controlled repository artifacts are authoritative for durable project knowledge; Engram supports continuity but is not the sole source of scientific decisions.
-- **Rationale:** Important evidence must remain inspectable and recoverable with the code.
-- **Evidence / source:** Project bootstrap context.
-- **Consequences:** Store durable decisions and experiment evidence in repository files; treat memory as supplementary.
-- **Revisit when:** Repository persistence or collaboration requirements materially change.
+A change becomes the new baseline only with recorded experimental evidence: hypothesis, changed
+variable, validation protocol, per-target results and conclusion. Negative and inconclusive
+results are kept. A leaderboard movement on its own is not evidence of generalization.
 
-## D003 — Scientific experiment discipline
+## D004 — Gold-58 is reserved
 
-- **Date:** 2026-10-01
-- **Status:** Accepted
-- **Decision:** Meaningful ML changes require explicit experimental evidence before becoming the new baseline.
-- **Rationale:** Avoid decisions based solely on intuition or noisy leaderboard movement.
-- **Evidence / source:** Project bootstrap context.
-- **Consequences:** Record hypotheses, baselines, changed variables, validation, results, and conclusions for meaningful experiments.
-- **Revisit when:** Evidence shows the experiment convention is insufficient or wasteful.
+The 58 studies with expert labels on all targets ("Gold-58") are excluded from training,
+validation, fold construction and model selection. The only use authorized so far is a
+predeclared nested-CV comparison of report-labeling prompts. That comparison was frozen on
+2026-10-11 and has not been run. Any other use, such as evaluating the label source or the final
+model, requires an explicit new decision. Gold IDs and label values are never stored in Git.
 
-## D004 - Gold-58 nested prompt-strategy evaluation
-
-- **Date:** 2026-10-01; policy revised 2026-10-11
-- **Status:** Accepted; candidate-set identification is recorded in `DATA.md`; expert-label provenance and identity remain unverified from label values.
-- **Decision:** Gold-58 may be used to compare a short, predeclared set of report-labeling prompt strategies using nested study-level cross-validation, only after exact prompt text and protocol are approved and frozen and external report transfer is separately confirmed permissible. Use `gpt-6-luna` with `model_reasoning_effort=high` through Codex CLI and the user's ChatGPT subscription OAuth path; this is a planned configuration, not verified entitlement or transfer authorization, and does not use an API key. Define the output field `uncertainty` as the model's estimated probability that its binary label is incorrect (`0` predicts the label is correct; `1` predicts the label is incorrect); this is an error probability, not a generic epistemic-uncertainty scale or a calibration guarantee. Compute balanced accuracy per target then macro-average the 12 scores. Select by mean inner-validation macro balanced accuracy; resolve exact ties in fixed simplicity order: baseline, evidence workflow, interpretation policy. Report the secondary macro Brier score for the error probability versus the label-error indicator descriptively only (lower is better); it never selects the prompt. Inner folds select among candidates; outer folds evaluate the complete inner-selection procedure and must not influence prompt iteration. Outer-fold results are not a separate independent final test set. Do not use Gold-58 for model training or downstream classifier model selection unless separately authorized.
-- **Rationale:** A bounded nested design permits prompt-strategy comparison while keeping outer-fold evidence separate from prompt iteration and stating its limits honestly.
-- **Evidence / source:** Explicit user protocol decisions recorded 2026-10-11. The aggregate-only feasibility screen recorded in `PROJECT_STATE.md` reports positive and negative representation for all 12 targets in every configured outer and inner validation fold; MCL is sparse (9 positives overall; 2 in each inner validation fold). No candidate IDs, label values, or fold memberships are recorded here.
-- **Consequences:** Aggregate fold feasibility is established for the configured split, but does not establish metric precision, label validity, or clinical validity. Preserve study-level grouping and all applicable competition licensing, external-service, and data-privacy constraints; confirm subscription entitlement for the exact model/effort and report-transfer permissibility before any run. Outer-fold evidence must not guide prompt iteration. Do not treat nested cross-validation as an untouched final test set.
-- **Revisit when:** The user changes the policy, fold feasibility cannot be established, or verified dataset evidence changes the assumed candidate set or label provenance.
 ## D005 — Hardware-aware development
 
-- **Date:** 2026-10-01
-- **Status:** Accepted; hardware unverified
-- **Decision:** Prefer approaches that can be iterated realistically with approximately 6 GB local VRAM while allowing Kaggle compute for justified workloads.
-- **Rationale:** Project context identifies a constrained local GPU environment.
-- **Evidence / source:** Project bootstrap context; exact device and available resources require environment verification.
-- **Consequences:** Record memory/runtime costs and avoid assuming larger models are better.
-- **Revisit when:** The available local or competition compute environment changes.
+Development targets a 6 GB local GPU (RTX 3060 Laptop) and Kaggle T4 notebooks. Record runtime
+and memory costs. Do not assume a larger model is better.
 
-## D006 — LLM report processing is a candidate technique
+## D006 — LLM report processing
 
-- **Date:** 2026-10-01
-- **Status:** Host evidence verified 2026-10-02; conditional host permission only. The user approved and froze the Gold-58 prompt candidates and nested study-level protocol on 2026-10-11. Gold-58 remains excluded from ordinary labeling and is not authorized for training. On 2026-10-14, after reviewing the SIWC-specific terms, the user authorized a bounded local SIWC non-Gold labeling run; sign-in completed with ChatGPT plan use enabled. The user has now separately authorized a scalable runner, then a fresh canary, then all eligible non-Gold inferences. The scalable implementation is pending local verification; this authorization does not claim that the fresh canary or full-cohort run has occurred.
-- **Decision:** The competition host's conditional statement supports commercially hosted LLM report processing subject to competition rules, reasonable accessibility, minimal cost, and provider terms. For the Gold-58 prompt comparison, the selected route remains Codex CLI with ChatGPT subscription OAuth, targeting `gpt-6-luna` at `model_reasoning_effort=high`; this Codex `exec`/structured-output route remains on hold pending clarification of its applicable terms and remaining data/licensing conditions. Separately, OpenAI's Sign in with ChatGPT Terms (effective 2026-09-29) govern the local SIWC app: they allow eligible ChatGPT-plan use in a user-controlled local runtime for the authenticated user, including expressly authorized automations. The user expressly authorized a three-step local SIWC non-Gold rollout on 2026-10-14: implement a scalable resumable runner, perform a fresh canary, then infer all eligible non-Gold reports. The first step is local implementation only; live provider calls remain separate and will occur only in the later authorized steps. This is not authorization for Gold-58, another user's requests, token sharing, usage-limit circumvention, or any request batch larger than 14 records. The SIWC route uses the account-visible model slug; it does not accept a `reasoning_effort` parameter.
-- **Rationale:** Report-derived labels are one of the project's coupled problems.
-- **Evidence / source:** Competition-host-authored discussion with a visible Competition Host badge, [Use of Commercially Hosted LLMs](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/discussion/733965), dated 2026-08-09; explicit host reply dated 2026-08-27. The host discusses API report reading/label generation subject to competition rules, reasonable access/cost, and provider terms; it is conditional and does not resolve other licenses. OpenAI's [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/), effective 2026-09-29, expressly allows user-authorized automations in a local runtime controlled by the authenticated user and governs SIWC plan usage. OpenAI's [SIWC models and inference guide](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) documents the public Responses API flow. The account reported `ChatGPT plan use: enabled`; actual Luna availability must still be confirmed from that account's visible model catalog. The [Codex CLI reference](https://learn.chatgpt.com/docs/cli/reference) documents non-interactive `codex exec` and JSONL output but does not resolve the separate Codex CLI terms question. The competition's MIRA license scope and winner-license wording conflict remain documented in `COMPETITION.md`.
-- **Consequences:** The SIWC permission is narrowly for the authenticated user's expressly authorized, local non-Gold labeling run; send only eligible non-Gold training reports, keep results in ignored local outputs, and use the required `store=false`, `stream=true`, and completed-response checks. The scalable runner may process the full preflighted eligible non-Gold cohort across multiple sequential windows, with no more than 14 records in a window/request batch. Use fresh, distinct output/checkpoint and payload-free diagnostics paths; resume only from the explicitly selected matching paths and validated checkpoint, while preserving the earlier 14-record output untouched. Stop on provider-denied or usage-limit errors; do not retry or bypass provider limits. Gold-58 must remain excluded. This does not authorize distribution of reports or derived artifacts, public deployment, or use of Gold-58 for training/model selection; preserve applicable competition, privacy, and licensing requirements. Keep the separate Gold-58 Codex CLI comparison on hold pending clarification of that route's terms and the remaining external-data conditions. No conclusion is made that the MIRA derivative-work restriction or winner-license ambiguity is resolved.
-- **Revisit when:** OpenAI changes the SIWC terms or usage limits, the user's authorization or intended cohort changes, the Codex CLI route receives applicable terms clarification, or organizers clarify the MIRA/winner-license questions.
+The competition host allows commercially hosted LLMs to read training reports and generate
+labels, subject to the competition rules, reasonable cost and access, and the provider's terms
+([host post](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/discussion/733965)).
+Only non-Gold reports may be sent. Reports and generated labels stay in ignored local storage.
 
-## D007 — Use Codex CLI for a bounded subscription-label pilot
+## D027 — Soft labels with an observation mask
 
-- **Date:** 2026-10-10
-- **Status:** Pilot route selected and locally implemented; no report transmission or feasibility result claimed.
-- **Decision:** Evaluate report-label extraction through Codex CLI using the user's ChatGPT subscription OAuth entitlement, rather than a separately billed OpenAI API key. The pilot is limited to explicitly capped training rows whose 12 target fields are all blank and whose study keys are absent from the verified Gold exclusion list.
-- **Rationale:** The user authorized a small non-Gold subscription-backed pilot; local CPU/GPU LLM inference is infeasible.
-- **Evidence / source:** Explicit user authorization and CP-01 local contract tests. No real report was sent during implementation. The CLI adapter invokes only `codex exec`; subscription authentication and actual inference remain unverified and are CP-02 prerequisites.
-- **Consequences:** Keep generated labels and study keys in ignored local `data/outputs/` only. Never log report content or CLI payloads. Generated labels remain provisional and unvalidated against independent ground truth. This decision does not resolve provider terms, MIRA licensing, or the winner-license wording conflict recorded in `COMPETITION.md`; do not distribute outputs.
-- **Revisit when:** CP-02 operational evidence is recorded, subscription auth is verified, or applicable competition/provider terms change.
+Training labels are the report-derived probabilities of the public
+`stevenleehans/rsna-knee-llm-report-labels` dataset (v6, original `llm_labels_full.csv`).
+Exactly 0.5 means "not addressed" and is masked out, never treated as negative. The loss is
+binary cross-entropy over observed cells only.
 
-## D008 - Treat evidence length as a warning, not an acceptance rule
+## D028 — Three report-grouped folds
 
-- **Date:** 2026-10-11
-- **Status:** Accepted by explicit user authorization.
-- **Decision:** Evidence strings longer than 200 characters trigger one fixed privacy-safe nonfatal warning per response; retain the complete evidence string without truncation. The 200-character value is an operational preference threshold only and has no established empirical basis. Keep exact target-set/object shape, boolean labels, evidence string type, and finite uncertainty in [0,1] strict.
-- **Rationale:** G58-10 stopped after 86 successful checkpoint entries when one output exceeded the local evidence-length preference. The validator guard was stricter than the authorized output contract; discarding or truncating evidence would alter the response. Warning-only handling permits the already-authorized explicit resume to reuse validated cached successes while preserving all other validation boundaries.
-- **Evidence / source:** Explicit user decision and one-resume authorization recorded 2026-10-11; G58-10 terminal outcome is recorded in `odd/tasks/gold58-prompt-comparison-runner.md` and E007. No raw evidence, report, identifier, or prediction is included here. No empirical study establishes 200 characters as a correctness or privacy boundary.
-- **Consequences:** The warning contains no evidence value, target, or study identifier. A warning does not validate the label, evidence relevance, model quality, clinical validity, or metric validity. Frozen prompts, output schema, checkpoint fingerprint, model/effort, folds, metrics, and generation contract remain unchanged. Exactly one resume is authorized from the 86-success checkpoint, with up to 320 remaining of 406 planned calls; do not archive, rename, rotate, reset, or delete the current checkpoint/key, and do not automatically retry after any new failure. This operational authorization does not resolve unrelated provider terms, competition rules, licensing, or data-transfer questions recorded in D006.
-- **Revisit when:** A future user decision changes the evidence-length preference, another output-contract validation boundary is implicated, or evidence establishes a justified length limit.
+The 4,298 non-Gold studies with at least one observed target are split into 3 folds. The split
+groups studies by a normalized-report hash and uses a deterministic iterative multilabel allocator
+(seed 42). Every target has positives and negatives in every fold. The fold file is private and
+frozen.
 
-## D009 - Persist SIWC refresh credentials only
+## D034 — Cross-validation protocol (2026-11-17)
 
-- **Date:** 2026-10-14
-- **Status:** Accepted and implemented locally; no live OAuth validation performed.
-- **Decision:** Persist the SIWC refresh token with only required non-secret account, grant, token-type, issuer, and expiry metadata. Validate the initial ID token during sign-in, then discard it. Keep access tokens process-local, refresh on demand in each fresh CLI process, and expose them only through the existing `with_plan_access_token` callback boundary. Do not trust legacy persisted access tokens, including records whose expiry is still in the future.
-- **Rationale:** The combined serialized token response exceeded the Windows Credential Manager per-credential payload limit; refresh-token-only storage keeps protected-operation credentials transient and reduces persisted payload size.
-- **Evidence / source:** Explicit user authorization and local synthetic regression tests. No real credentials, OAuth requests, or provider behavior were inspected or exercised for this change.
-- **Consequences:** Preserve rotated refresh credentials and granted plan scopes before making refreshed access usable. A missing refresh token, required plan scope, or failed persistence remains fail-closed. Optional refresh ID tokens are validated when present and never persisted; omission does not preserve a stale token. Legacy records are sanitized when rewritten after refresh.
-- **Revisit when:** The provider changes the refresh contract or new local evidence demonstrates that the persisted metadata set is insufficient.
+Model quality is reported as 3-fold cross-validated ROC-AUC. Each fold trains the full recipe
+with the selected epoch fixed in advance (no early stopping on validation) and scores its
+held-out studies. The local label for each target is the observed soft label binarized at 0.5;
+unobserved cells are excluded. Results are reported as macro mean ± std across folds, pooled
+out-of-fold macro AUC, and per-target values. This is a proxy for the expert-labelled hidden test
+and must be described that way.
 
-## D010 - Recover only unique whitespace-only SIWC evidence spans
+## D035 — Lean main branch, preserved history (2026-11-17)
 
-- **Date:** 2026-10-14
-- **Status:** Historical policy, superseded narrowly by D012 (2026-10-15) for duplicate and overlapping whitespace-equivalent spans. The earlier bounded third-case invocation emitted no mismatch diagnostic, so recovery-path execution there remains unproven.
-- **Decision:** For fresh SIWC Responses only, recover a failed non-empty evidence string when its exact non-whitespace token sequence has one unique contiguous occurrence in the source report. Store the exact report substring, including the report's original internal whitespace, then run the unchanged literal-substring guard. If the occurrence is missing or ambiguous, reject it. Never change words, case, punctuation, or non-whitespace Unicode characters to make evidence match.
-- **Rationale:** The single authorized diagnostic retry reported `whitespace_only`, while the earlier discarded response remains unclassified. A unique literal-span mapping offers a narrow way to preserve provenance without treating normalized text as the accepted evidence.
-- **Evidence / source:** E008 records one rejected fresh attempt and confirms the two-record checkpoint remained unchanged. E009 records a subsequent bounded invocation that completed one case with the prior two records unchanged; because no mismatch diagnostic was emitted, it does not prove that recovery occurred. The exact-span recovery is a separate explicit user-approved policy. Synthetic tests cover unique/ambiguous spans, non-whitespace changes, exact duplicates, cached strictness, copy safety, and runner checkpoint preservation.
-- **Consequences:** Cached records continue to require exact literal evidence; no cached data is normalized or rewritten. Labels, uncertainty, prompts, model, Gold-58 exclusions, authentication, and checkpoints are otherwise unchanged. Recovered evidence is the exact source substring, but this does not establish evidence relevance, label quality, or clinical validity. No further inference or broader repair is authorized by this decision.
-- **Revisit when:** A unique source-span mapping cannot be guaranteed, or the user separately changes the permitted recovery scope.
+The main branch keeps only the code, records and documents needed by the current pipeline.
+Everything superseded is preserved at the tag `competition-archive-2026-11` and under
+`experiments/archive/` and `docs/archive/`: label-pipeline micro-decisions, Kaggle audit and
+packaging iterations, earlier models and the detailed project log.
 
-## D011 - Capture one rejected SIWC evidence string locally on explicit opt-in
+## D036 — Fine-tune layer3 and layer4 (2026-11-19)
 
-- **Date:** 2026-10-14
-- **Status:** Accepted by explicit user authorization; focused offline tests and independent privacy review passed. The full suite retains one known Windows child-cleanup failure and one unavailable directory-symlink test. One authorized live invocation with capture opt-in persisted and verified a single bounded artifact (143 UTF-8 bytes); payload contents remain private. The captured source-span comparison was ambiguous, and exact recovery correctly rejected it. Manual removal is required when retention is no longer needed.
-- **Decision:** The bounded `label` command may opt in with `--capture-rejected-evidence`; default behavior remains no evidence retention and `label-all` does not offer the option. On the first fresh, schema-valid response rejected by the unchanged source-evidence check, create one fixed private JSON file containing only the rejected evidence string and its eligible-row offset. Cap the evidence at 16 KiB UTF-8 bytes and refuse oversize content without truncation. Use exclusive creation, reject an existing destination and unsafe directory/file aliases, and never overwrite. Capture failures remain best-effort and cannot replace the original validation error or alter the checkpoint.
-- **Rationale:** A safe `no_literal_match` diagnostic cannot preserve the rejected text needed for a later local comparison; controlled opt-in capture can retain only that evidence fragment and a non-identifying eligible offset.
-- **Evidence / source:** User-approved local feature scope and synthetic tests. No real report, account, checkpoint, live service, or provider response was accessed for implementation.
-- **Consequences:** Successful responses, cached records, and schema/provider failures are not captured. No report text, identifiers, target names, labels, provider body, or credentials are stored. `data/private/siwc-rejected-evidence.json` is ignored but not encrypted and has no automatic expiration; remove it manually. Capture does not change literal acceptance, approved fresh whitespace recovery, labels, prompts, checkpoints, or inference retry behavior. No live capture or label-quality claim is implied.
-- **Revisit when:** The capture is no longer needed, the local retention/size boundary needs a separately approved change, or an independently verified live capture demonstrates a safety issue.
-
-## D012 - Select the earliest repeated whitespace-equivalent SIWC evidence span
-
-- **Date:** 2026-10-15
-- **Status:** Historical baseline policy, extended narrowly by D013 to allow per-token `str.lower()` equality for fresh-response case differences. Its earliest-span rule remains in effect; the REP-02 completed case did not prove that recovery ran.
-- **Decision:** For fresh SIWC Responses only, when non-empty evidence is not already an exact literal substring of the report, recover it only if its complete sequence of non-whitespace tokens exactly equals a contiguous report-token sequence. If multiple or overlapping occurrences exist, deterministically select the earliest character-offset occurrence. Store the exact source substring from its first token through its last token, then apply the unchanged literal guard. Do not match partial tokens or alter words, case, punctuation, or non-whitespace Unicode. Existing exact literal matches remain unchanged; cached records remain strict and are never recovered.
-- **Rationale:** E012's captured rejection had two equivalent contiguous-token spans, so the prior unique-span rule rejected an otherwise deterministic source mapping. The accepted output schema stores evidence text, not a location; choosing the first matching span supplies a deterministic tie-break without semantic matching or text normalization.
-- **Evidence / source:** E012's safe aggregate record reports two normalized matches and two identical contiguous-token spans, with no unique span. Synthetic regression tests exercise repeated and overlapping matches, earliest original whitespace selection, non-whitespace changes, copy safety, and cached strictness. No report quote or captured evidence is reproduced.
-- **Consequences:** This changes only fresh whitespace-equivalent evidence recovery; labels, uncertainty, schema, prompts, C2/Luna selection, capture/journal behavior, and checkpoints remain unchanged. It does not validate E012's full response, explain other failures, complete the canary, or establish evidence relevance, label quality, or clinical validity. No further live inference is authorized by this decision.
-- **Revisit when:** The first-occurrence tie-break is shown to be unsafe or the user separately changes the permitted evidence-recovery scope.
-
-
-## D013 - Compare complete fresh SIWC evidence tokens case-insensitively
-
-- **Date:** 2026-10-15
-- **Status:** Historical baseline; its token-only recovery predicate and broader case diagnostic were superseded by D015. The bounded final-case invocation after D013 completed successfully but emitted no safe mismatch category, so it does not prove D013 recovery ran.
-- **Decision:** For fresh SIWC Responses only, when non-empty evidence is not already an exact literal substring of the report, compare complete contiguous tokens using Python `str.lower()` per token. A matching span still must preserve the entire token sequence, punctuation, accents, and token order; select the earliest original report span among duplicates or overlaps and store that exact source substring. Do not use `casefold()`, NFC normalization, semantic matching, or partial-token matching. The existing exact literal check remains the acceptance guard, and exact literal evidence is not rewritten. Cached records remain strict and are never recovered.
-- **Rationale:** A bounded failure remained after D012's duplicate-span tie-break. The requested narrow extension treats ordinary upper/lower variants of the same complete tokens as equivalent while preserving the source's exact spelling and whitespace in stored evidence.
-- **Evidence / source:** Synthetic tests cover mixed case, case plus whitespace, ordinary accented upper/lower pairs, earliest repeated/overlapping spans, casefold-expansion and accent changes, and cached case-only rejection before inference or checkpoint writes. E013 remains a historical run under D012; E014 records one subsequent completed case without proving D013 recovery execution or disclosing any response text.
-- **Consequences:** The safe `case_only` diagnostic classifier is unchanged and may classify more broadly than the new recovery predicate; it is not proof that a response qualifies for recovery. Labels, uncertainty, prompt, model, schema, capture/journal behavior, checkpoint semantics, and exact literal acceptance remain unchanged. E014 records 14 operationally saved cases across attempts and policy revisions, but does not prove D013 recovery execution or establish label quality, evidence relevance, or clinical validity. No new inference is authorized by this policy change.
-- **Revisit when:** Lowercase token matching is shown to conflate distinct source text or the user separately changes the allowed evidence policy.
-
-
-## D014 - Bound SIWC resume by total checkpoint records
-
-- **Date:** 2026-10-15
-- **Status:** Implemented and independently verified in local commit `8229473`. One separately authorized monitored resume to the 500-total target exited 2 at 15/500 after one failed request; the checkpoint and prior canary/capture remained unchanged. The target was not reached. No further resume is authorized by this outcome.
-- **Decision:** `label-all --limit N` defines a total checkpoint target over the deterministic eligible non-Gold prefix, including cached records; it does not request N additional records. Refuse limits that are non-integer, boolean, nonpositive, or larger than the eligible cohort. Before authentication or journal writes, require any existing checkpoint to contain no more than N records and to match the ordered eligible prefix exactly. Bind the effective target and eligible-cohort count in a fixed payload-free journal scope entry. Migrating a legacy resume without a marker requires an explicit `--limit` and checkpoint-prefix validation; later resumes must resolve to the same target and cohort size, so an omitted limit cannot silently expand a smaller run.
-- **Rationale:** The full-cohort run stopped after 15 saved records, while the user authorized a monitored total of 500. An explicit total target prevents interpreting that request as 500 new rows and constrains future resumes without resetting validated checkpoint entries.
-- **Evidence / source:** User authorization, synthetic regression tests, independent review, commit `8229473`, and the one monitored bounded invocation recorded in E017. The safe category `case_only` is not proof of the actual evidence difference or cause; no new rejected quote was captured. No label-quality conclusion follows.
-- **Consequences:** At most 485 new successful records are needed to reach 500 from the current checkpoint. Progress reports show total checkpoint count versus target; this is operational status only. Existing sequential windows, zero automatic retries, usage-denial resume guard, Gold-58 exclusion, exact literal evidence acceptance, prompts, labels, uncertainty, and model configuration are unchanged. Fresh case/whitespace recovery is now governed by D015; cached records remain strict. Any resume remains separately authorized and must use the bound limit. No quality, relevance, or clinical-validity claim follows from checkpoint completion.
-- **Revisit when:** The target or eligible cohort changes, or observed checkpoint-prefix validation or scoped-resume behavior proves unsafe.
-
-## D015 - Unify fresh SIWC evidence matching and source-span recovery
-
-- **Date:** 2026-10-15
-- **Status:** Historical baseline, extended only for single-codepoint caseless equivalences by D017. Its whitespace mapping, boundary, source-offset, and exact-source-span guarantees remain in force.
-- **Decision:** For fresh Responses only, use one boundary-aware matcher for case/whitespace mismatch classification and recovery. Compare conservative lowercase text with collapsed whitespace, map normalized matches to original report offsets, and choose the earliest valid span. Word edges treat Unicode letters, numbers, underscore, and combining marks as word characters. Preserve punctuation inside the matched quote; punctuation outside it does not prevent matching. Do not normalize accents or NFC, use `casefold()`, reorder tokens, or accept partial words or partial lowercase expansions. Recovered evidence is the exact original report substring. Cached evidence and exact literal acceptance remain unchanged.
-- **Rationale:** The prior classifier could identify a case difference inside a larger word even when recovery correctly rejected it. Also, all-target recovery was atomic: an earlier recoverable field could remain unrepaired when a later field was invalid, so final validation and optional capture blamed the earlier field instead of the actual remaining rejection.
-- **Evidence / source:** Synthetic regressions cover punctuation at quote boundaries, changed internal punctuation, word/number/underscore/combining-mark boundaries, lowercase expansions, Unicode case mapping, duplicate/overlapping earliest spans, diagnostic/recovery agreement, and a multi-target response where one recovered field precedes the true failed field. Repairs are applied to a copy; unmatched evidence remains unchanged for final strict validation, so no partial result is accepted or checkpointed. E017's actual rejected quote was not captured; this change does not establish its cause.
-- **Consequences:** Labels, uncertainty, prompt, schema, C2/Luna selection, capture policy, checkpointing, 500-record cap, Gold-58 exclusion, usage-denial guard, and zero automatic retries are unchanged. `unicode_only` remains descriptive only and does not imply recovery eligibility. No new provider request or label-quality/clinical-validity conclusion is authorized.
-- **Revisit when:** A synthetic or independently observed source-span mapping violates the stated boundaries or changes a cached-record result.
-
-## D017 - Permit bounded single-codepoint caseless equivalence in fresh evidence
-
-- **Date:** 2026-10-15
-- **Status:** Strict-TDD implementation verified locally: Responses 55/55 and CLI 45/45 pass; subscription ran 42 tests with the known Windows child-timeout failure and one symlink skip; full suite ran 241 tests with 239 passing, the same known failure, and one skip. `py_compile` and `git diff --check` pass. Independent review and the parent focused check passed. A separate read-only local probe confirmed that the retained fragment now maps to an exact source substring; it does not validate the full discarded response. No provider request was made for this fix.
-- **Decision:** Extend the shared fresh evidence matcher to normalize each source codepoint with `casefold()` only when that result is exactly one codepoint; otherwise use the existing conservative lowercase mapping. This permits one-codepoint Unicode caseless equivalences such as Greek small mu/micro sign and Greek sigma/final sigma, while multi-codepoint folds such as `ß` to `ss` remain distinct. Recovery must still pass the same word-boundary/source-span checks and stores the exact original report substring. Exact literal evidence and cached records remain unchanged.
-- **Rationale:** The first bounded diagnostic capture showed one character-level Unicode caseless difference, not a token, spacing, punctuation, or paraphrase difference. A per-character equivalence rule addresses that class without introducing compatibility normalization or semantic matching.
-- **Evidence / source:** Synthetic tests exercise Greek mu/micro-sign, sigma/final-sigma, sharp-S expansion rejection, unchanged accent behavior, and exact source-span recovery. No private quote or report text is used as a test fixture. The captured attempt's runtime status remains 15/500; no inference retry is implied by this local implementation.
-- **Consequences:** The rule applies only to fresh evidence recovery/classification. It does not use NFKC/NFC for acceptance, remove accents or punctuation, alter token order, permit partial characters/words, modify labels/uncertainty/prompt/model/schema, relax cached validation, or change capture, checkpoint, Gold exclusion, usage-denial, or retry behavior. This is a character-equivalence policy, not a claim about clinical relevance or label quality.
-- **Revisit when:** A source-span regression shows any multi-codepoint fold or partial-character match being accepted, or a fresh response remains rejected despite these exact boundaries.
-
-## D018 - Recover a unique minimal source-context window for fresh evidence
-
-- **Date:** 2026-10-15
-- **Status:** Strict-TDD implementation verified locally: Responses 60/60 and CLI 45/45 pass; subscription ran 42 tests with the known Windows child-timeout failure and one symlink skip; full suite ran 246 tests with 244 passing, the same known failure, and one skip. `py_compile` and `git diff --check` pass. Independent review passed Responses 60/60, CLI 45/45 and eight additional synthetic probes; the parent spot check passed Responses 60/60. A separate read-only private-fragment probe restored an exact contiguous source excerpt, not a complete discarded response. No provider call was performed for this implementation.
-- **Decision:** Only after exact-literal acceptance and the existing D015/D017 source-span matcher fail, consider fresh evidence with at least two lexical terms. Match the entire terms in their original order, using only the approved per-codepoint caseless keys, inside exactly one matching source sentence/line segment split at `.`, `!`, `?`, CR, or LF. Reject if more than one segment contains the ordered terms, even if one window is shorter. Select a unique minimum covering window by source-word count over all candidates, including zero-gap windows; ties remain rejected. Only after selecting that minimum require at least one intervening source word; a zero-gap minimum must not be replaced by a longer window. Restore the full original report substring from the first matched word through the last, preserving all intervening words, spacing, and punctuation.
-- **Rationale:** The bounded responses repeatedly assembled exact words from a single source sentence while omitting intervening context. If the omitted content is discarded or evidence is simply accepted, the result can reverse meaning. Copying the unique complete source window preserves that context while refusing ambiguous or ungrounded output.
-- **Evidence / source:** Synthetic tests cover a unique window with intervening terms/punctuation, retained context words, selecting a uniquely shorter window within one segment, multiple matching segments with unequal window lengths, ties, a zero-gap minimum followed by a longer gapped window, punctuation-only gaps, sentence and line boundaries, reversed order, partial terms, stemming, and one-term evidence. Ambiguous output still reaches the exact validation failure and optional rejected-evidence callback; no partial target set is accepted. No raw report or captured quote is used as a fixture.
-- **Consequences:** This is a narrow fresh-response recovery rule, not an evidence-acceptance bypass: the returned evidence is the exact contiguous source span and must still pass the unchanged literal guard. Exact literals, cached records, label/uncertainty values, prompts, schema, C2/Luna selection, capture/journal behavior, checkpoint scope, provider denial safeguards, Gold exclusions, and zero automatic retries remain unchanged. No synonym, stemming, reordering, partial-word, paraphrase, semantic, or multi-segment matching is permitted. Contextual matching does not establish clinical relevance or label quality.
-- **Revisit when:** A unique-window tie is ever admitted, context is omitted from the stored evidence, or matching crosses a sentence/line delimiter.
-
-## D016 - Extend opt-in rejected-evidence capture to bounded cohorts
-
-- **Date:** 2026-10-15
-- **Status:** Implemented locally with strict-TDD evidence: CLI 45/45 and Responses 54/54 pass; subscription ran 42 tests with the known Windows child-timeout failure and one symlink skip; full suite ran 240 tests with 238 passing, the same known failure, and one skip. `py_compile` and `git diff --check` pass. Independent privacy/correctness review and the parent CLI spot check passed. No live request or capture was performed for this implementation.
-- **Decision:** Allow `label-all` to reuse the existing fixed-slot rejected-evidence sink only when the caller opts in and supplies an explicit positive total `--limit`. Keep capture off by default. Preflight the fixed destination before writing the cohort-scope journal or constructing authentication/provider clients; pass the same bounded sink through each 14-record window.
-- **Rationale:** A stopped bounded run needs the exact rejected evidence for local diagnosis, but enabling an unbounded capture path or risking a request before detecting an occupied slot would broaden privacy and retry risk.
-- **Evidence / source:** Synthetic CLI tests exercise missing-limit and strict-boolean rejection, occupied-slot refusal without journal/auth/request activity, default-off behavior, and sink forwarding with an eligible offset. The existing capture helper still enforces fixed-path exclusivity, privacy-limited payload shape, and its UTF-8 byte bound.
-- **Consequences:** The limit remains a total checkpoint target; cached records count toward it. Capture is limited to the first actually rejected fresh evidence, stores only the rejected string and eligible offset, and does not change evidence acceptance, label content, cached-record strictness, checkpoint semantics, provider-denial protections, or retry behavior. No evidence is captured on success, cached records, or schema/provider failures. The fixed slot must be absent; users must preserve earlier capture contents before a new invocation. No live capture, cause diagnosis, or label-quality conclusion is established.
-- **Revisit when:** The fixed capture contract or bounded-run policy changes, or synthetic tests reveal a path that writes the journal or starts authentication before slot preflight.
-
-## D020 - Clarify literal evidence serialization in a versioned SIWC prompt
-
-- **Date:** 2026-10-15
-- **Status:** Implemented locally; independent review and live evaluation pending. D019 remains abandoned.
-- **Decision:** Derive `c2-literal-evidence-v1` from frozen Candidate 2 only in the SIWC adapter. Insert instructions before the existing REPORT delimiter; copy the report unchanged. Require one contiguous verbatim excerpt, preserve backslashes, quotes, apostrophes, punctuation, numbers, spacing and case, and distinguish JSON escaping from the decoded evidence string. Explicitly prohibit encoding repair, joining separated passages, appending punctuation, and empty evidence used to evade validation. Explicitly override the earlier frozen-template 200-character maximum in this SIWC-only addition: prefer concise excerpts around 200 characters, but retain necessary longer literal excerpts rather than truncate or rewrite to fit (D008). Labels, uncertainty and schema remain unchanged.
-- **Provenance:** Record one safe cohort journal `prompt_boundary` event containing only this version and the successful-checkpoint start offset, after prefix and scope checks and before authentication. The planned migration starts at 64; existing 64 records remain legacy C2. Repeated resumes preserve the marker. A marker at an already-complete checkpoint records an invocation boundary with zero newly labeled rows, not proof the revised prompt was used. Malformed, duplicate, conflicting or future-offset markers reject before authentication or writes. This is a prompt boundary, not a full prompt/model/data fingerprint. Standalone pilot requests also use the revised adapter prompt; cohort boundary metadata applies only to `label-all`.
-- **Rationale / limits:** The user authorized a prompt change after repeated nonliteral evidence at offset 64. Improve generation rather than broaden punctuation/numeric acceptance. Frozen E007/Gold-58 prompts and results remain unchanged; the derived prompt has no Gold-58 performance estimate. D018 recovery, exact final validation, cached strictness, model, Gold exclusion, total-500 cap and provider-limit guards are unchanged. The resumed cohort is mixed-prompt and must not be described as one homogeneous prompt evaluation. See E019.
-- **Rollback:** Remove the SIWC-only builder, cohort prompt boundary and associated tests/docs; retain D018, historical checkpoints, private diagnostic archives and the recorded mixed-prompt provenance. Do not silently resume with an incompatible existing boundary marker.
-
-## D021 - Preserve apparent source typos in SIWC evidence
-
-- **Date:** 2026-10-15
-- **Status:** Source `6a380bd` verified and used in three bounded live attempts; all stopped at 472 with zero accepted v2 records. The prompt clarification did not resolve the failure; 500 remains incomplete.
-- **Decision:** Version `c2-literal-evidence-v2` adds explicit instructions not to correct spelling, grammar or apparent source typos, with a synthetic nonmedical illustration. A difficult passage may be replaced by a shorter still-relevant contiguous original excerpt, never a rewritten phrase or an empty-evidence workaround. Keep v1 JSON serialization instructions and D008 length preference; frozen E007 prompts, labels, uncertainty, schema, model, D018 recovery and exact validation are unchanged.
-- **Reason:** Parent-owned private diagnosis at saved offset 472 found repeated source-word spelling modification plus terminal punctuation in model evidence; source transfer was unchanged. This is a generation instruction revision, not proof of clinical correctness or a new punctuation/spelling acceptance rule. No actual private example is embedded in the prompt/tests/docs.
-- **Provenance:** Narrowly support recognized append-only boundaries v1 then v2, with nondecreasing start offsets. The live journal preserves v1 at 64 and v2 at 472; v2 currently has zero accepted rows. Future compatible resumes are idempotent. Fresh runs record v2 at zero; unmarked legacy migration still records only the current revision at the current prefix, without inventing earlier history. Reject unknown or duplicate versions, reverse version/order/offset history, future/noninteger offsets and extra/missing fields before writes/authentication. Equal offsets mean zero rows for the preceding version. This is not a general revision registry or full configuration fingerprint.
-- **Limits / rollback:** Observed saved cohort mix is 64 legacy, 408 v1 and zero v2; 28 records remain to reach 500. No homogeneous prompt-quality or Gold-58 comparison claim. Remove only v2 guidance/history handling and their tests/docs to roll back; preserve history/checkpoints and refuse incompatible revision metadata rather than silently rewriting it. Provider safeguards, cap500 and retry policy remain unchanged. See E019.
-
-## D022 - Select source fragments instead of generating evidence quotations
-
-- **Date:** 2026-10-15
-- **Status:** Verified source `2a5e9db`; operational target 500 reached on 2026-10-16 (Europe/Madrid), adding 28 accepted v3 records after two rejected invalid references. Independent final aggregate audit passed; no clinical-quality claim.
-- **Decision:** Preserve the complete original REPORT as context and add a JSON catalogue of its nonblank original line slices from `splitlines(keepends=True)`, numbered in order from `line_000001` for each request. Do not trim, repair, truncate or normalize a selected line. The provider returns exactly `{label:boolean, evidence_id:string|null, uncertainty:number}` per target. The SIWC-only v3 instructions explicitly override the earlier free-text evidence field and maximum-length wording, without changing target definitions or clinical labeling rules. Null retains the existing no-relevant-supporting-or-contradicting-passage policy; it is not an escape hatch for difficult quotes.
-- **Local boundary:** Resolve only exact string IDs from that same request's catalogue, copy the complete original source slice into `evidence`, then run the unchanged public schema validator and literal source guard. Reject nonstring/non-null or unknown IDs, incorrect target/field sets, and inherited invalid labels/uncertainties atomically, without mutating provider data or accepting partial records. Fresh v3 never invokes the legacy free-quote recovery path. Cached public records and strict validation remain unchanged; retained D018 helpers are tested as legacy helpers, not evidence that fresh v3 recovery runs.
-- **Provenance:** Extend only the explicit recognized history tuple to v1, v2, v3; preserve v1 at 64, zero-accepted-row v2 at 472 and v3 at 472. Idempotence, equal offsets for zero rows, pre-auth/no-write rejection of malformed, duplicate, reverse, unknown and future boundaries remain. Frozen E007/Gold-58 prompts, label schema, model, Gold exclusion, total 500 cap, transport/stream handling and provider/retry guards are unchanged.
-- **Tradeoffs / limits:** The catalogue duplicates source text in the request, increasing token use. One-line reports have a whole-report fragment; stored evidence may be coarse or longer than the old preference and may emit the existing length warning. No hard cap is added, and relevance/clinical accuracy is not established by copying an exact line. Selecting a valid but irrelevant line remains possible. This changes provider wire format, not saved public record format. No new dependency, flag or retry framework. See E020.
-- **Rollback:** Revert the v3 request/resolution/history handling and associated tests/docs as one unit, while preserving all public-schema checkpoints, private diagnostic history and revision boundaries; do not silently reinterpret incompatible journal history.
-
-- **Verification / observed outcome:** Responses 65/65, CLI 47/47 and frozen comparison 15/15 passed; independent review repeated these suites and added 17 invalid-wire probes plus 5 valid / 9 invalid-history probes; parent Responses 65 spot check passed. Full 253: 251 passed, the known Windows child-timeout failure and one directory-symlink skip. Compilation/diff checks passed. Live auto028 (472 to 484) and auto029 (484 to 498) each exited 2 on invalid source references without quote capture; auto030 (498 to 500) exited 0. Prefixes were preserved according to parent monitoring. Source-line copying is operationally adopted for these 28 records, not validated as clinically correct or permission to label additional studies.
-
-
-## D023 — Freeze the first silver-label development split and bound raw-reader evidence
-
-- **Date:** 2026-10-16
-- **Status:** Local protocol frozen; manifest, folds and synthetic reader checks independently verified. Actual competition-image decoding remains pending.
-- **Decision:** For the current ordered 500-study non-Gold cohort only, use three report-grouped folds with seed 42 and group-level logical-OR labels, expanding group allocations back to studies. Report normalization is casefolding plus whitespace collapse while retaining punctuation. The normalized-report hash is a dependency proxy, not verified patient identity. Keep the 58 Gold studies outside the manifest and folds. Treat these report-derived labels as silver validation labels, not clinical ground truth. Do not filter records by uncertainty or infer authorization for additional Gold use from this preparation. The raw DICOM reader is a bounded, aggregate-only scaffold over manifest-listed studies and series; it does not define normalization, orientation, preprocessing, training, or Kaggle compatibility.
-- **Rationale:** The fixed allocation provides a reproducible development baseline without tuning against fold outcomes. A bounded raw reader tests only the currently unresolved local header/decode path while preventing unbounded corpus scanning or accidental publication of identifiers and pixels.
-- **Evidence / source:** Independent BP-02 verification confirmed 500 study assignments across 488 normalized-report groups, both classes for all 12 labels in each train/validation partition, and zero group overlap. The private manifest and fold artifact remain local. `src/rsna_knee/validation/cohort.py` implements the configured allocation and audit. `src/rsna_knee/data/dicom_benchmark.py` and `notebooks/baseline_dicom_benchmark.py` define the reader scaffold; no Kaggle image root or actual competition DICOM decode has been verified.
-- **Consequences:** Do not select a seed or split by observed model performance. Preserve Gold exclusion, mixed prompt-era provenance, and uncertainty values only in source records; do not infer patient independence from report hashes. The reader benchmark is not preprocessing evidence; establish image availability, decoding behavior, and any preprocessing policy in the authorized Kaggle environment before training. No model has been trained by this decision.
-- **Revisit when:** The user authorizes a different cohort or Gold policy, stronger patient-identity/group evidence becomes available, the fixed split proves infeasible, or authorized Kaggle validation establishes a required change to the raw-reader or preprocessing scope.
-
-## D024 — Keep baseline decoded-array preprocessing provisional
-
-- **Date:** 2026-10-16
-- **Status:** Provisional local prototype; synthetic numerical tests and independent verification pass; actual-image validation pending.
-- **Decision:** For PP-01 only, provide a decoded-array preprocessing helper with deterministic endpoint-inclusive sampling (up to eight already ordered slices), explicit MONOCHROME1/2 handling, optional paired linear rescale, stored-value padding exclusion, and one linear 1st/99th-percentile range fit across valid selected pixels in each individual series. Degenerate percentile bounds fall back to observed min/max when data are nonconstant; truly constant data becomes zeros and is flagged. Require finite real-valued same-shaped arrays and genuine real numeric intensity metadata; reject unsafe numeric ranges. Integer stored pixels and padding tags must be within the exact binary64 integer domain (±2^53); percentile parameters reject booleans. Resize by bilinear interpolation using normalized mask-weighted interpolation into a square pixel-aspect-preserving letterbox and return a validity mask plus transform metadata. NumPy and Pillow are optional runtime dependencies; no DICOM reader integration is included.
-- **Rationale:** Establish a reproducible, testable local input contract before separately authorized training while keeping series statistics independent and making padding, inversion, accepted shapes, and normalization observable.
-- **Evidence / limits:** `src/rsna_knee/data/preprocessing.py` and `tests/test_preprocessing.py` pass 25 synthetic tests under bundled Python 3.12.14 with NumPy 2.3.5 and Pillow 12.3.0. The preceding full project suite passed outside the restricted sandbox (281 tests, zero failures, three skips); the project venv explicitly skipped the optional-dependency focused module. This is implementation evidence only. Percentiles, slice cap, output size, and interpolation have not been evaluated on competition images; no clinical or model-performance claim follows. Raw-array tests do not verify DICOM decoding semantics, full geometric order, physical-scale alignment, label quality, or downstream generalization.
-- **Consequences:** Keep this version explicitly `pp01-v1`; retain native spacing but do not resample to physical dimensions. Callers must geometrically order slices and supply decoder metadata. Reject incomplete rescale pairs and unsupported Modality LUTs rather than guessing. Before training, separately inspect authorized representative images and evaluate whether the provisional choices are adequate without using Gold-58 for model selection.
-- **Revisit when:** Independent verification or separately authorized representative-image evidence identifies a contract defect or justifies changing these provisional defaults.
-
-## D025 — Establish reusable scratch study-level training components
-
-- **Date:** 2026-10-16
-- **Status:** Provisional engineering baseline; synthetic unit tests pass; actual training and image validation pending.
-- **Decision:** Use the existing exact-byte-bound, deterministic three-fold grouped allocation for train/validation membership. Load selected studies lazily, preserve every manifest-listed series, and use at most eight PP-02-selected slices per series. The initial trainable model is a small shared three-stage scratch 2D CNN: zero invalid input pixels before encoding, validity-weight the spatial feature pool, mean selected slices within each series, mean series within each study, and emit 12 ordered logits. Report tie-correct per-target ROC-AUC; any missing class is undefined and makes macro AUC undefined.
-- **Rationale:** Provide reusable trainable interfaces while respecting report-hash grouping, variable study structure, letterbox validity masks, and the local-only constraint. The scratch encoder avoids hidden pretrained-weight downloads and an unnecessary model framework.
-- **Evidence / limits:** Synthetic tests exercise CPU forward/backward, invalid model inputs, lazy injected preprocessing, partition/subset guards, and perfect/reversed/tied/missing-class AUC cases. No competition DICOMs were read, no actual training was run, and no performance, clinical, image-suitability, or generalization claim is established.
-- **Consequences:** Batch one study initially; do not create padded series/slice batches or a full-cohort pixel cache. Treat safe categorical data failures as blockers, never silently drop examples. Keep this architecture provisional until separately authorized real-image or training evidence justifies revision.
-- **Revisit when:** Authorized training/validation evidence identifies a concrete data-contract or architecture limitation, while preserving the fixed fold and Gold-58 constraints.
-
-## D026 — Keep partial DICOM recovery explicit and opt-in
-
-- **Date:** 2026-10-26
-- **Status:** Opt-in recovery and bounded safety corrections locally verified on synthetic DICOMs (132 applicable tests); finalized v5 candidate passed parent verification/private visible canary and one authorized competition submission completed successfully (public 0.642 / private 0.620). Strict behavior remains default. The original hidden failure cause is still unknown.
-- **Decision:** Any partial-input recovery is a separately versioned, explicit opt-in path for a fresh submission candidate. The existing strict preprocessing default remains unchanged. Recovery may skip only categorized data failures while retaining all test.csv study rows, requiring at least one valid original series and slice per study, and emitting safe allowlisted counts/reasons/ordinals. Unexpected/programmer, security/path, provenance, model and checkpoint failures stay fatal. No geometry/pixel guessing, fabricated predictions, silent drops, or exception-text/identifier logging.
-- **Rationale:** A successful broad public audit does not classify the earlier generic hidden exception; the user authorized a controlled robustness path without claiming a cause.
-- **Consequences:** Preserve all previous candidates and frozen model/report/source pins. Require synthetic RED/GREEN, clean-input tensor and probability parity, actual production-runner CSV validation with only the model/checkpoint stubbed locally, and a parent-owned private canary before one competition submission.
-- **Revisit when:** Named regressions or production evidence show the policy cannot safely preserve strict behavior or distinguish recoverable data failures from unexpected failures.
-
-## D027 — Keep report-probability labels separate from frozen binary training labels
-
-- **Date:** 2026-10-27
-- **Status:** Approved source comparison completed; any training/evaluation adapter remains unimplemented and requires a separately scoped change.
-- **Decision:** For the authorized source comparison, use only Steven dataset Version 6's original `llm_labels_full.csv`. Preserve its probabilities and an explicit observation mask in a private overlay; treat exactly `0.5` as not addressed, not as a negative label. Keep the existing C2 binary cohort, folds, training reader, and model unchanged. Any future model comparison must use the same frozen cohort and memberships and a dedicated masked soft-target loss/evaluation path rather than the current integer-casting target reader.
-- **Rationale:** The original file represents the requested source; the v2 and v4 blend variants add transformations or another source. The current reader cannot safely represent soft values, and the public dataset's label-generation model/prompt is undisclosed.
-- **Evidence / limits:** E033 records the pinned source, exact 4,407-study inventory join, Gold-58 exclusion, 500-study paired descriptive comparison, and per-target masked coverage. These are agreement statistics against C2, not ground truth or a quality ranking. The author's reported Gold AUC was not computed or used. No training or model selection occurred.
-- **Revisit when:** A separately authorized training comparison is designed with a masked soft-target loss and metric protocol, unchanged C2 folds/model configuration, and explicit privacy/licensing review.
-
-## D028 — Prepare full non-Gold soft-label folds without training
-
-- **Date:** 2026-10-27
-- **Status:** Local full-cohort prefilter prepared and independently verified. No training was run.
-- **Decision:** Prepare a separate private inventory from the pinned Steven v1 probabilities for all 4,349 non-Gold studies. Retain any study with at least one observed target, keep `0.5` masked, and audit the 51 all-unknown studies separately. Assign deterministic three-fold memberships by normalized-report hash with the existing iterative multilabel allocator over observed positive/negative target indicators. Compute capped positive/negative class-weight proposals from each training partition only; do not apply them or alter validation.
-- **Rationale:** Expand preparation beyond the earlier fixed 500-study comparison while retaining partial labels and the existing C2 baseline, folds, model and integer-casting reader byte-for-byte.
-- **Evidence / limits:** E034 records 4,298 eligible studies, 4,175 report-hash groups, 24,035 series metadata rows, target/fold supports and input/output pins. Normalized report hashes are a duplicate-report proxy, not patient/site identities. No image availability/quality or DICOM decoding was assessed. The weights and masked loss are untrained heuristics; no model-comparison or performance conclusion follows.
-- **Consequences:** Keep the soft-target manifest and fold artifact private and separate from the existing reader. Require parent-independent verification before treating the prefilter as accepted evidence. Any training adapter or actual controlled model comparison remains separate, user-authorized work; this decision does not permanently prohibit it.
-- **Revisit when:** Independent verification completes, image QC establishes actual usable input coverage, or a separately approved training comparison defines its loss and evaluation protocol.
-
-## D029 — Isolate masked soft-label training from the binary baseline
-
-- **Date:** 2026-10-27
-- **Status:** Implementation and bounded corrective batch independently verified. No real-image training was run.
-- **Decision:** Add a separate explicit opt-in path for the pinned E034 partial-label artifacts. Keep floating-point targets and boolean observation masks distinct. Use unweighted masked soft BCE by default, with an optional mode for E034's train-only positive and negative weights. Compute BCE only on observed cells and normalize loss/validation metrics by observed-cell counts. Use frozen ImageNet1K V1 ResNet-18 and Adam with an explicitly supplied offline weights file pinned by SHA-256 and size; never silently initialize random production weights. Planning is the CLI default; execution requires `--execute` and writes only to a new private run directory.
-- **Rationale:** The legacy reader casts labels to integers and cannot safely represent `0.5` as unknown or preserve fractional probabilities. A separate dataset/objective/runner avoids changing the established binary path.
-- **Evidence / limits:** E035 records synthetic CPU optimizer/checkpoint proof, metadata-only fold-0 planning with streaming offline-weight hash validation, an 85-test selected nine-module suite (84 passed, one existing Windows symlink skip), and a parent 20-test focused spot-check (all passed). Parent independently verified all three corrective findings: frozen ImageNet1K V1/Adam and pinned weight provenance; masked extreme-logit safety and pre-update rejection of observed weighted overflow; and safe JSON handling for unexpected CLI exceptions. All eight protected hashes remained unchanged. No DICOM, weight deserialization, real-image QC/training, Kaggle operation, model-performance result, or generalization conclusion is included; no full-discovery-suite pass is claimed.
-- **Consequences:** Keep the 500-study C2 cohort/folds/model and legacy binary runner unchanged. Recompute and verify E034 fold/weight artifacts before model construction. Do not treat normalized-report groups as patient/site isolation; preserve unknown targets as masked; keep validation unweighted.
-- **Revisit when:** Parent independent verification is complete and separately authorized image QC/training evidence exists.
-
-## D030 — Stage offline masked-training preparation before any execution
-
-- **Date:** 2026-10-27
-- **Status:** Run03 was paused by independent execution review before upload. One bounded strict-TDD correction produced run04, which passed the independent package recheck. No image preflight or training was run.
-- **Decision:** Keep Kaggle training-package preparation separate from the verified masked-soft runner. Generate a fresh, deterministic, allowlisted source ZIP and separately pinned private assets. The notebook defaults to metadata-only plan mode with training disabled; a bounded decode-preflight stage is separately selectable and limited to eight studies. Full training requires an explicit stage and enablement after a successful preflight. Offline codec bootstrap and decoder verification precede pydicom imports.
-- **Rationale:** The local image directory is absent, and preparation must not be mistaken for image QC or training authorization. The previous package builder targets the legacy 500-study binary cohort, so reusing it unchanged could silently package the wrong protocol.
-- **Evidence / limits:** E036 records run03's independent failure and run04's corrected package/member hashes. The selected 12-module suite ran 120 tests (119 passed, one existing Windows symlink skip); executed generated-code tests cover side effects, codec target visibility, decoder availability, bounded mounts, persistent output-root alignment and preflight gating. The real generated default PLAN returned 2,850 training / 1,448 validation studies without pydicom or model import. Inventory distinguishes 23,765 eligible manifest series from 24,035 historical full non-Gold series. Independent verification of run04 passed. No real DICOM, Kaggle operation or training occurred; the broad suite was not run and the five-epoch runtime remains unqualified.
-- **Consequences:** Keep the E034 manifest/folds, old C2 assets, HSR artifacts and masked runner unchanged. Do not treat a generated package or historical runtime audit as evidence that the current image input is present or visually suitable. Run04 package verification is complete; image QC and any remote execution remain separate.
-- **Revisit when:** Separately authorized image preflight/training evidence changes the preparation assumptions.
-
-## D031 — Resume masked-soft training only from explicit epoch checkpoints
-
-- **Date:** 2026-10-28
-- **Status:** Implemented and covered by synthetic CPU continuation, source/hash/config compatibility and package tests. The authorized segmented Kaggle training has completed all five epochs through pinned checkpoint continuations, with final report/checkpoint observed; evaluation and submission are recorded separately in E040.
-- **Decision:** Save schema-versioned atomic checkpoints after each completed training-plus-validation epoch. Checkpoints bind model/optimizer state, completed history, and Python/NumPy/Torch RNG state to a compatibility fingerprint of the total five-epoch protocol, all packaged Python source bytes, pinned cohort/fold/weights, preprocessing/model source, max-steps setting, and runtime versions. Resumption requires an explicitly selected checkpoint and matching expected SHA-256, validates finite model/Adam state and device-appropriate RNG state before data/model factories or optimizer updates, preserves the mounted source checkpoint, and writes to a fresh private output directory. Kaggle runs are capped at two epochs and use an eight-hour epoch-boundary budget check.
-- **Rationale:** E038 projected about 19.56 hours for five epochs under its predeclared elapsed-time safety margin. The user explicitly authorized the previously gated full baseline on the condition that it can be continued across executions.
-- **Consequences:** No change to fold 0 membership (2,850/1,448), Gold exclusion, frozen ImageNet1K V1 ResNet-18, Adam 0.001, seed 42, 256-pixel inputs, eight-slice cap, or unweighted masked BCE. Keep the standard package notebook planning-only; generate a separate launch variant with explicit full-training opt-in, fresh run name, and aggregate progress logs. A pause is not a completed training result, and checkpoint contents remain private.
-- **Revisit when:** The first authorized Kaggle segment validates checkpoint readback and produces a checkpoint that can be mounted into a later fresh execution.
-
-\r\n
-
-## D032 — Compare native ResNet50 pretraining recipes under matched partial fine-tuning
-
-- **Date:** 2026-10-29.
-- **Decision:** Separate ImageNet V1 and generic RadImageNet ResNet50 adapters on the fixed 4298-study/fold0 masked-soft protocol, common 224-pixel MRI geometry, seed42, eight-slice cap and pooling. Train layer4 non-BN parameters plus identical seeded head; freeze every BN statistic and affine parameter. Adam head LR1e-3/layer4 LR1e-5 in both arms.
-- **Rationale:** Test medical-pretraining benefit without changing architecture, trainability or cohort between arms. Native normalization differs, so conclusions concern pretraining recipes rather than weights alone. Do not reuse downstream MRNet-finetuned weights.
-- **Compute control:** Two separate common-sample series-burden 8+8-study timing trials precede full training. Check conservative series-weighted epoch projection (1.5x+300s), first-checkpoint feasibility and quota before launch. Target five epochs with explicit-SHA atomic checkpoints; benchmark weights cannot initialize or resume full training. Keep original ResNet18 artifacts/pins unchanged.
-- **Evidence/limits:** E041 records pinned official assets, exact key mappings, strict CPU tests and the private package. Actual GPU cost and quality remain pending. No Gold training/selection, new competition submission, public weight/data publishing or unsupported license conclusion is authorized here.
-
-## D033 — Keep packaging and workflow structure incremental
-
-- **Date:** 2026-11-05
-- **Status:** Implemented for the existing `src/rsna_knee` package and five attention16 checkout commands; focused packaging, wrapper, and source-closure checks passed. This is not a full repository migration.
-- **Decision:** Build distributions from the `src/rsna_knee` package only, include its required labeling JSON schema explicitly, keep core dependencies empty, and expose optional `images` and `siwc` groups that mirror the existing requirement files. Add purpose-grouped wrappers for current attention16 data planning, training, validation export, review-sample preparation, and submission packaging. Leave the original root scripts in place and byte-identical; wrappers forward to them rather than duplicating workflow behavior.
-- **Rationale:** An installable package and recognizable command groups improve local reuse without relocating hash-sensitive code, changing existing workflow semantics, or widening package contents to data, notebooks, scripts, or private artifacts.
-- **Consequences:** The package metadata declares Python `>=3.10`; this does not certify every project workflow across that range. The base package and optional extras do not install/select Torch or CUDA; training still depends on a separately validated environment. The wrappers are checkout entry points, not installed console commands. Training, inference, review building, and package-building operations retain their existing explicit flags and private-output checks; package installation or `--help` does not authorize those operations. No full-suite, data, training, real-inference, Gold-58, or remote-operation claim follows from the focused checks. See [Repository structure and workflow entry points](STRUCTURE.md).
-- **Revisit when:** A root workflow script is moved or its pinned source changes, package contents or dependency groups change, or installed console commands are deliberately introduced.
+The reference training recipe now trains backbone layer3 as well as layer4 (BatchNorm frozen,
+both at learning rate 1e-5). In E055 it raised the 3-fold macro AUC from 0.861 to 0.864 and
+improved every fold, which met the rule fixed before the run. New experiments use
+`--trainable layer3` as their baseline and compare against E055. The code default stays
+`layer4`, so the E054 commands and fold fingerprints still reproduce the earlier baseline.
