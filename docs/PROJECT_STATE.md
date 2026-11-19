@@ -18,14 +18,16 @@
 
 ## Open items
 
-1. Run controlled experiments on the CV protocol. Kaggle T4 x2 sessions and the local GPU give
+1. **Running: E055**, fine-tuning layer3 as well as layer4
+   ([E055](../experiments/E055_attention16_layer3_finetuning.md)).
+2. Run further controlled experiments on the CV protocol. Kaggle T4 x2 sessions and the local GPU give
    identical results, so folds can run in parallel on both (`scripts/build_kaggle_cv_kernel.py`).
-2. Assess label quality: the qualified blinded review of the E053 disagreement sample is pending.
-3. Run controlled ablations on the CV protocol, for example 8 vs. 16 slices and attention vs. mean
+3. Assess label quality: the qualified blinded review of the E053 disagreement sample is pending.
+4. Run controlled ablations on the CV protocol, for example 8 vs. 16 slices and attention vs. mean
    pooling. The leaderboard history so far confounds these changes.
-4. Make the submission build self-contained. It currently reuses a frozen source archive from
+5. Make the submission build self-contained. It currently reuses a frozen source archive from
    `data/private/` for part of the inference code.
-5. Ask the organizers how the MIRA license applies to derived labels and weights before
+6. Ask the organizers how the MIRA license applies to derived labels and weights before
    distributing any artifact.
 
 ## Where things are
