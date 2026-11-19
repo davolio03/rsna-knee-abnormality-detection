@@ -25,7 +25,7 @@ import subprocess
 import sys
 import time
 
-CONFIG = {"folds": [0], "canary_studies": 0, "deadline_hours": 11.25}
+CONFIG = {"folds": [0], "canary_studies": 0, "deadline_hours": 11.25, "arm": "target_attention", "trainable": "layer4"}  # noqa: E501
 
 INPUT = Path("/kaggle/input")
 ROOT = Path("/tmp/root")
@@ -105,7 +105,7 @@ def gpus() -> list[str]:
 def steps(fold: int) -> list[list[str]]:
     fold_dir = RUNS / f"fold{fold}"
     done = (RUNS / "predictions" / f"metrics-fold{fold}.json").exists()
-    finished = (fold_dir / "target_attention/checkpoint-epoch-05.pt").exists()
+    finished = (fold_dir / CONFIG["arm"] / "checkpoint-epoch-05.pt").exists()
     commands = []
     if not finished:
         resume = ["--resume"] if (fold_dir / "run-plan.json").exists() else []
@@ -153,7 +153,8 @@ def main() -> int:
                 queue["step"], queue["step_started"] = name, time.time()
                 queue["process"] = subprocess.Popen(
                     [sys.executable, "-c", WORKER, str(ROOT), "--data-root", str(ROOT),
-                     "--runs", str(RUNS), *args],
+                     "--runs", str(RUNS), "--arm", CONFIG["arm"],
+                     "--trainable", CONFIG["trainable"], *args],
                     env=dict(env, CUDA_VISIBLE_DEVICES=str(queue["device"])),
                     stdout=queue["log"], stderr=subprocess.STDOUT)
             if time.time() >= deadline:
@@ -165,7 +166,7 @@ def main() -> int:
         report["folds"][fold] = {"device": queue["device"], "restored": queue["restored"],
                                  "steps": queue["results"],
                                  "epochs_saved": sorted(p.name for p in
-                                                        (RUNS / f"fold{fold}/target_attention").glob("*.pt"))}
+                                                        (RUNS / f"fold{fold}" / CONFIG["arm"]).glob("*.pt"))}
     report["wall_seconds"] = round(time.time() - started, 1)
     (Path("/kaggle/working") / "runner-report.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))

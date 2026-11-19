@@ -18,7 +18,7 @@ for entry in (ROOT / "src", ROOT):
         sys.path.insert(0, str(entry))
 
 from rsna_knee.training.cross_validation import (
-    CachePaths, predict_fold, summarize, summary_markdown, train_fold,
+    ARMS, TRAINABLE, CachePaths, predict_fold, summarize, summary_markdown, train_fold,
 )
 
 
@@ -29,6 +29,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runs", type=Path, default=None,
                         help="run directory (default: <data-root>/data/private/cv-attention16)")
     parser.add_argument("--weights", type=Path, default=None)
+    parser.add_argument("--arm", choices=ARMS, default="target_attention",
+                        help="pooling: target-specific attention (default) or equal mean")
+    parser.add_argument("--trainable", choices=TRAINABLE, default="layer4",
+                        help="backbone stages that learn: layer4 (default) or layer3 (layer3 and layer4)")
     commands = parser.add_subparsers(dest="command", required=True)
     train = commands.add_parser("train", help="train one fold (5 epochs)")
     train.add_argument("--fold", type=int, required=True)
@@ -46,13 +50,14 @@ def main(argv: list[str] | None = None) -> int:
     weights = (args.weights or data_root / "data/private/resnet50-pretraining-assets/run01/resnet50-radimagenet.pt")
     if args.command == "train":
         result = train_fold(root=ROOT, paths=paths, fold=args.fold, weights=weights,
-                            output=runs / f"fold{args.fold}", resume=args.resume)
+                            output=runs / f"fold{args.fold}", resume=args.resume, arm=args.arm,
+                            trainable=args.trainable)
         result = {key: result[key] for key in ("status", "fingerprint", "train_studies",
                                                "validation_studies", "wall_seconds")}
     elif args.command == "predict":
-        checkpoint = args.checkpoint or runs / f"fold{args.fold}/target_attention/checkpoint-epoch-05.pt"
+        checkpoint = args.checkpoint or runs / f"fold{args.fold}/{args.arm}/checkpoint-epoch-05.pt"
         result = predict_fold(root=ROOT, paths=paths, fold=args.fold, weights=weights,
-                              checkpoint=checkpoint, output=runs / "predictions")
+                              checkpoint=checkpoint, output=runs / "predictions", arm=args.arm)
     else:
         result = summarize(runs / "predictions", tuple(args.folds))
         (runs / "cv-summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")

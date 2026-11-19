@@ -108,3 +108,67 @@ class MaskedAucTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArmTest(unittest.TestCase):
+    def test_known_arms_and_rejection(self):
+        from rsna_knee.training.cross_validation import ARMS, _check_arm
+        self.assertEqual(ARMS, ("target_attention", "equal_mean"))
+        self.assertEqual(_check_arm("equal_mean"), "equal_mean")
+        with self.assertRaises(ValueError):
+            _check_arm("max_pool")
+
+
+class Layer3Test(unittest.TestCase):
+    def _model(self):
+        import torch
+        import torchvision
+        from rsna_knee.models.attention_mil import RadImageNetAttentionStudyModel
+        from rsna_knee.models.resnet50 import ResNet50StudyModel
+        torch.manual_seed(0)
+        base = ResNet50StudyModel(torchvision.models.resnet50(weights=None), arm="radimagenet")
+        return RadImageNetAttentionStudyModel.from_base(base)
+
+    def test_unfreeze_layer3_trains_layer3_but_not_batchnorm(self):
+        import torch
+        from rsna_knee.training.cross_validation import unfreeze_layer3
+        model = self._model()
+        baseline = model.optimizer_groups()
+        self.assertFalse(any(p.requires_grad for p in model.backbone.layer3.parameters()))
+        unfreeze_layer3(model)
+        layer3 = model.backbone.layer3
+        convs = [p for n, p in layer3.named_parameters() if "conv" in n or "downsample.0" in n]
+        norms = [p for n, p in layer3.named_parameters() if "bn" in n or "downsample.1" in n]
+        self.assertTrue(convs and all(p.requires_grad for p in convs))
+        self.assertTrue(norms and not any(p.requires_grad for p in norms))
+        self.assertFalse(any(p.requires_grad for p in model.backbone.layer2.parameters()))
+        groups = model.optimizer_groups(head_lr=1e-3, backbone_lr=1e-5)
+        self.assertEqual([g["name"] for g in groups], ["head", "layer4"])
+        self.assertEqual(groups[1]["lr"], 1e-5)
+        self.assertEqual(len(groups[1]["params"]), len(baseline[1]["params"]) + len(convs))
+        optimizer = torch.optim.Adam(groups)  # rejects duplicates across groups
+        self.assertEqual(len(optimizer.param_groups), 2)
+
+        model.train()
+        images = torch.rand(2, 1, 64, 64)
+        masks = torch.ones_like(images, dtype=torch.bool)
+        model([images], [masks]).sum().backward()
+        self.assertIsNotNone(layer3[0].conv1.weight.grad)
+        self.assertGreater(float(layer3[0].conv1.weight.grad.abs().sum()), 0.0)
+        self.assertIsNone(model.backbone.layer2[0].conv1.weight.grad)
+
+    def test_fingerprint_marks_layer3_and_keeps_baseline(self):
+        from rsna_knee.training.cross_validation import fold_fingerprint
+        with tempfile.TemporaryDirectory() as temp:
+            paths = _fixture(Path(temp))
+            weights = Path(temp) / "weights.pt"
+            weights.write_bytes(b"w")
+            base, base_config = fold_fingerprint(paths, 1, weights)
+            same, _ = fold_fingerprint(paths, 1, weights, "target_attention", "layer4")
+            layer3, config = fold_fingerprint(paths, 1, weights, "target_attention", "layer3")
+            self.assertEqual(base, same)
+            self.assertNotIn("trainable_backbone", base_config)
+            self.assertEqual(config["trainable_backbone"], "layer3")
+            self.assertNotEqual(base, layer3)
+            with self.assertRaises(ValueError):
+                fold_fingerprint(paths, 1, weights, "target_attention", "layer2")

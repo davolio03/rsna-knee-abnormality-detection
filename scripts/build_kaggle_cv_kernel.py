@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,14 +20,16 @@ DATASETS = ["davidsulleiro/rsna-knee-attention16-cv-inputs",
 
 
 def build(*, folds: list[int], out: Path, slug: str, title: str, canary_studies: int,
-          deadline_hours: float, resume_from: str | None) -> Path:
+          deadline_hours: float, resume_from: str | None,
+          arm: str = "target_attention", trainable: str = "layer4") -> Path:
     source = (ROOT / "scripts/kaggle_cv_runner.py").read_text(encoding="utf-8")
-    default = 'CONFIG = {"folds": [0], "canary_studies": 0, "deadline_hours": 11.25}'
-    if source.count(default) != 1:
+    pattern = re.compile(r"^CONFIG = \{.*\}.*$", re.MULTILINE)
+    if len(pattern.findall(source)) != 1:
         raise ValueError("runner CONFIG line not found")
-    config = {"folds": folds, "canary_studies": canary_studies, "deadline_hours": deadline_hours}
+    config = {"folds": folds, "canary_studies": canary_studies, "deadline_hours": deadline_hours,
+              "arm": arm, "trainable": trainable}
     out.mkdir(parents=True, exist_ok=False)
-    (out / "cv_runner.py").write_text(source.replace(default, f"CONFIG = {json.dumps(config)}"),
+    (out / "cv_runner.py").write_text(pattern.sub(lambda _: f"CONFIG = {json.dumps(config)}", source),
                                       encoding="utf-8", newline="\n")
     metadata = {"id": slug, "title": title, "code_file": "cv_runner.py", "language": "python",
                 "kernel_type": "script", "is_private": True, "enable_gpu": True,
@@ -46,12 +49,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--canary-studies", type=int, default=0)
     parser.add_argument("--deadline-hours", type=float, default=11.25)
     parser.add_argument("--resume-from", default=None)
+    parser.add_argument("--arm", choices=["target_attention", "equal_mean"], default="target_attention")
+    parser.add_argument("--trainable", choices=["layer4", "layer3"], default="layer4")
     args = parser.parse_args(argv)
     if len(set(args.folds)) != len(args.folds) or not set(args.folds) <= {0, 1, 2}:
         parser.error("folds must be distinct values in 0..2")
     print(build(folds=args.folds, out=args.out, slug=args.slug, title=args.title,
                 canary_studies=args.canary_studies, deadline_hours=args.deadline_hours,
-                resume_from=args.resume_from))
+                resume_from=args.resume_from, arm=args.arm,
+                trainable=args.trainable))
     return 0
 
 

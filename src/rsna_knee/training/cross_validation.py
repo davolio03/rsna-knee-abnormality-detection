@@ -139,24 +139,88 @@ def _configure_cuda():
     return free_bytes, total_bytes
 
 
-def fold_fingerprint(paths: CachePaths, fold: int, weights: Path) -> tuple[str, dict]:
-    configuration = {"schema": "attention16-cv-v1", "fold": fold, **RECIPE,
+ARMS = ("target_attention", "equal_mean")
+# Backbone stages that learn. "layer4" is the E050 recipe; "layer3" trains layer3 and layer4.
+TRAINABLE = ("layer4", "layer3")
+
+
+def _check_arm(arm: str) -> str:
+    if arm not in ARMS:
+        raise ValueError(f"unknown arm: {arm}")
+    return arm
+
+
+def _check_trainable(trainable: str) -> str:
+    if trainable not in TRAINABLE:
+        raise ValueError(f"unknown trainable backbone setting: {trainable}")
+    return trainable
+
+
+def unfreeze_layer3(model):
+    """Let ``model`` also train backbone layer3, at the layer4 learning rate.
+
+    BatchNorm stays frozen, as in the E050 recipe. The pinned model module runs stem-to-layer3
+    without gradients, so the slice forward pass is replaced on this instance only. Layer3 joins
+    the existing backbone optimizer group, whose ``layer4`` name the checkpoint validators expect.
+    """
+    import torch
+    from torch import nn
+
+    backbone = model.backbone
+    for module in backbone.layer3.modules():
+        if not isinstance(module, nn.modules.batchnorm._BatchNorm):
+            for parameter in module.parameters(recurse=False):
+                parameter.requires_grad_(True)
+
+    def backbone_forward(rgb):
+        with torch.no_grad():
+            value = backbone.maxpool(backbone.relu(backbone.bn1(backbone.conv1(rgb))))
+            value = backbone.layer2(backbone.layer1(value))
+        return backbone.layer4(backbone.layer3(value))
+
+    groups = model.optimizer_groups
+
+    def optimizer_groups(*, head_lr=1e-3, backbone_lr=1e-5):
+        result = groups(head_lr=head_lr, backbone_lr=backbone_lr)
+        if [group["name"] for group in result] != ["head", "layer4"]:
+            raise ValueError("unexpected optimizer groups")
+        result[1]["params"] = [p for p in backbone.layer3.parameters() if p.requires_grad] + result[1]["params"]
+        return result
+
+    model.backbone_forward = backbone_forward
+    model.optimizer_groups = optimizer_groups
+    return model
+
+
+def fold_fingerprint(paths: CachePaths, fold: int, weights: Path,
+                     arm: str = "target_attention", trainable: str = "layer4") -> tuple[str, dict]:
+    configuration = {"schema": "attention16-cv-v1", "fold": fold, **RECIPE, "arm": _check_arm(arm),
                      "manifest_sha256": _sha256_file(paths.manifest),
                      "folds_sha256": _sha256_file(paths.folds),
                      "plan_sha256": _sha256_file(paths.plan),
                      "weights_sha256": _sha256_file(weights)}
+    if _check_trainable(trainable) != "layer4":  # absent for the baseline, keeping its fingerprint
+        configuration["trainable_backbone"] = trainable
     raw = json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(raw).hexdigest(), configuration
 
 
 def train_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, output: Path,
-               resume: bool = False) -> dict[str, Any]:
-    """Train the fixed five-epoch E050 recipe with ``fold`` held out."""
+               resume: bool = False, arm: str = "target_attention",
+               trainable: str = "layer4") -> dict[str, Any]:
+    """Train the fixed five-epoch E050 recipe with ``fold`` held out.
+
+    ``arm`` selects the pooling: ``target_attention`` (default) or ``equal_mean``.
+    ``trainable="layer3"`` also trains backbone layer3 (see ``unfreeze_layer3``).
+    """
+    from unittest import mock
+
+    from rsna_knee.training import attention_mil
     from rsna_knee.training.attention_mil import AttentionMILConfig, _train_arm
     from rsna_knee.training.resnet50 import _seed_everything
 
     output = Path(output)
-    fingerprint, configuration = fold_fingerprint(paths, fold, weights)
+    fingerprint, configuration = fold_fingerprint(paths, fold, weights, arm, trainable)
     if resume:
         saved = json.loads((output / "run-plan.json").read_text(encoding="utf-8"))
         if saved["fingerprint"] != fingerprint:
@@ -168,7 +232,7 @@ def train_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, outpu
     validation_data = FoldCacheDataset(paths, fold, "validation")
     if set(train_data.study_ids) & set(validation_data.study_ids):
         raise ValueError("train/validation overlap")
-    arm_output = output / "target_attention"
+    arm_output = output / arm
     if not resume:
         arm_output.mkdir(parents=True)
         _write_json(output / "run-plan.json", {"fingerprint": fingerprint, "configuration": configuration,
@@ -178,9 +242,16 @@ def train_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, outpu
                                 output_dir=output, device="cuda")
     _seed_everything(42, "cuda")
     started = time.time()
-    report = _train_arm(config, arm="target_attention", output=arm_output, fingerprint=fingerprint,
-                        train_data=train_data, validation_data=validation_data,
-                        epochs=RECIPE["epochs"], resume=resume)
+    build_model = attention_mil._model_for_arm
+    if trainable == "layer3":
+        patch = mock.patch.object(attention_mil, "_model_for_arm",
+                                  lambda *args, **kwargs: unfreeze_layer3(build_model(*args, **kwargs)))
+    else:
+        patch = mock.patch.object(attention_mil, "_model_for_arm", build_model)
+    with patch:
+        report = _train_arm(config, arm=arm, output=arm_output, fingerprint=fingerprint,
+                            train_data=train_data, validation_data=validation_data,
+                            epochs=RECIPE["epochs"], resume=resume)
     result = {"status": report["status"], "fingerprint": fingerprint, "configuration": configuration,
               "train_studies": len(train_data), "validation_studies": len(validation_data),
               "wall_seconds": time.time() - started, "arm": report,
@@ -190,7 +261,7 @@ def train_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, outpu
 
 
 def predict_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, checkpoint: Path,
-                 output: Path) -> dict[str, Any]:
+                 output: Path, arm: str = "target_attention") -> dict[str, Any]:
     """Score the held-out fold with a final checkpoint; write private predictions and metrics."""
     import numpy as np
     import torch
@@ -200,7 +271,7 @@ def predict_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, che
     _configure_cuda()
     config = AttentionMILConfig(repository_root=Path(root), weights_path=Path(weights),
                                 output_dir=Path(output), device="cuda")
-    model = _model_for_arm(config, "target_attention")
+    model = _model_for_arm(config, _check_arm(arm))
     state = torch.load(checkpoint, map_location="cpu", weights_only=True)
     if state.get("completed_epochs") != RECIPE["selected_epoch"]:
         raise ValueError("checkpoint is not the preselected final epoch")
@@ -223,7 +294,7 @@ def predict_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, che
     output.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(output / f"oof-fold{fold}.npz", study_ids=np.asarray(data.study_ids),
                         probabilities=probabilities, soft_targets=soft, observed=observed)
-    result = {"fold": fold, "studies": len(data), "checkpoint_sha256": _sha256_file(checkpoint),
+    result = {"fold": fold, "arm": arm, "studies": len(data), "checkpoint_sha256": _sha256_file(checkpoint),
               "predict_seconds": time.time() - started, **metrics}
     _write_json(output / f"metrics-fold{fold}.json", result)
     return result
