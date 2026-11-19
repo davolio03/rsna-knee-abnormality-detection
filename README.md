@@ -16,17 +16,18 @@ study ─► DICOM series ─► 16 ordered slices / series ─► RadImageNet R
 ### Cross-validation (3-fold, study-grouped)
 
 <!-- CV_RESULTS:START -->
-**Macro ROC-AUC 0.861 ± 0.003** over 3 report-grouped folds (pooled out-of-fold 0.860, 4,298
-studies). Per fold: 0.864 / 0.858 / 0.860.
+**Macro ROC-AUC 0.864 ± 0.003** over 3 report-grouped folds (pooled out-of-fold 0.863, 4,298
+studies), with layer3 and layer4 fine-tuned ([E055](experiments/E055_attention16_layer3_finetuning.md)).
+Per fold: 0.867 / 0.862 / 0.863. The layer4-only baseline (E054) scored 0.861 ± 0.003.
 
 | Target | AUC (mean ± std) | | Target | AUC (mean ± std) |
 |---|---:|---|---|---:|
-| ACL | 0.825 ± 0.013 | | PF OA | 0.840 ± 0.009 |
-| MCL | 0.805 ± 0.008 | | Effusion | 0.839 ± 0.006 |
-| Medial Meniscus | 0.868 ± 0.012 | | Synovitis | 0.917 ± 0.028 |
-| Lateral Meniscus | 0.823 ± 0.020 | | Baker's | 0.887 ± 0.014 |
-| Medial OA | 0.883 ± 0.002 | | Contusion | 0.883 ± 0.010 |
-| Lateral OA | 0.861 ± 0.007 | | Fracture | 0.901 ± 0.011 |
+| ACL | 0.832 ± 0.012 | | PF OA | 0.843 ± 0.007 |
+| MCL | 0.810 ± 0.016 | | Effusion | 0.844 ± 0.002 |
+| Medial Meniscus | 0.870 ± 0.012 | | Synovitis | 0.914 ± 0.027 |
+| Lateral Meniscus | 0.827 ± 0.020 | | Baker's | 0.901 ± 0.012 |
+| Medial OA | 0.885 ± 0.002 | | Contusion | 0.882 ± 0.009 |
+| Lateral OA | 0.863 ± 0.005 | | Fracture | 0.900 ± 0.010 |
 
 Per-fold and pooled tables: [`docs/RESULTS.md`](docs/RESULTS.md).
 <!-- CV_RESULTS:END -->
@@ -46,6 +47,7 @@ them is on the official leaderboard.
 | RadImageNet ResNet-50, 8 slices, mean pooling | [E047](experiments/archive/E047_radimagenet_model_submission.md) | 0.825 | 0.802 |
 | + target-specific attention MIL | [E049](experiments/archive/E049_attention_model_submission.md) | 0.869 | 0.848 |
 | + 16 slices per series (**current model**) | [E051](experiments/E051_attention16_model_submission.md) | **0.885** | **0.862** |
+| + `layer3` fine-tuning | [E056](experiments/E056_attention16_layer3_submission.md) | pending | pending |
 
 Consecutive rows change more than one variable and use one validation fold, so they show the path
 the project took. They are not controlled ablations.
@@ -57,9 +59,9 @@ the project took. They are not controlled ablations.
 | **Labels** | Report-derived probabilities from the public CC0 dataset [`stevenleehans/rsna-knee-llm-report-labels`](https://www.kaggle.com/datasets/stevenleehans/rsna-knee-llm-report-labels) (v6, `llm_labels_full.csv`). A value of exactly 0.5 means "not mentioned" and is masked out. 4,298 non-Gold studies keep at least one observed target. |
 | **Splits** | 3 folds grouped by normalized-report hash and balanced with an iterative multilabel allocator (seed 42). The 58 expert-labelled "Gold" studies are excluded from all training and model selection. |
 | **Preprocessing** | All series per study; up to 16 uniformly sampled ordered slices per series; 224 × 224; intensities scaled to [0, 1]; pixel validity masks. |
-| **Model** | RadImageNet ResNet-50 backbone (only `layer4` trainable, BatchNorm frozen). Each target has its own attention over slices, then over series. |
+| **Model** | RadImageNet ResNet-50 backbone (`layer3` and `layer4` trainable, BatchNorm frozen; the submitted E051 model trained `layer4` only). Each target has its own attention over slices, then over series. |
 | **Objective** | Masked soft-label binary cross-entropy over observed cells only. |
-| **Training** | Adam (head 1e-3, `layer4` 1e-5), 5 epochs, one study per step, seed 42. The final epoch is fixed in advance, with no early stopping on validation. About 70 min/epoch on an RTX 3060 Laptop (6 GB). |
+| **Training** | Adam (head 1e-3, backbone 1e-5), 5 epochs, one study per step, seed 42. The final epoch is fixed in advance, with no early stopping on validation. About 95 min/epoch on an RTX 3060 Laptop (6 GB), or 70 min with `layer4` only. |
 | **Inference** | Offline Kaggle notebook: pinned model export and a code-only source archive. It runs in about 30 s on the visible test studies (T4 × 2). |
 
 ## Repository layout
