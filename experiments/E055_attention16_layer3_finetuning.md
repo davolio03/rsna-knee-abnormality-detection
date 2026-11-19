@@ -1,7 +1,7 @@
 # E055 — Fine-tune backbone layer3 as well as layer4
 
 - **Date:** 2026-11-19
-- **Status:** running
+- **Status:** completed — adopt (see [D036](../docs/DECISIONS.md#d036--fine-tune-layer3-and-layer4-2026-11-19))
 - **Parent:** E054 (3-fold cross-validated baseline, macro AUC 0.861 ± 0.003)
 
 ## Hypothesis
@@ -36,13 +36,49 @@ as no improvement; the simpler layer4-only recipe stays.
   session (`scripts/build_kaggle_cv_kernel.py --folds 0 1 --trainable layer3`). E054 showed that
   the two GPU types give identical results for this recipe.
 - Canary (40 studies, local): peak GPU memory 0.56 GB vs. 0.45 GB for the baseline; training
-  about 40% slower per study. A Kaggle fold is expected to exceed one 11.25-hour session and
-  resume in a second one.
+  about 40% slower per study.
+- Runtime: local fold 2 trained in 28,714 s (8.0 h) and scored in 676 s. On Kaggle, folds 0 and 1
+  trained in 33,225 s and 33,405 s (9.2 h) and scored in about 1,300 s each, all in one session
+  (kernel `rsna-knee-attention16-cv-layer3` version 1); the expected second session was not needed.
+- Private outputs: `data/private/cv-attention16-layer3/` (predictions for all folds, summary,
+  local fold-2 checkpoints, and the Kaggle fold-0 epoch-5 checkpoint and logs in `kaggle-run01/`).
 
 ## Results
 
-Pending.
+Macro ROC-AUC **0.864 ± 0.003** (mean ± std over 3 folds; pooled out-of-fold 0.863), against
+0.861 ± 0.003 (pooled 0.860) for E054.
+
+| Fold | E054 (layer4) | E055 (layer3 + layer4) | Change |
+|---|---:|---:|---:|
+| 0 | 0.8643 | 0.8671 | +0.0028 |
+| 1 | 0.8579 | 0.8622 | +0.0043 |
+| 2 | 0.8604 | 0.8634 | +0.0030 |
+| **Mean** | 0.8608 | **0.8642** | **+0.0034** |
+
+Per target (mean over folds; full table in [RESULTS.md](../docs/RESULTS.md)):
+
+| Target | E054 | E055 | Change |
+|---|---:|---:|---:|
+| ACL | 0.825 | 0.832 | +0.006 |
+| MCL | 0.805 | 0.810 | +0.005 |
+| Medial Meniscus | 0.868 | 0.870 | +0.003 |
+| Lateral Meniscus | 0.823 | 0.827 | +0.005 |
+| Medial OA | 0.883 | 0.885 | +0.002 |
+| Lateral OA | 0.861 | 0.863 | +0.002 |
+| PF OA | 0.840 | 0.843 | +0.003 |
+| Effusion | 0.839 | 0.844 | +0.005 |
+| Synovitis | 0.917 | 0.914 | −0.003 |
+| Baker's | 0.887 | 0.901 | +0.015 |
+| Contusion | 0.883 | 0.882 | −0.001 |
+| Fracture | 0.901 | 0.900 | −0.001 |
 
 ## Conclusion
 
-Pending.
+**Adopt.** The mean macro AUC rises by 0.0034, above the 0.003 threshold, and every fold improves,
+so the pre-registered rule is met. The margin is small: it is about one fold standard deviation,
+and the rule passes by only 0.0004. As predicted, the weakest fine-detail targets gain (ACL, MCL,
+Lateral Meniscus +0.005 to +0.006); the largest gain is Baker's cyst (+0.015). Synovitis,
+Contusion and Fracture change by −0.001 to −0.003, within their fold spread.
+
+Cost: about 30–40% more training time per fold and 0.1 GB more GPU memory; inference is
+unchanged. The fold-0 model was submitted as [E056](E056_attention16_layer3_submission.md).

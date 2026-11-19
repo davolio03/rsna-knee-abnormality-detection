@@ -64,3 +64,11 @@ The main branch keeps only the code, records and documents needed by the current
 Everything superseded is preserved at the tag `competition-archive-2026-11` and under
 `experiments/archive/` and `docs/archive/`: label-pipeline micro-decisions, Kaggle audit and
 packaging iterations, earlier models and the detailed project log.
+
+## D036 — Fine-tune layer3 and layer4 (2026-11-19)
+
+The reference training recipe now trains backbone layer3 as well as layer4 (BatchNorm frozen,
+both at learning rate 1e-5). In E055 it raised the 3-fold macro AUC from 0.861 to 0.864 and
+improved every fold, which met the rule fixed before the run. New experiments use
+`--trainable layer3` as their baseline and compare against E055. The code default stays
+`layer4`, so the E054 commands and fold fingerprints still reproduce the earlier baseline.
