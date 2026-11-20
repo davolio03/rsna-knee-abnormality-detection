@@ -16,6 +16,7 @@ Command-line entry points in pipeline order. Run them from the repository root; 
 | Review | `prepare_local16_review_sample.py` | Build the private blinded disagreement-review sample (E053). |
 | Submit | `build_kaggle_attention_sixteen_submission_package.py` | Package the model export and the offline inference notebook for Kaggle (E051). |
 | Submit | `build_attention16_weight_swap.py` | Put a new attention16 checkpoint's weights into the pinned E051 model export, so the E051 notebook can run it unchanged (E056). |
+| Submit | `build_attention16_ensemble_notebook.py` | Build the notebook that averages the three E055 fold models with the pinned inference code (E057). |
 | Labeling (experimental) | `siwc_label_reports.py`, `label_reports.py`, `run_gold58_prompt_comparison.py` | The project's own LLM report-labeling clients and the frozen Gold-58 prompt-comparison protocol. They are not used for the current model. See [LABELING.md](../docs/LABELING.md). |
 
 `build_kaggle_submission_package.py` and `local_masked_full_cache.py` are shared helpers that
