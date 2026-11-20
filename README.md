@@ -48,6 +48,7 @@ them is on the official leaderboard.
 | + target-specific attention MIL | [E049](experiments/archive/E049_attention_model_submission.md) | 0.869 | 0.848 |
 | + 16 slices per series | [E051](experiments/E051_attention16_model_submission.md) | 0.885 | 0.862 |
 | + `layer3` fine-tuning (**current model**) | [E056](experiments/E056_attention16_layer3_submission.md) | **0.891** | **0.868** |
+| 3-fold ensemble of the `layer3` models | [E057](experiments/E057_attention16_layer3_ensemble_submission.md) | pending | pending |
 
 Consecutive rows change more than one variable and use one validation fold, so they show the path
 the project took. They are not controlled ablations.

@@ -8,6 +8,8 @@
   on fold 0 ([E055](../experiments/E055_attention16_layer3_finetuning.md),
   [E056](../experiments/E056_attention16_layer3_submission.md)).
 - **Best Kaggle score (late):** public 0.891 / private 0.868 (E056), up from 0.885 / 0.862 (E051).
+  The 3-fold ensemble ([E057](../experiments/E057_attention16_layer3_ensemble_submission.md)) is
+  submitted; its score is pending.
 - **Reference training recipe:** the same model with layer3 and layer4 fine-tuned
   ([D036](DECISIONS.md#d036--fine-tune-layer3-and-layer4-2026-11-19)).
 - **Validation:** 3-fold study-grouped cross-validation, using ROC-AUC against observed
