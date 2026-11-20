@@ -38,6 +38,14 @@ the two sources). Our labels leave 24.5% of cells unobserved, including 84% of S
    labels. A drop against our report labels is expected and is not a criterion.
 3. **External — Kaggle.** Late submission of the E058 ensemble, compared with E057.
 
+E054 is scored on Gold-58 as well, to check the E055 adoption against expert labels. That check
+is informative only; it does not change D036.
+
+Gold-58 samples come from a separate cache built with the same preprocessing
+(`scripts/build_extra_cache_kernel.py`, Kaggle CPU, 111 studies: 58 Gold, 51 training studies
+outside our cohort that the 7th-place labels cover, and 2 controls). Both controls matched the
+existing cache array for array.
+
 **Decision rule.** Adopt the 7th-place labels if the Gold-58 ensemble macro AUC of E058 exceeds
 E055's **and** the private Kaggle score of the E058 ensemble exceeds E057's. If the two disagree,
 the result is inconclusive.
