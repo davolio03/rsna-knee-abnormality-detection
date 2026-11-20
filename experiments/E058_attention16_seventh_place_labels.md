@@ -18,7 +18,7 @@ Only the training targets: `songqizhou/rsna-knee-llm-labels`, file `8_final_labe
 cells; SHA-256 `fce2e4e4…e26532`). Half of each value is the author's LLM label and half the
 out-of-fold prediction of their image models. It covers all 4,298 studies of our cohort.
 Everything else is E055: layer3 + layer4, target attention, 16 slices at 224 px, 5 epochs, epoch 5
-fixed, seed 42, same cache and folds. Option `--labels` (commit after `ce5a335`) swaps the targets
+fixed, seed 42, same cache and folds. Option `--labels` (commit after `a68bcc3`) swaps the targets
 in training only; held-out folds keep the cached report labels.
 
 ## Pre-analysis (before training)

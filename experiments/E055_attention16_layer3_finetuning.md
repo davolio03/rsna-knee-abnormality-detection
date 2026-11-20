@@ -31,7 +31,7 @@ as no improvement; the simpler layer4-only recipe stays.
 
 ## Execution
 
-- Code: commit `c9552e8`. Fold 2 runs on the local RTX 3060 Laptop
+- Code: commit `f840353`. Fold 2 runs on the local RTX 3060 Laptop
   (`data/private/cv-attention16-layer3/`); folds 0 and 1 run in parallel on a Kaggle T4 x2
   session (`scripts/build_kaggle_cv_kernel.py --folds 0 1 --trainable layer3`). E054 showed that
   the two GPU types give identical results for this recipe.
