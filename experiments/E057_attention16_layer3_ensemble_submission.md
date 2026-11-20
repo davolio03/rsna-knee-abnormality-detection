@@ -1,7 +1,7 @@
 # E057 — Late submission of the 3-fold E055 ensemble
 
 - **Date:** 2026-11-20
-- **Status:** submitted; score pending
+- **Status:** completed
 - **Parent:** E055 (layer3 fold models), E056 (single fold-0 submission)
 
 ## Question
@@ -46,8 +46,11 @@ version with the Kaggle CLI on 2026-11-20 (late submission, reference 58606738).
 |---|---:|---:|
 | E051 (layer4, fold 0) | 0.885 | 0.862 |
 | E056 (layer3, fold 0) | 0.891 | 0.868 |
-| E057 (layer3, 3-fold ensemble) | pending | pending |
+| E057 (layer3, 3-fold ensemble) | **0.902** | **0.877** |
 
 ## Conclusion
 
-Pending the score.
+The ensemble beats the single fold-0 model by +0.011 public and +0.009 private, more than the
+expected noise-sized gain and more than layer3 fine-tuning itself added (+0.006). It matches the
+Gold-58 check in E055, where the E055 ensemble also beat every member. The 3-fold ensemble becomes
+the reference submission; later submissions are compared with it (E058).
