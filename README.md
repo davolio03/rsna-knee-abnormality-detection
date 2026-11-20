@@ -46,8 +46,8 @@ them is on the official leaderboard.
 | ResNet-18, masked soft labels, full cohort | [E040](experiments/archive/E040_masked_model_evaluation_submission.md) | 0.701 | 0.683 |
 | RadImageNet ResNet-50, 8 slices, mean pooling | [E047](experiments/archive/E047_radimagenet_model_submission.md) | 0.825 | 0.802 |
 | + target-specific attention MIL | [E049](experiments/archive/E049_attention_model_submission.md) | 0.869 | 0.848 |
-| + 16 slices per series (**current model**) | [E051](experiments/E051_attention16_model_submission.md) | **0.885** | **0.862** |
-| + `layer3` fine-tuning | [E056](experiments/E056_attention16_layer3_submission.md) | pending | pending |
+| + 16 slices per series | [E051](experiments/E051_attention16_model_submission.md) | 0.885 | 0.862 |
+| + `layer3` fine-tuning (**current model**) | [E056](experiments/E056_attention16_layer3_submission.md) | **0.891** | **0.868** |
 
 Consecutive rows change more than one variable and use one validation fold, so they show the path
 the project took. They are not controlled ablations.
@@ -59,7 +59,7 @@ the project took. They are not controlled ablations.
 | **Labels** | Report-derived probabilities from the public CC0 dataset [`stevenleehans/rsna-knee-llm-report-labels`](https://www.kaggle.com/datasets/stevenleehans/rsna-knee-llm-report-labels) (v6, `llm_labels_full.csv`). A value of exactly 0.5 means "not mentioned" and is masked out. 4,298 non-Gold studies keep at least one observed target. |
 | **Splits** | 3 folds grouped by normalized-report hash and balanced with an iterative multilabel allocator (seed 42). The 58 expert-labelled "Gold" studies are excluded from all training and model selection. |
 | **Preprocessing** | All series per study; up to 16 uniformly sampled ordered slices per series; 224 × 224; intensities scaled to [0, 1]; pixel validity masks. |
-| **Model** | RadImageNet ResNet-50 backbone (`layer3` and `layer4` trainable, BatchNorm frozen; the submitted E051 model trained `layer4` only). Each target has its own attention over slices, then over series. |
+| **Model** | RadImageNet ResNet-50 backbone (`layer3` and `layer4` trainable, BatchNorm frozen). Each target has its own attention over slices, then over series. |
 | **Objective** | Masked soft-label binary cross-entropy over observed cells only. |
 | **Training** | Adam (head 1e-3, backbone 1e-5), 5 epochs, one study per step, seed 42. The final epoch is fixed in advance, with no early stopping on validation. About 95 min/epoch on an RTX 3060 Laptop (6 GB), or 70 min with `layer4` only. |
 | **Inference** | Offline Kaggle notebook: pinned model export and a code-only source archive. It runs in about 30 s on the visible test studies (T4 × 2). |

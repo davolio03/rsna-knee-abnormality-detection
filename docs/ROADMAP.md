@@ -9,7 +9,7 @@
 | Labels | Public LLM report labels adopted as masked soft targets. Own LLM-labeling clients built and piloted, but not used for the final model. |
 | Validation design | 3-fold report-hash-grouped multilabel split. Gold-58 excluded. |
 | Data layer | Verified 16-slice tensor cache for all 4,298 studies (61 GB). |
-| Modeling | Progression from ResNet-18 (0.620 private) to RadImageNet ResNet-50 with target attention and 16 slices (0.862 private). |
+| Modeling | Progression from ResNet-18 (0.620 private) to RadImageNet ResNet-50 with target attention and 16 slices (0.868 private with layer3 fine-tuning, E056). |
 | Inference | Offline, pinned Kaggle notebook package. |
 | Baseline (E054) | 3-fold CV macro ROC-AUC 0.861 ± 0.003; see [RESULTS.md](RESULTS.md). |
 | Layer3 fine-tuning (E055) | 3-fold CV macro ROC-AUC 0.864 ± 0.003, better on every fold; adopted ([D036](DECISIONS.md#d036--fine-tune-layer3-and-layer4-2026-11-19)). |

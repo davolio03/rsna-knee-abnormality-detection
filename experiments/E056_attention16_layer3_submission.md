@@ -1,7 +1,7 @@
 # E056 — Late submission of the E055 layer3 fold-0 model
 
 - **Date:** 2026-11-19
-- **Status:** submitted; score pending
+- **Status:** completed — public 0.891 / private 0.868
 - **Parent:** E055 (layer3 fine-tuning), E051 (submission package)
 
 ## Question
@@ -41,8 +41,13 @@ submission, reference 58582253).
 | Submission | Public | Private |
 |---|---:|---:|
 | E051 (layer4, fold 0) | 0.885 | 0.862 |
-| E056 (layer3 + layer4, fold 0) | pending | pending |
+| E056 (layer3 + layer4, fold 0) | **0.891** | **0.868** |
+| Change | +0.006 | +0.006 |
 
 ## Conclusion
 
-Pending the score.
+**Consistent with E055.** Both leaderboard splits improve by 0.006, the same direction as the CV
+gain (+0.003 on fold 0, +0.0034 mean). This is the best late score so far. One submission cannot
+separate the gain from leaderboard noise, so the evidence for layer3 fine-tuning is still the
+cross-validation in E055; the leaderboard result does not contradict it. The E056 model replaces
+E051 as the current model.
