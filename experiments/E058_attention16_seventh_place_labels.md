@@ -1,7 +1,7 @@
 # E058 — Train on the 7th-place image-and-report labels
 
 - **Date:** 2026-11-20
-- **Status:** running
+- **Status:** Gold-58 criterion met; Kaggle submission pending (weekly GPU quota)
 - **Parent:** E055 (layer3 fine-tuning, cached report labels)
 
 ## Hypothesis
@@ -54,10 +54,40 @@ the result is inconclusive.
 
 Folds 0 and 1 on a Kaggle T4 x2 session, fold 2 on the local RTX 3060 Laptop, as in E055.
 
+Runtime: Kaggle folds 0 and 1 took 9.3 h of training and 21 min of prediction each (9.7 h wall
+time for the session); local fold 2 took 8.1 h of training and 11 min of prediction.
+
 ## Results
 
-Pending.
+**Primary — Gold-58 (58 studies, expert labels), macro AUC.**
+
+| Run | Fold 0 | Fold 1 | Fold 2 | Ensemble |
+|---|---:|---:|---:|---:|
+| E055 (report labels) | 0.869 | 0.858 | 0.861 | 0.871 |
+| E058 (7th-place labels) | 0.890 | 0.895 | 0.896 | **0.897** |
+
+Every E058 fold model beats every E055 fold model. Per target (ensembles), E058 gains on 8 of 12
+targets, most on Synovitis (+0.084, 0.749 → 0.833), Effusion (+0.073), MCL (+0.057) and Medial
+Meniscus (+0.053), and loses on PF OA (−0.030), Lateral OA (−0.027), Lateral Meniscus (−0.021)
+and Baker's (−0.011). With 58 studies, single-target differences are noisy.
+
+**Secondary — CV (OOF macro AUC, mean of folds).**
+
+| Labels used for scoring | E055 | E058 |
+|---|---:|---:|
+| Our cached report labels (observed cells) | 0.864 | 0.844 |
+| 7th-place labels (all cells, binarized at 0.5) | 0.921 | 0.966 |
+
+As expected, E058 scores lower against the labels it was not trained on and higher against the
+ones it was trained on, so CV cannot settle the question; it does show that the models disagree
+with our report labels mostly where the label sources disagree.
+
+**External — Kaggle.** Not yet run. The ensemble package is ready
+(`scripts/build_attention16_ensemble_notebook.py --experiment E058`; private datasets
+`rsna-knee-attention16-labels7-fold{0,1,2}`, export SHA-256 `a85e7600…62a471`, `1a6f7823…3d9a7b`,
+`4d24d68a…f8aaa2`), but the push was refused because the account's weekly 30 h GPU quota was used
+up by the training runs.
 
 ## Conclusion
 
-Pending.
+Pending the Kaggle score. The Gold-58 half of the decision rule is met (+0.026 ensemble macro AUC).
