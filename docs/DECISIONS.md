@@ -72,3 +72,20 @@ both at learning rate 1e-5). In E055 it raised the 3-fold macro AUC from 0.861 t
 improved every fold, which met the rule fixed before the run. New experiments use
 `--trainable layer3` as their baseline and compare against E055. The code default stays
 `layer4`, so the E054 commands and fold fingerprints still reproduce the earlier baseline.
+
+## D037 — Gold-58 for expert evaluation and final training (2026-11-20)
+
+Supersedes the restriction in D004. The project no longer builds its own report labels, so the
+prompt comparison that D004 reserved Gold-58 for will not run. Gold-58 now has two uses:
+
+1. **Expert evaluation.** Compare candidate models on the 58 expert labels. Each comparison and its
+   decision rule are written in the experiment record before scoring. No hyperparameter or epoch
+   search on Gold-58. Cross-validation fold models never train on Gold-58, so each fold model and
+   their ensemble can be scored on it. With 58 studies the macro AUC has a noise of about ±0.01;
+   read small differences with care.
+2. **Final training.** Models trained only for a Kaggle submission may include the 58 studies with
+   their expert labels. A model trained this way can no longer be evaluated on Gold-58.
+
+Gold IDs and label values are still never stored in Git. External label tables that were built
+with Gold-58 (for example, prompts chosen on it) are allowed as training labels; their Gold-58
+rows are not used.

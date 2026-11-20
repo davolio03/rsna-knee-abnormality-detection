@@ -31,7 +31,7 @@ as no improvement; the simpler layer4-only recipe stays.
 
 ## Execution
 
-- Code: commit `c9552e8`. Fold 2 runs on the local RTX 3060 Laptop
+- Code: commit `f840353`. Fold 2 runs on the local RTX 3060 Laptop
   (`data/private/cv-attention16-layer3/`); folds 0 and 1 run in parallel on a Kaggle T4 x2
   session (`scripts/build_kaggle_cv_kernel.py --folds 0 1 --trainable layer3`). E054 showed that
   the two GPU types give identical results for this recipe.
@@ -82,3 +82,19 @@ Contusion and Fracture change by −0.001 to −0.003, within their fold spread.
 
 Cost: about 30–40% more training time per fold and 0.1 GB more GPU memory; inference is
 unchanged. The fold-0 model was submitted as [E056](E056_attention16_layer3_submission.md).
+
+## Gold-58 check (2026-11-20)
+
+Scored later on the 58 expert-labelled Gold studies, as declared in
+[E058](E058_attention16_seventh_place_labels.md) under
+[D037](../docs/DECISIONS.md#d037--gold-58-for-expert-evaluation-and-final-training-2026-11-20).
+No fold model saw Gold-58.
+
+| | Fold 0 | Fold 1 | Fold 2 | Ensemble (mean logits) |
+|---|---:|---:|---:|---:|
+| E054 (layer4) | 0.858 | 0.860 | 0.857 | 0.865 |
+| E055 (layer3 + layer4) | 0.869 | 0.858 | 0.862 | **0.871** |
+
+Layer3 fine-tuning also wins on expert labels (+0.006 for the ensemble). The fold-0 models agree
+with the Kaggle private scores of the same models: 0.858 vs 0.862 (E051) and 0.869 vs 0.868 (E056).
+With 58 studies this is noisy, but the direction is consistent with CV and the leaderboard.

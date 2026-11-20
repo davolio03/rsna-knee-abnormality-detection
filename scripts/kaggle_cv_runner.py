@@ -25,7 +25,7 @@ import subprocess
 import sys
 import time
 
-CONFIG = {"folds": [0], "canary_studies": 0, "deadline_hours": 11.25, "arm": "target_attention", "trainable": "layer4"}  # noqa: E501
+CONFIG = {"folds": [0], "canary_studies": 0, "deadline_hours": 11.25, "arm": "target_attention", "trainable": "layer4", "labels": None}  # noqa: E501
 
 INPUT = Path("/kaggle/input")
 ROOT = Path("/tmp/root")
@@ -154,7 +154,9 @@ def main() -> int:
                 queue["process"] = subprocess.Popen(
                     [sys.executable, "-c", WORKER, str(ROOT), "--data-root", str(ROOT),
                      "--runs", str(RUNS), "--arm", CONFIG["arm"],
-                     "--trainable", CONFIG["trainable"], *args],
+                     "--trainable", CONFIG["trainable"],
+                     *(["--labels", str(ROOT / CONFIG["labels"])] if CONFIG.get("labels") else []),
+                     *args],
                     env=dict(env, CUDA_VISIBLE_DEVICES=str(queue["device"])),
                     stdout=queue["log"], stderr=subprocess.STDOUT)
             if time.time() >= deadline:

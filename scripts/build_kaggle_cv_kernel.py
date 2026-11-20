@@ -21,13 +21,13 @@ DATASETS = ["davidsulleiro/rsna-knee-attention16-cv-inputs",
 
 def build(*, folds: list[int], out: Path, slug: str, title: str, canary_studies: int,
           deadline_hours: float, resume_from: str | None,
-          arm: str = "target_attention", trainable: str = "layer4") -> Path:
+          arm: str = "target_attention", trainable: str = "layer4", labels: str | None = None) -> Path:
     source = (ROOT / "scripts/kaggle_cv_runner.py").read_text(encoding="utf-8")
     pattern = re.compile(r"^CONFIG = \{.*\}.*$", re.MULTILINE)
     if len(pattern.findall(source)) != 1:
         raise ValueError("runner CONFIG line not found")
     config = {"folds": folds, "canary_studies": canary_studies, "deadline_hours": deadline_hours,
-              "arm": arm, "trainable": trainable}
+              "arm": arm, "trainable": trainable, "labels": labels}
     out.mkdir(parents=True, exist_ok=False)
     (out / "cv_runner.py").write_text(pattern.sub(lambda _: f"CONFIG = {json.dumps(config)}", source),
                                       encoding="utf-8", newline="\n")
@@ -51,13 +51,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resume-from", default=None)
     parser.add_argument("--arm", choices=["target_attention", "equal_mean"], default="target_attention")
     parser.add_argument("--trainable", choices=["layer4", "layer3"], default="layer4")
+    parser.add_argument("--labels", default=None,
+                        help="training-label CSV path relative to the repository root, shipped in the inputs dataset")
     args = parser.parse_args(argv)
     if len(set(args.folds)) != len(args.folds) or not set(args.folds) <= {0, 1, 2}:
         parser.error("folds must be distinct values in 0..2")
     print(build(folds=args.folds, out=args.out, slug=args.slug, title=args.title,
                 canary_studies=args.canary_studies, deadline_hours=args.deadline_hours,
                 resume_from=args.resume_from, arm=args.arm,
-                trainable=args.trainable))
+                trainable=args.trainable, labels=args.labels))
     return 0
 
 

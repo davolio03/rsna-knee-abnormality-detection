@@ -35,7 +35,7 @@ This is fixed-label local validation evidence, not AUC, independent clinical acc
 
 ## Execution and verification
 
-The strict-TDD exporter was committed as source commit `a8ea5f7` (two files). Its RED checks preceded implementation and the bounded resume-integrity correction.
+The strict-TDD exporter was committed as source commit `cfefb15` (two files). Its RED checks preceded implementation and the bounded resume-integrity correction.
 
 - `$env:PYTHONPATH='src'; & 'data/private/local-cuda-env/Scripts/python.exe' -m unittest tests.test_local16_validation_export` — 8 passed.
 - `$env:PYTHONPATH='src'; & 'data/private/local-cuda-env/Scripts/python.exe' -m unittest tests.test_local16_full_cache tests.test_attention_sixteen_submission` — 10 passed.

@@ -66,7 +66,7 @@ against expert labels. Gold-58 is excluded.
   between folds; compare those targets with care.
 - The weakest targets are MCL (0.80), Lateral Meniscus (0.82) and ACL (0.83) in E054.
 - For reference, the same recipe scored 0.885 public / 0.862 private on the Kaggle leaderboard
-  (E051, late submission). The local proxy and the private score are close, but they use
+  (E051, late submission); the E055 fold-0 model scored 0.891 / 0.868 (E056). The local proxy and the private score are close, but they use
   different labels and studies.
 
 ## Hardware

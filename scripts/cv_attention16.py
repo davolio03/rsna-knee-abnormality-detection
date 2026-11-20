@@ -33,6 +33,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="pooling: target-specific attention (default) or equal mean")
     parser.add_argument("--trainable", choices=TRAINABLE, default="layer4",
                         help="backbone stages that learn: layer4 (default) or layer3 (layer3 and layer4)")
+    parser.add_argument("--labels", type=Path, default=None,
+                        help="external training-label CSV (StudyInstanceUID + 12 targets); "
+                             "default: the cached report labels")
     commands = parser.add_subparsers(dest="command", required=True)
     train = commands.add_parser("train", help="train one fold (5 epochs)")
     train.add_argument("--fold", type=int, required=True)
@@ -51,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "train":
         result = train_fold(root=ROOT, paths=paths, fold=args.fold, weights=weights,
                             output=runs / f"fold{args.fold}", resume=args.resume, arm=args.arm,
-                            trainable=args.trainable)
+                            trainable=args.trainable, labels=args.labels)
         result = {key: result[key] for key in ("status", "fingerprint", "train_studies",
                                                "validation_studies", "wall_seconds")}
     elif args.command == "predict":

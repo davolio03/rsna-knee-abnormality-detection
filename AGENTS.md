@@ -27,8 +27,10 @@ before planning or recording an experiment.
 
 ## Data safety
 
-- **Gold-58 is reserved** ([D004](docs/DECISIONS.md#d004--gold-58-is-reserved)). Do not use it for
-  training, validation or model selection without a new explicit decision.
+- **Gold-58 is an expert evaluation set**
+  ([D037](docs/DECISIONS.md#d037--gold-58-for-expert-evaluation-and-final-training-2026-11-20)).
+  Declare each Gold-58 comparison and its decision rule before scoring, never tune on it, and
+  train on it only for final submission models.
 - **Never commit** raw competition data, DICOMs, reports, study identifiers, credentials,
   checkpoints, predictions or caches. They belong under the git-ignored `data/`. Review every
   file before committing; `.gitignore` is only a safeguard.

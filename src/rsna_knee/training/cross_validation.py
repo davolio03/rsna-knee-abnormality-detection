@@ -66,12 +66,44 @@ class CachePaths:
                    archives=cache / "cache-local-run01/archives")
 
 
+def load_label_table(path: Path) -> dict[str, Any]:
+    """Read an external study-level label CSV: ``StudyInstanceUID`` then the 12 targets in order.
+
+    Values are probabilities in [0, 1]. Every cell counts as observed, so such labels replace
+    both the cached soft targets and the cached observed mask during training.
+    """
+    import csv
+    import math
+
+    import numpy as np
+
+    with Path(path).open(encoding="utf-8", newline="") as stream:
+        reader = csv.reader(stream)
+        header = next(reader)
+        if header != ["StudyInstanceUID", *TARGETS]:
+            raise ValueError("label table header must be StudyInstanceUID followed by the 12 targets")
+        table: dict[str, Any] = {}
+        for row in reader:
+            values = [float(value) for value in row[1:]]
+            if len(values) != len(TARGETS) or not all(math.isfinite(v) and 0.0 <= v <= 1.0 for v in values):
+                raise ValueError("label values must be 12 probabilities in [0, 1]")
+            if row[0] in table:
+                raise ValueError("duplicate study in label table")
+            table[row[0]] = np.asarray(values, dtype=np.float32)
+    return table
+
+
 class FoldCacheDataset:
-    """Study-level dataset for one partition of one cross-validation fold."""
+    """Study-level dataset for one partition of one cross-validation fold.
+
+    With ``labels`` (from ``load_label_table``), samples carry those targets with every cell
+    observed instead of the cached report labels.
+    """
 
     target_names = TARGETS
 
-    def __init__(self, paths: CachePaths, fold: int, partition: str):
+    def __init__(self, paths: CachePaths, fold: int, partition: str,
+                 labels: dict[str, Any] | None = None):
         if partition not in ("train", "validation"):
             raise ValueError("partition must be 'train' or 'validation'")
         manifest = json.loads(Path(paths.manifest).read_text(encoding="utf-8"))
@@ -103,6 +135,12 @@ class FoldCacheDataset:
         self.fold, self.partition = fold, partition
         self.study_ids = [row["study_id"] for row in selected]
         self.rows = [cached[_sha256_text(study_id)] for study_id in self.study_ids]
+        self.labels = None
+        if labels is not None:
+            unlabeled = [study_id for study_id in self.study_ids if study_id not in labels]
+            if unlabeled:
+                raise ValueError(f"{len(unlabeled)} studies are missing from the label table")
+            self.labels = [labels[study_id] for study_id in self.study_ids]
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -121,8 +159,11 @@ class FoldCacheDataset:
             count = record["series_count"]
             images = [torch.from_numpy(data[f"images_{i:03d}"].copy()) for i in range(count)]
             masks = [torch.from_numpy(data[f"masks_{i:03d}"].copy()) for i in range(count)]
-            return (images, masks, torch.from_numpy(data["targets"].copy()),
-                    torch.from_numpy(data["observed"].copy()), index)
+            targets, observed = data["targets"].copy(), data["observed"].copy()
+        if self.labels is not None:
+            targets = self.labels[index].copy()
+            observed = np.ones_like(observed)
+        return images, masks, torch.from_numpy(targets), torch.from_numpy(observed), index
 
 
 def _configure_cuda():
@@ -193,7 +234,8 @@ def unfreeze_layer3(model):
 
 
 def fold_fingerprint(paths: CachePaths, fold: int, weights: Path,
-                     arm: str = "target_attention", trainable: str = "layer4") -> tuple[str, dict]:
+                     arm: str = "target_attention", trainable: str = "layer4",
+                     labels: Path | None = None) -> tuple[str, dict]:
     configuration = {"schema": "attention16-cv-v1", "fold": fold, **RECIPE, "arm": _check_arm(arm),
                      "manifest_sha256": _sha256_file(paths.manifest),
                      "folds_sha256": _sha256_file(paths.folds),
@@ -201,17 +243,21 @@ def fold_fingerprint(paths: CachePaths, fold: int, weights: Path,
                      "weights_sha256": _sha256_file(weights)}
     if _check_trainable(trainable) != "layer4":  # absent for the baseline, keeping its fingerprint
         configuration["trainable_backbone"] = trainable
+    if labels is not None:  # absent for the cached report labels, keeping earlier fingerprints
+        configuration["training_labels_sha256"] = _sha256_file(labels)
     raw = json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(raw).hexdigest(), configuration
 
 
 def train_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, output: Path,
                resume: bool = False, arm: str = "target_attention",
-               trainable: str = "layer4") -> dict[str, Any]:
+               trainable: str = "layer4", labels: Path | None = None) -> dict[str, Any]:
     """Train the fixed five-epoch E050 recipe with ``fold`` held out.
 
     ``arm`` selects the pooling: ``target_attention`` (default) or ``equal_mean``.
     ``trainable="layer3"`` also trains backbone layer3 (see ``unfreeze_layer3``).
+    ``labels`` is an external label CSV used as the training targets (see ``load_label_table``);
+    the held-out fold and ``predict_fold`` keep the cached report labels.
     """
     from unittest import mock
 
@@ -220,7 +266,7 @@ def train_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, outpu
     from rsna_knee.training.resnet50 import _seed_everything
 
     output = Path(output)
-    fingerprint, configuration = fold_fingerprint(paths, fold, weights, arm, trainable)
+    fingerprint, configuration = fold_fingerprint(paths, fold, weights, arm, trainable, labels)
     if resume:
         saved = json.loads((output / "run-plan.json").read_text(encoding="utf-8"))
         if saved["fingerprint"] != fingerprint:
@@ -228,7 +274,8 @@ def train_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, outpu
     elif output.exists():
         raise ValueError(f"output already exists: {output}")
     free_bytes, total_bytes = _configure_cuda()
-    train_data = FoldCacheDataset(paths, fold, "train")
+    train_data = FoldCacheDataset(paths, fold, "train",
+                                  load_label_table(labels) if labels is not None else None)
     validation_data = FoldCacheDataset(paths, fold, "validation")
     if set(train_data.study_ids) & set(validation_data.study_ids):
         raise ValueError("train/validation overlap")

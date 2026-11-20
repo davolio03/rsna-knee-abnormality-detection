@@ -26,7 +26,7 @@ The bundle contains **1,560 cached 224px PNG previews for 520 series across 89 s
 
 The builder revalidated all E052 export rows against the pinned cohort, labels, model/report pins, and provenance before selection. It verified the requested validation-report joins and cache study/series ordering; accessed NPZ payload hashes were checked through the existing safe cache reader. The full 61.2 GB cache verification was **not** repeated. Input hashes, code provenance, output inventory hashes, and aggregate verification evidence are retained in the private receipt and verification record.
 
-- Source implementation: commit `11c6271` (builder and tests).
+- Source implementation: commit `39f6ada` (builder and tests).
 - Strict-TDD/regression suite: 20 tests passed; the parent independently passed 11 pre-build checks.
 - Local post-build readback: all target/stratum quotas and control thresholds, exact report preservation, blinded/unblinded separation, blank review template, local file links, preview count/dimensions, and inventory/source hashes passed.
 - Parent independent post-build readback passed for all 1,744 inventoried files and receipt hashes, exact 90/89 selection, preserved multiline reports, blank template, 1,560 grayscale 224×224 previews across 520 series/89 studies, local-only links, and blind/unblind separation. It did not repeat the 1.33 GB selected-payload decode or full 61.2 GB cache verification.

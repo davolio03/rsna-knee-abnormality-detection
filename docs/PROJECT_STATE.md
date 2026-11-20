@@ -4,11 +4,12 @@
 - **Phase:** Post-competition consolidation. The competition closed on 2026-10-22, and every model
   submission was scored afterwards as a late submission.
 - **Current model:** RadImageNet ResNet-50 with target-specific slice and series attention, 16
-  slices per series, trained with masked soft-label BCE for 5 epochs
-  ([E050](../experiments/E050_local_sixteen_slice_attention_preparation.md),
-  [E051](../experiments/E051_attention16_model_submission.md)).
-- **Best Kaggle score (late):** public 0.885 / private 0.862 (E051). The layer3 fold-0 model
-  ([E056](../experiments/E056_attention16_layer3_submission.md)) is submitted; its score is pending.
+  slices per series, layer3 and layer4 fine-tuned, trained with masked soft-label BCE for 5 epochs
+  on fold 0 ([E055](../experiments/E055_attention16_layer3_finetuning.md),
+  [E056](../experiments/E056_attention16_layer3_submission.md)).
+- **Best Kaggle score (late):** public 0.902 / private 0.877 with the mean-logit ensemble of the
+  three E055 fold models ([E057](../experiments/E057_attention16_layer3_ensemble_submission.md)),
+  up from 0.891 / 0.868 for the single fold-0 model (E056) and 0.885 / 0.862 (E051).
 - **Reference training recipe:** the same model with layer3 and layer4 fine-tuned
   ([D036](DECISIONS.md#d036--fine-tune-layer3-and-layer4-2026-11-19)).
 - **Validation:** 3-fold study-grouped cross-validation, using ROC-AUC against observed
@@ -18,20 +19,24 @@
   See [RESULTS.md](RESULTS.md).
 - **Labels:** public LLM report labels (`stevenleehans/rsna-knee-llm-report-labels` v6). These
   are not expert labels.
-- **Gold-58:** reserved. It is excluded from training, validation and model selection
-  ([D004](DECISIONS.md#d004--gold-58-is-reserved)).
+- **Gold-58:** the expert evaluation set. Comparisons are declared before scoring, and only
+  final submission models may train on it
+  ([D037](DECISIONS.md#d037--gold-58-for-expert-evaluation-and-final-training-2026-11-20),
+  replacing the reservation in [D004](DECISIONS.md#d004--gold-58-is-reserved)). Its 16-slice
+  cache is being built.
+- **Running: E058**, the E055 recipe trained on the 7th-place labels
+  ([E058](../experiments/E058_attention16_seventh_place_labels.md)).
 
 ## Open items
 
-1. **Pending: E056 score.** Record the late Kaggle score of the layer3 fold-0 model.
-2. Run further controlled experiments on the CV protocol. Kaggle T4 x2 sessions and the local GPU give
+1. Run further controlled experiments on the CV protocol. Kaggle T4 x2 sessions and the local GPU give
    identical results, so folds can run in parallel on both (`scripts/build_kaggle_cv_kernel.py`).
-3. Assess label quality: the qualified blinded review of the E053 disagreement sample is pending.
-4. Run controlled ablations on the CV protocol against E055, for example 8 vs. 16 slices and
+2. Assess label quality: the qualified blinded review of the E053 disagreement sample is pending.
+3. Run controlled ablations on the CV protocol against E055, for example 8 vs. 16 slices and
    attention vs. mean pooling. The leaderboard history so far confounds these changes.
-5. Make the submission build self-contained. It currently reuses a frozen source archive from
+4. Make the submission build self-contained. It currently reuses a frozen source archive from
    `data/private/` for part of the inference code.
-6. Ask the organizers how the MIRA license applies to derived labels and weights before
+5. Ask the organizers how the MIRA license applies to derived labels and weights before
    distributing any artifact.
 
 ## Where things are
