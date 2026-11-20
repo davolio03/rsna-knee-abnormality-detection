@@ -73,6 +73,38 @@ class FoldCacheDatasetTest(unittest.TestCase):
             self.assertEqual(float(images[0][0, 0, 0, 0]), 3.0)
             self.assertEqual(index, 2)
 
+    def test_external_labels_replace_targets_and_mark_every_cell_observed(self):
+        from rsna_knee.training.cross_validation import load_label_table
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            paths = _fixture(directory)
+            rows = ["StudyInstanceUID," + ",".join(TARGETS)]
+            rows += [f"study-{i}," + ",".join([str(i / 10)] * 12) for i in range(9)]
+            (directory / "labels.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+            labels = load_label_table(directory / "labels.csv")
+            train = FoldCacheDataset(paths, 1, "train", labels)
+            _, _, targets, observed, _ = train[2]  # study-3
+            np.testing.assert_allclose(targets.numpy(), np.full(12, 0.3, np.float32))
+            self.assertTrue(observed.numpy().all())
+            self.assertEqual(str(targets.dtype), "torch.float32")
+            _, _, cached, _, _ = FoldCacheDataset(paths, 1, "train")[2]
+            np.testing.assert_allclose(cached.numpy(), np.full(12, 0.9, np.float32))
+            del labels["study-3"]
+            with self.assertRaises(ValueError):
+                FoldCacheDataset(paths, 1, "train", labels)
+
+    def test_label_table_rejects_bad_header_and_values(self):
+        from rsna_knee.training.cross_validation import load_label_table
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "labels.csv"
+            path.write_text("StudyInstanceUID," + ",".join(reversed(TARGETS)) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_label_table(path)
+            path.write_text("StudyInstanceUID," + ",".join(TARGETS) + "\ns," + ",".join(["1.5"] * 12) + "\n",
+                            encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_label_table(path)
+
     def test_rejects_out_of_range_fold(self):
         with tempfile.TemporaryDirectory() as temporary:
             paths = _fixture(Path(temporary))
@@ -172,3 +204,10 @@ class Layer3Test(unittest.TestCase):
             self.assertNotEqual(base, layer3)
             with self.assertRaises(ValueError):
                 fold_fingerprint(paths, 1, weights, "target_attention", "layer2")
+            labels = Path(temp) / "labels.csv"
+            labels.write_bytes(b"l")
+            relabeled, relabeled_config = fold_fingerprint(paths, 1, weights, "target_attention", "layer3",
+                                                           labels)
+            self.assertNotIn("training_labels_sha256", config)
+            self.assertEqual(relabeled_config["training_labels_sha256"], hashlib.sha256(b"l").hexdigest())
+            self.assertNotEqual(relabeled, layer3)

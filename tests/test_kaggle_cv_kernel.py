@@ -24,10 +24,10 @@ class BuildKernelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             out = builder.build(folds=[1, 2], out=Path(temp) / "k", slug="u/k", title="Kernel title",
                                 canary_studies=60, deadline_hours=1.5, resume_from="u/old",
-                                arm="equal_mean", trainable="layer3")
+                                arm="equal_mean", trainable="layer3", labels="data/x.csv")
             source = (out / "cv_runner.py").read_text(encoding="utf-8")
             self.assertIn('CONFIG = {"folds": [1, 2], "canary_studies": 60, "deadline_hours": 1.5, '
-                          '"arm": "equal_mean", "trainable": "layer3"}', source)
+                          '"arm": "equal_mean", "trainable": "layer3", "labels": "data/x.csv"}', source)
             compile(source, "cv_runner.py", "exec")
             metadata = json.loads((out / "kernel-metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["kernel_sources"], ["u/old"])
