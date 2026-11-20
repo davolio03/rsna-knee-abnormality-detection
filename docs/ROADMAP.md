@@ -17,8 +17,9 @@
 
 ## Next
 
-1. **Label quality.** Finish the blinded E053 review. Then decide whether a Gold-58 evaluation of
-   the label source is worth changing [D004](DECISIONS.md#d004--gold-58-is-reserved).
+1. **Label quality.** Train on the published 7th-place image-and-report labels (E058) and judge
+   them on Gold-58 ([D037](DECISIONS.md#d037--gold-58-for-expert-evaluation-and-final-training-2026-11-20))
+   and on Kaggle.
 2. **Controlled ablations on CV.** Change one variable at a time against E055: slice count,
    pooling, class weighting and epochs.
 3. **Ensembling.** Average the three fold models at inference, which costs no extra training.

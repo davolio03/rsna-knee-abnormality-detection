@@ -19,8 +19,13 @@
   See [RESULTS.md](RESULTS.md).
 - **Labels:** public LLM report labels (`stevenleehans/rsna-knee-llm-report-labels` v6). These
   are not expert labels.
-- **Gold-58:** reserved. It is excluded from training, validation and model selection
-  ([D004](DECISIONS.md#d004--gold-58-is-reserved)).
+- **Gold-58:** the expert evaluation set. Comparisons are declared before scoring, and only
+  final submission models may train on it
+  ([D037](DECISIONS.md#d037--gold-58-for-expert-evaluation-and-final-training-2026-11-20),
+  replacing the reservation in [D004](DECISIONS.md#d004--gold-58-is-reserved)). Its 16-slice
+  cache is being built.
+- **Running: E058**, the E055 recipe trained on the 7th-place labels
+  ([E058](../experiments/E058_attention16_seventh_place_labels.md)).
 
 ## Open items
 
