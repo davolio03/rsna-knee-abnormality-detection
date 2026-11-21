@@ -4,6 +4,7 @@ Examples:
     python scripts/cv_attention16.py train --fold 1
     python scripts/cv_attention16.py predict --fold 1
     python scripts/cv_attention16.py summarize --folds 0 1 2
+    python scripts/cv_attention16.py --trainable layer3 --labels <table.csv> train-final --seed 42
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ for entry in (ROOT / "src", ROOT):
         sys.path.insert(0, str(entry))
 
 from rsna_knee.training.cross_validation import (
-    ARMS, TRAINABLE, CachePaths, predict_fold, summarize, summary_markdown, train_fold,
+    ARMS, EXTRA_CACHE, TRAINABLE, CachePaths, predict_fold, summarize, summary_markdown, train_final, train_fold,
 )
 
 
@@ -40,6 +41,13 @@ def main(argv: list[str] | None = None) -> int:
     train = commands.add_parser("train", help="train one fold (5 epochs)")
     train.add_argument("--fold", type=int, required=True)
     train.add_argument("--resume", action="store_true")
+    final = commands.add_parser("train-final", help="train a final model on every labelled study, Gold-58 included")
+    final.add_argument("--seed", type=int, required=True)
+    final.add_argument("--resume", action="store_true")
+    final.add_argument("--extra-cache", type=Path, default=None,
+                       help="extra cache archive (default: <data-root>/" + EXTRA_CACHE + ")")
+    final.add_argument("--gold-labels", type=Path, default=None,
+                       help="official train.csv with the Gold-58 expert labels (default: <data-root>/data/train.csv)")
     predict = commands.add_parser("predict", help="score a held-out fold with its epoch-5 checkpoint")
     predict.add_argument("--fold", type=int, required=True)
     predict.add_argument("--checkpoint", type=Path, default=None)
@@ -57,6 +65,15 @@ def main(argv: list[str] | None = None) -> int:
                             trainable=args.trainable, labels=args.labels)
         result = {key: result[key] for key in ("status", "fingerprint", "train_studies",
                                                "validation_studies", "wall_seconds")}
+    elif args.command == "train-final":
+        if args.labels is None:
+            parser.error("train-final needs --labels")
+        result = train_final(root=ROOT, paths=paths, weights=weights, output=runs / f"final-seed{args.seed}",
+                             seed=args.seed, labels=args.labels,
+                             extra_archive=args.extra_cache or data_root / EXTRA_CACHE,
+                             gold_csv=args.gold_labels or data_root / "data/train.csv",
+                             resume=args.resume, arm=args.arm, trainable=args.trainable)
+        result = {key: result[key] for key in ("status", "fingerprint", "train_studies", "roles", "wall_seconds")}
     elif args.command == "predict":
         checkpoint = args.checkpoint or runs / f"fold{args.fold}/{args.arm}/checkpoint-epoch-05.pt"
         result = predict_fold(root=ROOT, paths=paths, fold=args.fold, weights=weights,

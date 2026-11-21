@@ -1,4 +1,4 @@
-"""Kaggle kernel that runs ``scripts/cv_attention16.py`` folds, one fold per visible GPU.
+"""Kaggle kernel that runs ``scripts/cv_attention16.py`` jobs, one job per visible GPU.
 
 Generated per run by ``scripts/build_kaggle_cv_kernel.py``, which replaces the ``CONFIG`` line.
 Inputs (attached as private datasets):
@@ -7,10 +7,13 @@ Inputs (attached as private datasets):
   commit) and ``data/private/...`` (manifest, folds, chunk plan, RadImageNet weights).
 * ``rsna-knee-attention16-local16-cache``: the 11 cache chunks, uploaded as ``*.zip.bin`` because
   Kaggle extracts uploaded ``.zip`` files.
-* Optional: the output of an earlier version of this kernel, to resume unfinished folds.
+* For final models (``final_seeds``): ``rsna-knee-extra-cache-archive`` (the Gold and extra
+  studies, ``*.zip.bin``) and the competition data, whose ``train.csv`` holds the Gold labels.
+* Optional: the output of an earlier version of this kernel, to resume unfinished jobs.
 
 The kernel rebuilds the repository layout under ``/tmp/root`` with symlinks, then trains and scores
-each fold in a subprocess pinned to one GPU. Shortly before ``deadline_hours`` it stops the
+each job (a fold, or a final model per seed) in a subprocess pinned to one GPU. Shortly before
+``deadline_hours`` it stops the
 subprocesses; completed epoch checkpoints are atomic, so the next version resumes from them.
 Outputs go to ``/kaggle/working/cv-attention16`` with the same layout as a local run.
 """
@@ -25,13 +28,15 @@ import subprocess
 import sys
 import time
 
-CONFIG = {"folds": [0], "canary_studies": 0, "deadline_hours": 11.25, "arm": "target_attention", "trainable": "layer4", "labels": None}  # noqa: E501
+CONFIG = {"folds": [0], "canary_studies": 0, "deadline_hours": 11.25, "arm": "target_attention", "trainable": "layer4", "labels": None, "final_seeds": []}  # noqa: E501
 
 INPUT = Path("/kaggle/input")
 ROOT = Path("/tmp/root")
 RUNS = Path("/kaggle/working/cv-attention16")
 LOGS = Path("/kaggle/working/logs")
 CACHE_DIR = "data/private/attention-sixteen-slices/cache-local-run01/archives"
+EXTRA_CACHE = "data/private/attention-sixteen-slices/cache-extra-run01/local16-cache-extra-000.zip"
+COMPETITION_DIRS = ("competitions", "rsna-knee-abnormality-detection")
 
 WORKER = r"""
 import os, runpy, sys, time
@@ -39,24 +44,33 @@ root = sys.argv[1]
 sys.path[:0] = [root + "/src", root]
 from rsna_knee.training import cross_validation as cv
 limit = int(os.environ.get("CANARY_STUDIES", "0"))
-if limit:
-    cv.FoldCacheDataset.__len__ = lambda self: min(limit, len(self.rows))
-original = cv.FoldCacheDataset.__getitem__
 state = {"items": 0, "start": time.time()}
-def getitem(self, index):
-    state["items"] += 1
-    if state["items"] % 200 == 0:
-        print(f"[progress] items={state['items']} seconds={time.time() - state['start']:.0f}", flush=True)
-    return original(self, index)
-cv.FoldCacheDataset.__getitem__ = getitem
+def wrap(cls):
+    original = cls.__getitem__
+    def getitem(self, index):
+        state["items"] += 1
+        if state["items"] % 200 == 0:
+            print(f"[progress] items={state['items']} seconds={time.time() - state['start']:.0f}", flush=True)
+        return original(self, index)
+    cls.__getitem__ = getitem
+    if limit:
+        cls.__len__ = lambda self: min(limit, len(self.rows))
+for cls in (cv.FoldCacheDataset, cv.FinalCacheDataset):
+    wrap(cls)
 script = root + "/scripts/cv_attention16.py"
 sys.argv = [script] + sys.argv[2:]
 runpy.run_path(script, run_name="__main__")
 """
 
 
+def search(pattern: str) -> list[Path]:
+    """Glob the attached datasets and notebooks; walking the competition DICOM tree takes hours."""
+    return sorted(path for child in INPUT.iterdir() if child.name not in COMPETITION_DIRS
+                  for path in child.glob(pattern))
+
+
 def find_one(pattern: str) -> Path:
-    matches = sorted(INPUT.glob(pattern))
+    matches = search(pattern)
     if len(matches) != 1:
         raise SystemExit(f"expected one match for {pattern}, found {[str(m) for m in matches]}")
     return matches[0]
@@ -74,24 +88,29 @@ def build_root() -> dict:
     for path in sorted(data.rglob("*")):
         if path.is_file():
             link(path, ROOT / "data" / path.relative_to(data))
-    chunks = sorted(INPUT.glob("**/local16-cache-*.zip.bin"))
+    chunks = [path for path in search("**/local16-cache-*.zip.bin") if "extra" not in path.name]
     if len(chunks) != 11:
         raise SystemExit(f"expected 11 cache chunks, found {len(chunks)}")
     for chunk in chunks:
         link(chunk, ROOT / CACHE_DIR / chunk.name[: -len(".bin")])
+    if CONFIG["final_seeds"]:
+        link(find_one("**/local16-cache-extra-000.zip.bin"), ROOT / EXTRA_CACHE)
+        train_csv = [INPUT / "competitions/rsna-knee-abnormality-detection/train.csv",
+                     INPUT / "rsna-knee-abnormality-detection/train.csv"]
+        link(next(path for path in train_csv if path.is_file()), ROOT / "data/train.csv")
     return {"code": str(code), "data": str(data), "chunks": len(chunks),
             "base_commit": (code / "BASE_COMMIT").read_text().strip()}
 
 
-def restore(fold: int) -> bool:
-    """Copy an attached earlier output of this fold so training can resume."""
-    previous = [path.parent for path in INPUT.glob(f"**/cv-attention16/fold{fold}/run-plan.json")]
+def restore(job: str) -> bool:
+    """Copy an attached earlier output of this job (``fold<k>`` or ``final-seed<s>``) to resume."""
+    previous = [path.parent for path in search(f"**/cv-attention16/{job}/run-plan.json")]
     if not previous:
         return False
     if len(previous) > 1:
-        raise SystemExit(f"several earlier outputs for fold {fold}: {previous}")
-    shutil.copytree(previous[0], RUNS / f"fold{fold}")
-    for path in (previous[0].parent / "predictions").glob(f"*fold{fold}.*"):
+        raise SystemExit(f"several earlier outputs for {job}: {previous}")
+    shutil.copytree(previous[0], RUNS / job)
+    for path in (previous[0].parent / "predictions").glob(f"*{job}.*"):
         (RUNS / "predictions").mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, RUNS / "predictions" / path.name)
     return True
@@ -102,16 +121,18 @@ def gpus() -> list[str]:
     return [line for line in listing.splitlines() if line.startswith("GPU ")]
 
 
-def steps(fold: int) -> list[list[str]]:
-    fold_dir = RUNS / f"fold{fold}"
-    done = (RUNS / "predictions" / f"metrics-fold{fold}.json").exists()
-    finished = (fold_dir / CONFIG["arm"] / "checkpoint-epoch-05.pt").exists()
+def steps(job: str) -> list[list[str]]:
+    job_dir = RUNS / job
+    finished = (job_dir / CONFIG["arm"] / "checkpoint-epoch-05.pt").exists()
+    resume = ["--resume"] if (job_dir / "run-plan.json").exists() else []
+    if job.startswith("final-seed"):
+        return [] if finished else [["train-final", "--seed", job[len("final-seed"):], *resume]]
+    fold = job[len("fold"):]
     commands = []
     if not finished:
-        resume = ["--resume"] if (fold_dir / "run-plan.json").exists() else []
-        commands.append(["train", "--fold", str(fold), *resume])
-    if not done:
-        commands.append(["predict", "--fold", str(fold)])
+        commands.append(["train", "--fold", fold, *resume])
+    if not (RUNS / "predictions" / f"metrics-{job}.json").exists():
+        commands.append(["predict", "--fold", fold])
     return commands
 
 
@@ -128,10 +149,11 @@ def main() -> int:
     except ImportError as error:
         report["versions"] = {"error": str(error)}
     devices = report["gpus"]
-    if len(CONFIG["folds"]) > len(devices):
-        raise SystemExit(f"{len(CONFIG['folds'])} folds need as many GPUs, found {len(devices)}")
+    jobs = [f"fold{fold}" for fold in CONFIG["folds"]] + [f"final-seed{seed}" for seed in CONFIG["final_seeds"]]
+    if len(jobs) > len(devices):
+        raise SystemExit(f"{len(jobs)} jobs need as many GPUs, found {len(devices)}")
     queues = {}
-    for device, fold in enumerate(CONFIG["folds"]):
+    for device, fold in enumerate(jobs):
         restored = restore(fold)
         queues[fold] = {"device": device, "restored": restored, "pending": steps(fold),
                         "process": None, "log": None, "results": []}
@@ -148,7 +170,7 @@ def main() -> int:
                     queue["pending"] = []
             if queue["process"] is None and queue["pending"] and time.time() < deadline:
                 args = queue["pending"].pop(0)
-                name = f"fold{fold}-{args[0]}"
+                name = f"{fold}-{args[0]}"
                 queue["log"] = (LOGS / f"{name}.log").open("a")
                 queue["step"], queue["step_started"] = name, time.time()
                 queue["process"] = subprocess.Popen(
@@ -168,7 +190,7 @@ def main() -> int:
         report["folds"][fold] = {"device": queue["device"], "restored": queue["restored"],
                                  "steps": queue["results"],
                                  "epochs_saved": sorted(p.name for p in
-                                                        (RUNS / f"fold{fold}" / CONFIG["arm"]).glob("*.pt"))}
+                                                        (RUNS / fold / CONFIG["arm"]).glob("*.pt"))}
     report["wall_seconds"] = round(time.time() - started, 1)
     (Path("/kaggle/working") / "runner-report.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))

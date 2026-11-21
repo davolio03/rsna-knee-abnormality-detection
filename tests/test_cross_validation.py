@@ -112,6 +112,86 @@ class FoldCacheDatasetTest(unittest.TestCase):
                 FoldCacheDataset(paths, 3, "train")
 
 
+def _extra_archive(directory: Path, roles: dict[str, str]) -> Path:
+    """Extra cache with the given ``study -> role`` records (gold, extra, control)."""
+    path = directory / "extra.zip"
+    records = []
+    with zipfile.ZipFile(path, "w") as archive:
+        for index, (study, role) in enumerate(roles.items()):
+            buffer = io.BytesIO()
+            np.savez(buffer, images_000=np.full((1, 1, 4, 4), 100.0 + index, np.float32),
+                     masks_000=np.ones((1, 1, 4, 4), bool),
+                     targets=np.full(12, 0.5, np.float32), observed=np.zeros(12, bool))
+            raw = buffer.getvalue()
+            name = f"extra/sample-{index:06d}.npz"
+            archive.writestr(name, raw)
+            records.append({"study_sha256": _sha(study), "role": role, "file": name, "series_count": 1,
+                            "sha256": hashlib.sha256(raw).hexdigest()})
+        archive.writestr("cache-manifest.json", json.dumps({"records": records}))
+    return path
+
+
+class FinalCacheDatasetTest(unittest.TestCase):
+    def _setup(self, directory: Path):
+        paths = _fixture(directory)
+        extra = _extra_archive(directory, {"gold-a": "gold", "gold-b": "gold", "x-1": "extra",
+                                           "study-0": "control"})
+        labels = {f"study-{i}": np.full(12, i / 10, np.float32) for i in range(9)}
+        labels["x-1"] = np.full(12, 0.77, np.float32)
+        gold = {"gold-a": np.ones(12, np.float32), "gold-b": np.zeros(12, np.float32)}
+        return paths, extra, labels, gold
+
+    def test_holds_cohort_gold_and_extra_once_with_their_labels(self):
+        from rsna_knee.training.cross_validation import FinalCacheDataset
+        with tempfile.TemporaryDirectory() as temporary:
+            paths, extra, labels, gold = self._setup(Path(temporary))
+            data = FinalCacheDataset(paths, extra, labels, gold, seed=42)
+            self.assertEqual(len(data), 12)
+            self.assertEqual(data.roles, {"cohort": 9, "gold": 2, "extra": 1})
+            expected = {_sha(s): v for s, v in {**labels, **gold}.items()}
+            for index in range(len(data)):
+                _, _, targets, observed, _ = data[index]
+                np.testing.assert_allclose(targets.numpy(), expected[data.study_sha256[index]])
+                self.assertTrue(observed.numpy().all())
+            self.assertEqual(sorted(data.study_sha256), sorted(expected))
+
+    def test_seed_fixes_the_order_and_monitor_is_a_prefix(self):
+        from rsna_knee.training.cross_validation import FINAL_MONITOR_STUDIES, FinalCacheDataset
+        with tempfile.TemporaryDirectory() as temporary:
+            paths, extra, labels, gold = self._setup(Path(temporary))
+            a = FinalCacheDataset(paths, extra, labels, gold, seed=42)
+            self.assertEqual(a.study_sha256, FinalCacheDataset(paths, extra, labels, gold, seed=42).study_sha256)
+            self.assertNotEqual(a.study_sha256, FinalCacheDataset(paths, extra, labels, gold, seed=43).study_sha256)
+            monitor = FinalCacheDataset(paths, extra, labels, gold, seed=42, monitor=True)
+            self.assertEqual(monitor.study_sha256, a.study_sha256[:FINAL_MONITOR_STUDIES])
+
+    def test_rejects_gold_in_label_table_missing_labels_and_role_mismatch(self):
+        from rsna_knee.training.cross_validation import FinalCacheDataset
+        with tempfile.TemporaryDirectory() as temporary:
+            paths, extra, labels, gold = self._setup(Path(temporary))
+            with self.assertRaises(ValueError):
+                FinalCacheDataset(paths, extra, {**labels, "gold-a": np.ones(12, np.float32)}, gold, seed=1)
+            without = dict(labels)
+            del without["x-1"]
+            with self.assertRaises(ValueError):
+                FinalCacheDataset(paths, extra, without, gold, seed=1)
+            with self.assertRaises(ValueError):
+                FinalCacheDataset(paths, extra, labels, {"gold-a": gold["gold-a"]}, seed=1)
+
+    def test_gold_labels_need_58_binary_rows(self):
+        from rsna_knee.training.cross_validation import load_gold_labels
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "train.csv"
+            rows = ["StudyInstanceUID,Report," + ",".join(TARGETS)]
+            rows += [f"g{i},r," + ",".join(["1"] * 12) for i in range(58)]
+            rows += ["u1,r," + ",".join([""] * 12)]
+            path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+            self.assertEqual(len(load_gold_labels(path)), 58)
+            path.write_text("\n".join(rows[:-2]) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_gold_labels(path)
+
+
 class MaskedAucTest(unittest.TestCase):
     def test_binarization_excludes_unobserved_and_threshold_cells(self):
         soft = np.array([[0.9, 0.5], [0.1, 0.8]])

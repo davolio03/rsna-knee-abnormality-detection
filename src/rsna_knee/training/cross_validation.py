@@ -117,16 +117,7 @@ class FoldCacheDataset:
         if set(assignment) != {row["study_id"] for row in records}:
             raise ValueError("fold assignments do not match the cohort manifest")
 
-        cached: dict[str, tuple[Path, dict]] = {}
-        for chunk in plan["chunks"]:
-            archive_path = Path(paths.archives) / f"local16-cache-{chunk['chunk_id']}.zip"
-            with zipfile.ZipFile(archive_path) as archive:
-                cache_manifest = json.loads(archive.read("cache-manifest.json"))
-            for record in cache_manifest["records"]:
-                if record["study_sha256"] in cached:
-                    raise ValueError("study appears in more than one cache archive")
-                cached[record["study_sha256"]] = (archive_path, record)
-
+        cached = _cached_records(paths, plan)
         selected = [row for row in records
                     if (assignment[row["study_id"]] == fold) == (partition == "validation")]
         missing = [row for row in selected if _sha256_text(row["study_id"]) not in cached]
@@ -146,24 +137,133 @@ class FoldCacheDataset:
         return len(self.rows)
 
     def __getitem__(self, index: int):
-        import numpy as np
-        import torch
         if not 0 <= index < len(self.rows):
             raise IndexError(index)
-        archive_path, record = self.rows[index]
+        return _load_sample(*self.rows[index], None if self.labels is None else self.labels[index], index)
+
+
+def _cached_records(paths: CachePaths, plan: dict) -> dict[str, tuple[Path, dict]]:
+    """Map study SHA-256 to ``(archive, record)`` over every chunk of the cohort cache."""
+    cached: dict[str, tuple[Path, dict]] = {}
+    for chunk in plan["chunks"]:
+        archive_path = Path(paths.archives) / f"local16-cache-{chunk['chunk_id']}.zip"
         with zipfile.ZipFile(archive_path) as archive:
-            raw = archive.read(record["file"])
-        if hashlib.sha256(raw).hexdigest() != record["sha256"]:
-            raise ValueError("cache sample hash mismatch")
-        with np.load(io.BytesIO(raw), allow_pickle=False) as data:
-            count = record["series_count"]
-            images = [torch.from_numpy(data[f"images_{i:03d}"].copy()) for i in range(count)]
-            masks = [torch.from_numpy(data[f"masks_{i:03d}"].copy()) for i in range(count)]
-            targets, observed = data["targets"].copy(), data["observed"].copy()
-        if self.labels is not None:
-            targets = self.labels[index].copy()
-            observed = np.ones_like(observed)
-        return images, masks, torch.from_numpy(targets), torch.from_numpy(observed), index
+            cache_manifest = json.loads(archive.read("cache-manifest.json"))
+        for record in cache_manifest["records"]:
+            if record["study_sha256"] in cached:
+                raise ValueError("study appears in more than one cache archive")
+            cached[record["study_sha256"]] = (archive_path, record)
+    return cached
+
+
+def _load_sample(archive_path: Path, record: dict, label, index: int):
+    """Read and verify one cached study; ``label`` replaces the cached targets, all observed."""
+    import numpy as np
+    import torch
+    with zipfile.ZipFile(archive_path) as archive:
+        raw = archive.read(record["file"])
+    if hashlib.sha256(raw).hexdigest() != record["sha256"]:
+        raise ValueError("cache sample hash mismatch")
+    with np.load(io.BytesIO(raw), allow_pickle=False) as data:
+        count = record["series_count"]
+        images = [torch.from_numpy(data[f"images_{i:03d}"].copy()) for i in range(count)]
+        masks = [torch.from_numpy(data[f"masks_{i:03d}"].copy()) for i in range(count)]
+        targets, observed = data["targets"].copy(), data["observed"].copy()
+    if label is not None:
+        targets = label.copy()
+        observed = np.ones_like(observed)
+    return images, masks, torch.from_numpy(targets), torch.from_numpy(observed), index
+
+
+# Final models (no held-out fold) also train on the extra cache: Gold-58 with its expert labels
+# and the labelled training studies outside the cohort (D037, D038).
+EXTRA_CACHE = "data/private/attention-sixteen-slices/cache-extra-run01/local16-cache-extra-000.zip"
+FINAL_MONITOR_STUDIES = 16
+
+
+def load_gold_labels(train_csv: Path) -> dict[str, Any]:
+    """The 58 expert-labelled studies of the official ``train.csv`` (rows with filled targets)."""
+    import csv
+
+    import numpy as np
+
+    with Path(train_csv).open(encoding="utf-8", newline="") as stream:
+        rows = [row for row in csv.DictReader(stream) if row.get("ACL", "").strip() != ""]
+    table = {row["StudyInstanceUID"]: np.asarray([float(row[t]) for t in TARGETS], dtype=np.float32)
+             for row in rows}
+    if len(table) != 58 or any(v not in (0.0, 1.0) for values in table.values() for v in values):
+        raise ValueError("expected 58 Gold studies with 0/1 labels")
+    return table
+
+
+def _gold_digest(gold: dict[str, Any]) -> str:
+    rows = sorted([study, [float(v) for v in values]] for study, values in gold.items())
+    return _sha256_text(json.dumps(rows, separators=(",", ":")))
+
+
+class FinalCacheDataset:
+    """Every labelled study for a final model, in a fixed per-seed random order.
+
+    Cohort studies come from the cohort cache; Gold and extra studies from the extra cache
+    (controls are skipped). ``labels`` (the external table) and ``gold`` (expert labels) give the
+    targets, every cell observed; a study in both is an error. ``monitor`` keeps only the first
+    ``FINAL_MONITOR_STUDIES`` studies of that order, a training subset used as the per-epoch
+    validation set that ``_train_arm`` requires (no held-out data exists).
+    """
+
+    target_names = TARGETS
+
+    def __init__(self, paths: CachePaths, extra_archive: Path, labels: dict[str, Any],
+                 gold: dict[str, Any], seed: int, monitor: bool = False):
+        import numpy as np
+
+        if set(labels) & set(gold):
+            raise ValueError("Gold studies must not appear in the external label table")
+        by_hash = {_sha256_text(study): value for study, value in {**labels, **gold}.items()}
+        gold_hashes = {_sha256_text(study) for study in gold}
+        manifest = json.loads(Path(paths.manifest).read_text(encoding="utf-8"))
+        plan = json.loads(Path(paths.plan).read_text(encoding="utf-8"))
+        cached = _cached_records(paths, plan)
+        items, roles = [], {"cohort": 0, "gold": 0, "extra": 0}
+        for row in manifest["records"]:
+            digest = _sha256_text(row["study_id"])
+            if digest not in cached:
+                raise ValueError("cohort study missing from the cache")
+            items.append((*cached[digest], digest))
+            roles["cohort"] += 1
+        with zipfile.ZipFile(extra_archive) as archive:
+            extra = json.loads(archive.read("cache-manifest.json"))["records"]
+        for record in extra:
+            if record["role"] == "control":
+                continue
+            if record["role"] not in ("gold", "extra") or record["study_sha256"] in cached:
+                raise ValueError("unexpected extra cache record")
+            if (record["role"] == "gold") != (record["study_sha256"] in gold_hashes):
+                raise ValueError("extra cache Gold roles do not match the Gold labels")
+            items.append((Path(extra_archive), record, record["study_sha256"]))
+            roles[record["role"]] += 1
+        if roles["gold"] != len(gold):
+            raise ValueError("the extra cache does not hold every Gold study")
+        if len({digest for *_, digest in items}) != len(items):
+            raise ValueError("duplicate study in the final training set")
+        unlabeled = [digest for *_, digest in items if digest not in by_hash]
+        if unlabeled:
+            raise ValueError(f"{len(unlabeled)} studies have no training label")
+        order = np.random.default_rng(seed).permutation(len(items))
+        if monitor:
+            order = order[:FINAL_MONITOR_STUDIES]
+        self.seed, self.roles = seed, roles
+        self.rows = [items[i][:2] for i in order]
+        self.study_sha256 = [items[i][2] for i in order]
+        self.labels = [by_hash[digest] for digest in self.study_sha256]
+
+    def __len__(self) -> int:
+        return len(self.rows)
+
+    def __getitem__(self, index: int):
+        if not 0 <= index < len(self.rows):
+            raise IndexError(index)
+        return _load_sample(*self.rows[index], self.labels[index], index)
 
 
 def _configure_cuda():
@@ -302,6 +402,82 @@ def train_fold(*, root: Path, paths: CachePaths, fold: int, weights: Path, outpu
     result = {"status": report["status"], "fingerprint": fingerprint, "configuration": configuration,
               "train_studies": len(train_data), "validation_studies": len(validation_data),
               "wall_seconds": time.time() - started, "arm": report,
+              "device_memory_before": {"free_bytes": free_bytes, "total_bytes": total_bytes}}
+    _write_json(output / "training-report.json", result)
+    return result
+
+
+def final_fingerprint(paths: CachePaths, weights: Path, *, seed: int, labels: Path, extra_archive: Path,
+                      gold: dict[str, Any], arm: str = "target_attention",
+                      trainable: str = "layer3") -> tuple[str, dict]:
+    configuration = {"schema": "attention16-final-v1", **RECIPE, "seed": seed, "gold_included": True,
+                     "arm": _check_arm(arm), "trainable_backbone": _check_trainable(trainable),
+                     "manifest_sha256": _sha256_file(paths.manifest),
+                     "plan_sha256": _sha256_file(paths.plan),
+                     "weights_sha256": _sha256_file(weights),
+                     "training_labels_sha256": _sha256_file(labels),
+                     "extra_cache_sha256": _sha256_file(extra_archive),
+                     "gold_labels_sha256": _gold_digest(gold),
+                     "order": "numpy_default_rng_seed_permutation",
+                     "monitor_studies": FINAL_MONITOR_STUDIES}
+    raw = json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(raw).hexdigest(), configuration
+
+
+def train_final(*, root: Path, paths: CachePaths, weights: Path, output: Path, seed: int,
+                labels: Path, extra_archive: Path, gold_csv: Path, resume: bool = False,
+                arm: str = "target_attention", trainable: str = "layer3") -> dict[str, Any]:
+    """Train the fixed five-epoch recipe on every labelled study (no held-out fold).
+
+    Targets: the external label table for cohort and extra studies, expert labels for Gold-58.
+    ``seed`` sets the initialization and the fixed study order. The per-epoch validation numbers
+    come from a training subset (``FinalCacheDataset`` with ``monitor=True``) and only show that
+    training runs; such a model cannot be evaluated on Gold-58 or the cohort.
+    """
+    from unittest import mock
+
+    from rsna_knee.training import attention_mil
+    from rsna_knee.training.attention_mil import AttentionMILConfig, _train_arm
+    from rsna_knee.training.resnet50 import _seed_everything
+
+    output = Path(output)
+    gold = load_gold_labels(gold_csv)
+    fingerprint, configuration = final_fingerprint(paths, weights, seed=seed, labels=labels,
+                                                   extra_archive=extra_archive, gold=gold,
+                                                   arm=arm, trainable=trainable)
+    if resume:
+        saved = json.loads((output / "run-plan.json").read_text(encoding="utf-8"))
+        if saved["fingerprint"] != fingerprint:
+            raise ValueError("resume fingerprint mismatch")
+    elif output.exists():
+        raise ValueError(f"output already exists: {output}")
+    free_bytes, total_bytes = _configure_cuda()
+    table = load_label_table(labels)
+    train_data = FinalCacheDataset(paths, extra_archive, table, gold, seed)
+    monitor_data = FinalCacheDataset(paths, extra_archive, table, gold, seed, monitor=True)
+    arm_output = output / arm
+    if not resume:
+        arm_output.mkdir(parents=True)
+        _write_json(output / "run-plan.json", {"fingerprint": fingerprint, "configuration": configuration,
+                                               "train_studies": len(train_data), "roles": train_data.roles,
+                                               "monitor_studies": len(monitor_data)})
+    config = AttentionMILConfig(repository_root=Path(root), weights_path=Path(weights),
+                                output_dir=output, device="cuda")
+    _seed_everything(seed, "cuda")
+    started = time.time()
+    build_model = attention_mil._model_for_arm
+    if trainable == "layer3":
+        patch = mock.patch.object(attention_mil, "_model_for_arm",
+                                  lambda *args, **kwargs: unfreeze_layer3(build_model(*args, **kwargs)))
+    else:
+        patch = mock.patch.object(attention_mil, "_model_for_arm", build_model)
+    with patch:
+        report = _train_arm(config, arm=arm, output=arm_output, fingerprint=fingerprint,
+                            train_data=train_data, validation_data=monitor_data,
+                            epochs=RECIPE["epochs"], resume=resume)
+    result = {"status": report["status"], "fingerprint": fingerprint, "configuration": configuration,
+              "train_studies": len(train_data), "roles": train_data.roles,
+              "monitor_studies": len(monitor_data), "wall_seconds": time.time() - started, "arm": report,
               "device_memory_before": {"free_bytes": free_bytes, "total_bytes": total_bytes}}
     _write_json(output / "training-report.json", result)
     return result
