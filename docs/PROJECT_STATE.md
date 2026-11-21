@@ -27,6 +27,9 @@
   replacing the reservation in [D004](DECISIONS.md#d004--gold-58-is-reserved)). Ensemble macro
   AUC: E058 0.897, E055 0.871 (`scripts/score_gold58.py`).
 
+- **Running: E059**, the final models: four seeds of the E058 recipe trained on every labelled
+  study, Gold-58 included ([E059](../experiments/E059_attention16_final_all_data.md)).
+
 ## Open items
 
 1. Run further controlled experiments on the CV protocol. Kaggle T4 x2 sessions and the local GPU give

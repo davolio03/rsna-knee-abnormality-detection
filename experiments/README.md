@@ -1,6 +1,6 @@
 # Experiment Records
 
-Current records: E050–E058, for the attention16 model, its submission, validation export, review sample, cross-validation, layer3 fine-tuning its single-model and ensemble submissions, and training on the 7th-place labels. Earlier records (E001–E049) are in [`archive/`](archive/). `registry.csv` indexes all of them.
+Current records: E050–E059, for the attention16 model, its submission, validation export, review sample, cross-validation, layer3 fine-tuning its single-model and ensemble submissions, training on the 7th-place labels and the final all-data models. Earlier records (E001–E049) are in [`archive/`](archive/). `registry.csv` indexes all of them.
 
 Use `E001`, `E002`, and increasing IDs for meaningful experiments. A run does not need a formal record for every tiny debugging iteration, but do preserve runs that inform a model, label, preprocessing, or validation decision. Never overwrite evidence; retain informative failures and inconclusive results.
 
