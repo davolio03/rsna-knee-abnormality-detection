@@ -82,11 +82,16 @@ As expected, E058 scores lower against the labels it was not trained on and high
 ones it was trained on, so CV cannot settle the question; it does show that the models disagree
 with our report labels mostly where the label sources disagree.
 
-**External — Kaggle.** Not yet run. The ensemble package is ready
-(`scripts/build_attention16_ensemble_notebook.py --experiment E058`; private datasets
-`rsna-knee-attention16-labels7-fold{0,1,2}`, export SHA-256 `a85e7600…62a471`, `1a6f7823…3d9a7b`,
-`4d24d68a…f8aaa2`), but the push was refused because the account's weekly 30 h GPU quota was used
-up by the training runs.
+**External — Kaggle.** Package: `scripts/build_attention16_ensemble_notebook.py --experiment E058`;
+private datasets `rsna-knee-attention16-labels7-fold{0,1,2}`, export SHA-256 `a85e7600…62a471`,
+`1a6f7823…3d9a7b`, `4d24d68a…f8aaa2`. The first push (2026-11-20) was refused: the weekly 30 h GPU
+quota was used up by the training runs. On 2026-11-21 kernel
+`rsna-knee-attention16-labels7-ensemble-submission` failed twice (versions 1 and 2) in the
+bootstrap, 8 s after start, with the generic `bootstrap_failed` code. A copy of the same notebook
+in a new kernel, `rsna-knee-labels7-bootstrap-diag` version 4, whose only change prints the
+traceback in the bootstrap error branch, ran cleanly: three members loaded, 3/3 visible studies, no
+skipped series or slices, 36 s, model pin `a85e7600…`. The cause of the original kernel's failure
+is unknown. The late submission was made from that version (reference 58686652); score pending.
 
 ## Conclusion
 
