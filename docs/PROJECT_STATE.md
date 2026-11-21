@@ -1,15 +1,15 @@
 # Project State
 
-- **Last updated:** 2026-11-19
+- **Last updated:** 2026-11-21
 - **Phase:** Post-competition consolidation. The competition closed on 2026-10-22, and every model
   submission was scored afterwards as a late submission.
-- **Current model:** RadImageNet ResNet-50 with target-specific slice and series attention, 16
-  slices per series, layer3 and layer4 fine-tuned, trained with masked soft-label BCE for 5 epochs
-  on fold 0 ([E055](../experiments/E055_attention16_layer3_finetuning.md),
-  [E056](../experiments/E056_attention16_layer3_submission.md)).
-- **Best Kaggle score (late):** public 0.902 / private 0.877 with the mean-logit ensemble of the
-  three E055 fold models ([E057](../experiments/E057_attention16_layer3_ensemble_submission.md)),
-  up from 0.891 / 0.868 for the single fold-0 model (E056) and 0.885 / 0.862 (E051).
+- **Current model:** mean-logit ensemble of three RadImageNet ResNet-50 fold models with
+  target-specific slice and series attention, 16 slices per series, layer3 and layer4 fine-tuned,
+  5 epochs, trained on the 7th-place labels
+  ([E058](../experiments/E058_attention16_seventh_place_labels.md)).
+- **Best Kaggle score (late):** public 0.932 / private 0.919 (E058), up from 0.902 / 0.877 with
+  the same ensemble on report labels ([E057](../experiments/E057_attention16_layer3_ensemble_submission.md))
+  and 0.891 / 0.868 for a single fold model (E056).
 - **Reference training recipe:** the same model with layer3 and layer4 fine-tuned
   ([D036](DECISIONS.md#d036--fine-tune-layer3-and-layer4-2026-11-19)).
 - **Validation:** 3-fold study-grouped cross-validation, using ROC-AUC against observed
@@ -17,16 +17,15 @@
   Layer3 fine-tuning: **macro AUC 0.864 ± 0.003** (pooled OOF 0.863,
   [E055](../experiments/E055_attention16_layer3_finetuning.md)); layer4-only baseline 0.861 ± 0.003.
   See [RESULTS.md](RESULTS.md).
-- **Labels:** public LLM report labels (`stevenleehans/rsna-knee-llm-report-labels` v6). These
-  are not expert labels.
+- **Labels:** the 7th-place image-and-report labels (`songqizhou/rsna-knee-llm-labels`,
+  CC BY-NC-SA 4.0; [D038](DECISIONS.md#d038--train-on-the-7th-place-labels-2026-11-21)). Earlier
+  models used public LLM report labels (`stevenleehans/rsna-knee-llm-report-labels` v6). Neither
+  are expert labels.
 - **Gold-58:** the expert evaluation set. Comparisons are declared before scoring, and only
   final submission models may train on it
   ([D037](DECISIONS.md#d037--gold-58-for-expert-evaluation-and-final-training-2026-11-20),
-  replacing the reservation in [D004](DECISIONS.md#d004--gold-58-is-reserved)). Its 16-slice
-  cache is being built.
-- **E058**, the E055 recipe trained on the 7th-place labels
-  ([E058](../experiments/E058_attention16_seventh_place_labels.md)): Gold-58 ensemble 0.897 vs
-  0.871 for E055. The Kaggle submission is ready and waits for the weekly GPU quota.
+  replacing the reservation in [D004](DECISIONS.md#d004--gold-58-is-reserved)). Ensemble macro
+  AUC: E058 0.897, E055 0.871 (`scripts/score_gold58.py`).
 
 ## Open items
 

@@ -86,6 +86,20 @@ prompt comparison that D004 reserved Gold-58 for will not run. Gold-58 now has t
 2. **Final training.** Models trained only for a Kaggle submission may include the 58 studies with
    their expert labels. A model trained this way can no longer be evaluated on Gold-58.
 
+## D038 — Train on the 7th-place labels (2026-11-21)
+
+The training targets are now the 7th-place image-and-report labels
+(`songqizhou/rsna-knee-llm-labels`, `8_final_label.csv`, CC BY-NC-SA 4.0), loaded with
+`--labels`. In E058 the E055 recipe trained on them raised the Gold-58 ensemble macro AUC from
+0.871 to 0.897 and the late Kaggle private score from 0.877 to 0.919, meeting both criteria fixed
+before the run. New experiments use these labels and compare against E058.
+
+The CV metric changes with the labels. Measured against our report labels, E058 scores lower than
+E055 (0.844 vs 0.864) because those labels disagree with the new ones. From E058 on, CV is scored
+against the 7th-place labels (all cells, binarized at 0.5; E058 0.966), and Gold-58 is the main
+check of label-independent quality. The report labels and their tooling remain for
+reproducibility. Models trained on these labels inherit their non-commercial, share-alike terms.
+
 Gold IDs and label values are still never stored in Git. External label tables that were built
 with Gold-58 (for example, prompts chosen on it) are allowed as training labels; their Gold-58
 rows are not used.

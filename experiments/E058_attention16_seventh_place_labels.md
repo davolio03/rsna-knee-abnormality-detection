@@ -1,7 +1,7 @@
 # E058 — Train on the 7th-place image-and-report labels
 
 - **Date:** 2026-11-20
-- **Status:** Gold-58 criterion met; Kaggle submission pending (weekly GPU quota)
+- **Status:** completed; adopted (D038)
 - **Parent:** E055 (layer3 fine-tuning, cached report labels)
 
 ## Hypothesis
@@ -91,8 +91,20 @@ bootstrap, 8 s after start, with the generic `bootstrap_failed` code. A copy of 
 in a new kernel, `rsna-knee-labels7-bootstrap-diag` version 4, whose only change prints the
 traceback in the bootstrap error branch, ran cleanly: three members loaded, 3/3 visible studies, no
 skipped series or slices, 36 s, model pin `a85e7600…`. The cause of the original kernel's failure
-is unknown. The late submission was made from that version (reference 58686652); score pending.
+is unknown. The late submission was made from that version (reference 58686652).
+
+| Submission | Public | Private |
+|---|---:|---:|
+| E057 (E055 ensemble, report labels) | 0.902 | 0.877 |
+| **E058 (ensemble, 7th-place labels)** | **0.932** | **0.919** |
 
 ## Conclusion
 
-Pending the Kaggle score. The Gold-58 half of the decision rule is met (+0.026 ensemble macro AUC).
+Both criteria of the decision rule are met: Gold-58 ensemble macro AUC 0.897 vs 0.871, and Kaggle
+private 0.919 vs 0.877 (+0.042; public +0.030). The change of training labels is the largest gain
+in the project so far, bigger than every architecture change since E049. Gold-58 predicted the
+direction, and it underestimated the size of the gain. The 7th-place labels are adopted as the
+training targets (D038).
+
+Attribution: the labels are by songqizhou, Kaggle dataset `songqizhou/rsna-knee-llm-labels`,
+licensed CC BY-NC-SA 4.0. Models trained on them inherit the non-commercial, share-alike terms.

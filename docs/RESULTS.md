@@ -1,6 +1,24 @@
 # Results
 
-## Current recipe: layer3 + layer4 fine-tuning (E055)
+## Current recipe: E055 trained on the 7th-place labels (E058)
+
+Same model and protocol as E055; only the training targets change
+([D038](DECISIONS.md#d038--train-on-the-7th-place-labels-2026-11-21)). Report-label CV is no longer
+comparable across label sources, so the expert labels decide.
+
+| Measure | E055 (report labels) | E058 (7th-place labels) |
+|---|---:|---:|
+| Gold-58 ensemble macro AUC (58 expert-labelled studies) | 0.871 | **0.897** |
+| Gold-58 fold models | 0.858–0.869 | 0.890–0.896 |
+| Kaggle late, 3-fold ensemble, public / private | 0.902 / 0.877 | **0.932 / 0.919** |
+| CV vs our report labels | 0.864 | 0.844 |
+| CV vs 7th-place labels | 0.921 | 0.966 |
+
+On Gold-58 the largest gains are Synovitis (0.749 → 0.833), Effusion and MCL; PF OA, Lateral OA
+and Lateral Meniscus drop by 0.02–0.03 (58 studies, so per-target values are noisy). Details in
+[E058](../experiments/E058_attention16_seventh_place_labels.md).
+
+## Previous recipe: layer3 + layer4 fine-tuning (E055)
 
 The E054 recipe with backbone layer3 trainable as well as layer4
 ([D036](DECISIONS.md#d036--fine-tune-layer3-and-layer4-2026-11-19)). Details:
