@@ -116,7 +116,8 @@ class PackageArtifactPolicyTests(unittest.TestCase):
 
             with tarfile.open(output / archive_name, "r:gz") as archive:
                 self.assertTrue(
-                    archive_name.startswith("rsna-knee-abnormality-detection-1.0.0."),
+                    archive_name.startswith(("rsna-knee-abnormality-detection-1.0.0.",
+                                             "rsna_knee_abnormality_detection-1.0.0.")),
                     archive_name,
                 )
                 metadata = Parser().parsestr(

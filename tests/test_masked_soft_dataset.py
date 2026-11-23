@@ -8,8 +8,11 @@ try:
     import torch
 except ModuleNotFoundError as exc:
     raise unittest.SkipTest("optional NumPy/PyTorch training dependencies are not installed") from exc
+from private_artifacts import requires
 
 
+@requires('data/private/full-cohort-prefilter/run01/full-cohort-soft-label-manifest.json',
+          'data/private/full-cohort-prefilter/run01/full-cohort-grouped-folds.json')
 class MaskedSoftDatasetTests(unittest.TestCase):
     @property
     def artifact_paths(self):
