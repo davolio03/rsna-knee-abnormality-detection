@@ -7,7 +7,8 @@ averages their logits. Each study is preprocessed once, so runtime barely change
 member replaces the E056 model pins; the others are loaded by the wrapper.
 
 Members are private model-only datasets built with ``scripts/build_attention16_weight_swap.py``.
-Experiments: E057 (``--experiment E057``, the E055 fold models) and E058 (the E058 fold models).
+Experiments: E057 (``--experiment E057``, the E055 fold models), E058 (the E058 fold models), E059
+(the four final all-data models plus the E058 fold models) and E059-final4 (the final models only).
 
 Example:
     python scripts/build_attention16_ensemble_notebook.py --experiment E058 \
@@ -51,6 +52,30 @@ EXPERIMENTS = {
             ("rsna-knee-attention16-labels7-fold2", "4d24d68abfbec1479e35530a1e609ef1ce394c579e17d343c2790e8687f8aaa2"),
         ],
     },
+}
+E059_FINAL = [
+    ("rsna-knee-attention16-final-seed42", "92bb5da3ab38cb846eb3e02b0b2cac02683e3e032e983e9b16408b5fe60a4721"),
+    ("rsna-knee-attention16-final-seed43", "c75eb7b40ae9ef6572f3028c98b5a4880e0fe9fae8e9851527e04b6b5b630df5"),
+    ("rsna-knee-attention16-final-seed44", "5f3effe31a301517b90f881467fd1e417e5c14cffdcd274ff2c3ad5918e776f5"),
+    ("rsna-knee-attention16-final-seed45", "80f06cf5dab4abda6f3e5ad1d90cd8d0ca35bac8d0eb76e4412faea94935cae7"),
+]
+EXPERIMENTS["E059"] = {
+    "description": "the four E059 final all-data models and the three E058 fold models (epoch 5)",
+    "comment": "the four E059 final models and the three E058 fold models",
+    "heading": "E059 attention16 final 7-member ensemble submission (primary)",
+    "kernel": "rsna-knee-attention16-final-ensemble7-submission",
+    "title": "RSNA Knee Attention16 Final Ensemble7 Submission",
+    "notebook": "kaggle_attention16_final_ensemble7.ipynb",
+    "members": E059_FINAL + EXPERIMENTS["E058"]["members"],
+}
+EXPERIMENTS["E059-final4"] = {
+    "description": "the four E059 final all-data models (epoch 5)",
+    "comment": "the four E059 final models",
+    "heading": "E059 attention16 final 4-member ensemble submission (secondary)",
+    "kernel": "rsna-knee-attention16-final4-submission",
+    "title": "RSNA Knee Attention16 Final4 Submission",
+    "notebook": "kaggle_attention16_final4.ipynb",
+    "members": E059_FINAL,
 }
 
 
