@@ -4,11 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rsna-knee-abnormality-detection"
-version = "0.1.0"
+version = "1.0.0"
 description = "Study-level knee MRI abnormality detection with target-specific attention MIL"
 readme = "README.md"
 requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "David Sulleiro Albi"}]
+keywords = ["medical-imaging", "mri", "knee", "multiple-instance-learning", "attention", "pytorch", "kaggle"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://davolio03.github.io/rsna-knee-abnormality-detection/"
+Repository = "https://github.com/davolio03/rsna-knee-abnormality-detection"
 
 [project.optional-dependencies]
 images = ["numpy>=2.0", "Pillow>=10.0", "pydicom>=2.4"]

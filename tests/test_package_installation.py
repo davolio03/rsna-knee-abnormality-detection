@@ -41,7 +41,7 @@ class PackageInstallationMetadataTests(unittest.TestCase):
     def test_project_metadata_is_minimal_and_python_compatible(self) -> None:
         project = self.metadata["project"]
         self.assertEqual(project["name"], "rsna-knee-abnormality-detection")
-        self.assertEqual(project["version"], "0.1.0")
+        self.assertEqual(project["version"], "1.0.0")
         self.assertEqual(project["requires-python"], ">=3.10")
         self.assertEqual(project["readme"], "README.md")
         self.assertEqual(project.get("dependencies", []), [])
@@ -116,7 +116,7 @@ class PackageArtifactPolicyTests(unittest.TestCase):
 
             with tarfile.open(output / archive_name, "r:gz") as archive:
                 self.assertTrue(
-                    archive_name.startswith("rsna-knee-abnormality-detection-0.1.0."),
+                    archive_name.startswith("rsna-knee-abnormality-detection-1.0.0."),
                     archive_name,
                 )
                 metadata = Parser().parsestr(
@@ -125,7 +125,7 @@ class PackageArtifactPolicyTests(unittest.TestCase):
                     .decode("utf-8")
                 )
                 self.assertEqual(metadata["Name"], "rsna-knee-abnormality-detection")
-                self.assertEqual(metadata["Version"], "0.1.0")
+                self.assertEqual(metadata["Version"], "1.0.0")
                 files = {
                     member.name.split("/", 1)[1]
                     for member in archive.getmembers()
