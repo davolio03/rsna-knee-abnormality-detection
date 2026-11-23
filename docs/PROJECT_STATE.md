@@ -1,13 +1,15 @@
 # Project State
 
-- **Last updated:** 2026-11-21
+- **Last updated:** 2026-11-23
 - **Phase:** Post-competition consolidation. The competition closed on 2026-10-22, and every model
   submission was scored afterwards as a late submission.
-- **Current model:** mean-logit ensemble of three RadImageNet ResNet-50 fold models with
+- **Current model:** mean-logit ensemble of seven RadImageNet ResNet-50 models with
   target-specific slice and series attention, 16 slices per series, layer3 and layer4 fine-tuned,
-  5 epochs, trained on the 7th-place labels
-  ([E058](../experiments/E058_attention16_seventh_place_labels.md)).
-- **Best Kaggle score (late):** public 0.932 / private 0.919 (E058), up from 0.902 / 0.877 with
+  5 epochs, trained on the 7th-place labels: four final models trained on every labelled study
+  (seeds 42–45, Gold-58 included) and the three E058 fold models
+  ([E059](../experiments/E059_attention16_final_all_data.md)).
+- **Best Kaggle score (late):** public 0.934 / private 0.923 (E059), up from 0.932 / 0.919 with the
+  three E058 fold models ([E058](../experiments/E058_attention16_seventh_place_labels.md)) and 0.902 / 0.877 with
   the same ensemble on report labels ([E057](../experiments/E057_attention16_layer3_ensemble_submission.md))
   and 0.891 / 0.868 for a single fold model (E056).
 - **Reference training recipe:** the same model with layer3 and layer4 fine-tuned
@@ -27,8 +29,9 @@
   replacing the reservation in [D004](DECISIONS.md#d004--gold-58-is-reserved)). Ensemble macro
   AUC: E058 0.897, E055 0.871 (`scripts/score_gold58.py`).
 
-- **Running: E059**, the final models: four seeds of the E058 recipe trained on every labelled
-  study, Gold-58 included ([E059](../experiments/E059_attention16_final_all_data.md)).
+- **Completed: E059**, the final models. The pre-declared 7-member ensemble scored 0.934 / 0.923;
+  the four final models alone scored 0.935 / 0.924. Gold-58 is now in training, so later models
+  can no longer be scored on it without retraining.
 
 ## Open items
 

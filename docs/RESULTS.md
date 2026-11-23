@@ -1,6 +1,18 @@
 # Results
 
-## Current recipe: E055 trained on the 7th-place labels (E058)
+## Final submission: all-data models (E059)
+
+Four E058-recipe models (seeds 42–45) trained on every labelled study, Gold-58 with its expert
+labels included. No held-out data remains, so the late Kaggle score is the only test. Details in
+[E059](../experiments/E059_attention16_final_all_data.md).
+
+| Submission | Public | Private |
+|---|---:|---:|
+| E058, 3 fold models | 0.932 | 0.919 |
+| **E059 primary: 4 final + 3 E058 folds (pre-declared)** | **0.934** | **0.923** |
+| E059 secondary: 4 final models | 0.935 | 0.924 |
+
+## Recipe: E055 trained on the 7th-place labels (E058)
 
 Same model and protocol as E055; only the training targets change
 ([D038](DECISIONS.md#d038--train-on-the-7th-place-labels-2026-11-21)). Report-label CV is no longer

@@ -1,7 +1,7 @@
 # E059 — Final models on all labelled data
 
 - **Date:** 2026-11-22
-- **Status:** running
+- **Status:** completed
 - **Parent:** E058 (7th-place labels, adopted in D038)
 
 ## Question
@@ -50,14 +50,33 @@ Gold-58 cannot be used: every final model trains on it. The only test is the lat
 
 ## Execution
 
-Seeds 42 and 43 run one after the other on the local RTX 3060 Laptop (about 11 h each). Seeds 44
-and 45 run in parallel on a Kaggle T4 x2 session (about 12 h each; the 11.25 h session limit
-needs one resumed session).
+- **Local (RTX 3060 Laptop):** seeds 42 and 43 ran one after the other, 8.6 h and 8.9 h.
+- **Kaggle (T4 x2, `rsna-knee-attention16-final`):** seeds 44 and 45 ran in parallel. Version 1
+  stopped at the 11.25 h limit after epoch 4; version 2 restored those checkpoints (epoch-4 SHA-256
+  unchanged) and trained epoch 5 in 2.4 h. GPU quota used: about 13.7 h.
+- All four models trained on 4,407 studies (cohort 4,298, extra 51, Gold 58). Epoch-5 training BCE
+  was 0.2584–0.2585 for every seed, and the weights differ between seeds.
+- Model-only exports (`scripts/build_attention16_weight_swap.py`) were uploaded as private datasets
+  `rsna-knee-attention16-final-seed{42,43,44,45}`. Notebooks were built with
+  `scripts/build_attention16_ensemble_notebook.py --experiment E059` (7 members, kernel
+  `rsna-knee-attention16-final-ensemble7-submission`) and `--experiment E059-final4` (4 members,
+  kernel `rsna-knee-attention16-final4-submission`). Both ran cleanly on the first attempt.
 
 ## Results
 
-Pending.
+Late Kaggle submissions (2026-11-22):
+
+| Submission | Members | Public | Private |
+|---|---:|---:|---:|
+| E058 (reference) | 3 fold models | 0.932 | 0.919 |
+| **E059 primary** | 4 final + 3 E058 folds | **0.934** | **0.923** |
+| E059 secondary | 4 final | 0.935 | 0.924 |
 
 ## Conclusion
 
-Pending.
+Both pre-declared submissions beat E058: the primary by +0.002 public and +0.004 private, the
+secondary by +0.003 and +0.005. The gain is small; it combines more training data (all labelled
+studies, Gold-58 included), more members and different study orders, so no single cause can be
+named. The secondary scores 0.001 above the primary on both splits, which is within noise. Under
+the rule fixed before the results, the primary (7-member) ensemble is the final submission of the
+project.

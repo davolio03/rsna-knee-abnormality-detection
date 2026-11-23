@@ -49,7 +49,8 @@ them is on the official leaderboard.
 | + 16 slices per series | [E051](experiments/E051_attention16_model_submission.md) | 0.885 | 0.862 |
 | + `layer3` fine-tuning | [E056](experiments/E056_attention16_layer3_submission.md) | 0.891 | 0.868 |
 | + 3-fold ensemble | [E057](experiments/E057_attention16_layer3_ensemble_submission.md) | 0.902 | 0.877 |
-| + 7th-place training labels (**current submission**) | [E058](experiments/E058_attention16_seventh_place_labels.md) | **0.932** | **0.919** |
+| + 7th-place training labels | [E058](experiments/E058_attention16_seventh_place_labels.md) | 0.932 | 0.919 |
+| + 4 final all-data models, 7-member ensemble (**current submission**) | [E059](experiments/E059_attention16_final_all_data.md) | **0.934** | **0.923** |
 
 Consecutive rows change more than one variable and use one validation fold, so they show the path
 the project took. They are not controlled ablations.
