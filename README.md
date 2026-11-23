@@ -48,7 +48,9 @@ them is on the official leaderboard.
 | + target-specific attention MIL | [E049](experiments/archive/E049_attention_model_submission.md) | 0.869 | 0.848 |
 | + 16 slices per series | [E051](experiments/E051_attention16_model_submission.md) | 0.885 | 0.862 |
 | + `layer3` fine-tuning | [E056](experiments/E056_attention16_layer3_submission.md) | 0.891 | 0.868 |
-| + 3-fold ensemble (**current submission**) | [E057](experiments/E057_attention16_layer3_ensemble_submission.md) | **0.902** | **0.877** |
+| + 3-fold ensemble | [E057](experiments/E057_attention16_layer3_ensemble_submission.md) | 0.902 | 0.877 |
+| + 7th-place training labels | [E058](experiments/E058_attention16_seventh_place_labels.md) | 0.932 | 0.919 |
+| + 4 final all-data models, 7-member ensemble (**current submission**) | [E059](experiments/E059_attention16_final_all_data.md) | **0.934** | **0.923** |
 
 Consecutive rows change more than one variable and use one validation fold, so they show the path
 the project took. They are not controlled ablations.
@@ -57,7 +59,7 @@ the project took. They are not controlled ablations.
 
 | Stage | Choice |
 |---|---|
-| **Labels** | Report-derived probabilities from the public CC0 dataset [`stevenleehans/rsna-knee-llm-report-labels`](https://www.kaggle.com/datasets/stevenleehans/rsna-knee-llm-report-labels) (v6, `llm_labels_full.csv`). A value of exactly 0.5 means "not mentioned" and is masked out. 4,298 non-Gold studies keep at least one observed target. |
+| **Labels** | Since [E058](experiments/E058_attention16_seventh_place_labels.md), the 7th-place image-and-report labels [`songqizhou/rsna-knee-llm-labels`](https://www.kaggle.com/datasets/songqizhou/rsna-knee-llm-labels) (`8_final_label.csv`, CC BY-NC-SA 4.0, by songqizhou; [D038](docs/DECISIONS.md#d038--train-on-the-7th-place-labels-2026-11-21)). Earlier models: report-derived probabilities from the public CC0 dataset [`stevenleehans/rsna-knee-llm-report-labels`](https://www.kaggle.com/datasets/stevenleehans/rsna-knee-llm-report-labels) (v6, `llm_labels_full.csv`). A value of exactly 0.5 means "not mentioned" and is masked out. 4,298 non-Gold studies keep at least one observed target. |
 | **Splits** | 3 folds grouped by normalized-report hash and balanced with an iterative multilabel allocator (seed 42). The 58 expert-labelled "Gold" studies are excluded from all training and model selection. |
 | **Preprocessing** | All series per study; up to 16 uniformly sampled ordered slices per series; 224 × 224; intensities scaled to [0, 1]; pixel validity masks. |
 | **Model** | RadImageNet ResNet-50 backbone (`layer3` and `layer4` trainable, BatchNorm frozen). Each target has its own attention over slices, then over series. |
