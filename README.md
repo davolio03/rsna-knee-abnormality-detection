@@ -1,5 +1,11 @@
 # RSNA Knee Abnormality Detection
 
+[![tests](https://github.com/davolio03/rsna-knee-abnormality-detection/actions/workflows/tests.yml/badge.svg)](https://github.com/davolio03/rsna-knee-abnormality-detection/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](pyproject.toml)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.11-ee4c2c.svg)](https://pytorch.org/)
+[![Project page](https://img.shields.io/badge/project-page-2a78d6.svg)](https://davolio03.github.io/rsna-knee-abnormality-detection/)
+
 Study-level multi-label classification of **12 knee abnormalities from complete MRI studies**
 (ACL, MCL, medial/lateral meniscus, medial/lateral/patellofemoral OA, effusion, synovitis,
 Baker's cyst, bone contusion, fracture), built for the
@@ -10,6 +16,26 @@ Kaggle competition. The competition metric is the mean ROC-AUC over the 12 targe
 study ─► DICOM series ─► 16 ordered slices / series ─► RadImageNet ResNet-50 features
       ─► target-specific slice attention ─► target-specific series attention ─► 12 logits
 ```
+
+**Project page with the write-up and interactive results:**
+<https://davolio03.github.io/rsna-knee-abnormality-detection/>
+
+## Highlights
+
+- **0.923 private ROC-AUC** (0.934 public) on the hidden Kaggle test set with a 7-member ensemble
+  ([E059](experiments/E059_attention16_final_all_data.md)), up from 0.620 for the first
+  submission. Scores are late submissions.
+- **Better labels beat a better model.** Switching to image-and-report training labels added
+  +0.042 private AUC, more than 16 slices, layer3 fine-tuning and ensembling combined (+0.029)
+  ([E058](experiments/E058_attention16_seventh_place_labels.md)).
+- **Evaluation that cannot be tuned by accident.** Report-grouped 3-fold cross-validation, an
+  expert-labelled set (Gold-58) kept out of training until the final models, and every decision
+  rule written down before the results.
+- **Reproducible training.** Deterministic runs: Kaggle T4 and a local RTX 3060 reproduce the
+  same AUC to four decimals, and a resumed run gives identical weights. Checkpoints and inference
+  sources are pinned by SHA-256.
+- **Records for every step.** 59 experiment records, including negative results, and a decision
+  log ([`experiments/`](experiments/), [`docs/DECISIONS.md`](docs/DECISIONS.md)).
 
 ## Results
 
@@ -60,7 +86,7 @@ the project took. They are not controlled ablations.
 | Stage | Choice |
 |---|---|
 | **Labels** | Since [E058](experiments/E058_attention16_seventh_place_labels.md), the 7th-place image-and-report labels [`songqizhou/rsna-knee-llm-labels`](https://www.kaggle.com/datasets/songqizhou/rsna-knee-llm-labels) (`8_final_label.csv`, CC BY-NC-SA 4.0, by songqizhou; [D038](docs/DECISIONS.md#d038--train-on-the-7th-place-labels-2026-11-21)). Earlier models: report-derived probabilities from the public CC0 dataset [`stevenleehans/rsna-knee-llm-report-labels`](https://www.kaggle.com/datasets/stevenleehans/rsna-knee-llm-report-labels) (v6, `llm_labels_full.csv`). A value of exactly 0.5 means "not mentioned" and is masked out. 4,298 non-Gold studies keep at least one observed target. |
-| **Splits** | 3 folds grouped by normalized-report hash and balanced with an iterative multilabel allocator (seed 42). The 58 expert-labelled "Gold" studies are excluded from all training and model selection. |
+| **Splits** | 3 folds grouped by normalized-report hash and balanced with an iterative multilabel allocator (seed 42). The 58 expert-labelled "Gold" studies are excluded from cross-validation training and model selection; only the final E059 models train on them ([D037](docs/DECISIONS.md#d037--gold-58-for-expert-evaluation-and-final-training-2026-11-20)). |
 | **Preprocessing** | All series per study; up to 16 uniformly sampled ordered slices per series; 224 × 224; intensities scaled to [0, 1]; pixel validity masks. |
 | **Model** | RadImageNet ResNet-50 backbone (`layer3` and `layer4` trainable, BatchNorm frozen). Each target has its own attention over slices, then over series. |
 | **Objective** | Masked soft-label binary cross-entropy over observed cells only. |
@@ -121,11 +147,17 @@ $env:PYTHONPATH = "src;."; python -m unittest discover -s tests
 
 - **The training and validation labels come from an LLM, not from experts.** Their generation
   model and prompt are undisclosed, and local AUC inherits their noise.
-- **Each configuration was trained with one seed.** The main reported number is the 3-fold
-  cross-validation estimate.
+- **Each cross-validation configuration was trained with one seed** (the final models use four).
+  The main reported number is the 3-fold cross-validation estimate.
 - **Earlier comparisons are not controlled ablations.** They used a single fold or several
   changes at once.
 - **This is research code, not a clinically validated diagnostic system.**
+
+## License
+
+The code and documentation are released under the [MIT License](LICENSE). The license does not
+cover competition data, labels, model weights or predictions (see below). Model details are in
+the [model card](docs/MODEL_CARD.md).
 
 ## Data, privacy and licensing
 
@@ -138,6 +170,7 @@ competition-derived artifacts or use them commercially until it is. See
 ## Project records
 
 - [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md): current status and next steps
+- [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md): intended use, data, evaluation and limitations
 - [`docs/RESULTS.md`](docs/RESULTS.md): cross-validation results per fold and target
 - [`docs/DECISIONS.md`](docs/DECISIONS.md): durable decisions
 - [`experiments/`](experiments/): experiment records
