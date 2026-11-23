@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knee MRI Abnormality Detection</title>
+<meta name="description" content="Study-level detection of 12 knee abnormalities from complete MRI studies with target-specific attention multiple-instance learning. Write-up, results and lessons from the RSNA Knee Abnormality Detection challenge.">
+<meta property="og:title" content="Knee MRI Abnormality Detection">
+<meta property="og:description" content="Target-specific attention MIL on complete knee MRI studies: 0.923 private ROC-AUC, and why better labels beat a better model.">
+<meta property="og:type" content="article">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M9 23V9h4l6 9V9h4v14h-4l-6-9v9z' fill='white'/%3E%3C/svg%3E">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #6f6d68;
+  --axis: #c3c2b7;
+  --grid: #e1e0d9;
+  --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6;
+  --accent-ink: #1c5cab;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --code-bg: #f0efec;
+  --tip-bg: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --muted: #9a988f;
+    --axis: #383835;
+    --grid: #2c2c2a;
+    --border: rgba(255,255,255,0.10);
+    --accent: #3987e5;
+    --accent-ink: #86b6ef;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --code-bg: #242422;
+    --tip-bg: #242422;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --muted: #9a988f;
+  --axis: #383835;
+  --grid: #2c2c2a;
+  --border: rgba(255,255,255,0.10);
+  --accent: #3987e5;
+  --accent-ink: #86b6ef;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --code-bg: #242422;
+  --tip-bg: #242422;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+a { color: var(--accent-ink); text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+.wrap { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+header.top {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+header.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; padding-bottom: 12px; }
+.brand { font-weight: 650; font-size: 15px; color: var(--ink); text-decoration: none; }
+nav.links { display: flex; gap: 16px; font-size: 15px; flex-wrap: wrap; }
+nav.links a { color: var(--ink-2); text-decoration: none; }
+nav.links a:hover { color: var(--ink); }
+.hero { padding: 56px 0 24px; }
+.eyebrow { font-size: 14px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.15; margin: 0 0 16px; letter-spacing: -0.02em; }
+.lede { font-size: 19px; color: var(--ink-2); margin: 0 0 24px; max-width: 46em; }
+.byline { font-size: 15px; color: var(--muted); margin: 0; }
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 32px 0 8px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.tile .num { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile .lbl { font-size: 14px; color: var(--ink-2); margin-top: 6px; line-height: 1.35; }
+section { padding: 32px 0; border-top: 1px solid var(--border); }
+section:first-of-type { border-top: 0; }
+h2 { font-size: 26px; line-height: 1.25; margin: 0 0 12px; letter-spacing: -0.01em; }
+h3 { font-size: 19px; margin: 24px 0 8px; }
+p { margin: 0 0 14px; }
+ul { padding-left: 22px; margin: 0 0 14px; }
+li { margin-bottom: 6px; }
+code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 20px 0; }
+.card h3 { margin-top: 0; }
+.chart-title { font-size: 16px; font-weight: 600; margin: 0 0 2px; }
+.chart-sub { font-size: 14px; color: var(--ink-2); margin: 0 0 12px; }
+.legend { display: flex; gap: 16px; font-size: 14px; color: var(--ink-2); margin: 0 0 8px; flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key-line { width: 16px; height: 2px; border-radius: 1px; display: inline-block; }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--muted); font-size: 12px; font-family: inherit; }
+.chart .lab { fill: var(--ink-2); font-size: 12px; }
+.chart .lab-strong { fill: var(--ink); font-size: 12px; font-weight: 600; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5;
+  background: var(--tip-bg); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  padding: 8px 10px; font-size: 13px; line-height: 1.4; min-width: 150px; max-width: 260px;
+  opacity: 0; transition: opacity .08s;
+}
+.tip.on { opacity: 1; }
+.tip .t-head { color: var(--ink-2); margin-bottom: 4px; }
+.tip .t-row { display: flex; align-items: center; gap: 8px; }
+.tip .t-row strong { font-variant-numeric: tabular-nums; }
+.tip .t-row span.n { color: var(--ink-2); }
+details.data { margin-top: 12px; font-size: 14px; }
+details.data summary { cursor: pointer; color: var(--ink-2); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 8px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+th { color: var(--ink-2); font-weight: 600; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.table-scroll { overflow-x: auto; }
+.diagram svg { display: block; width: 100%; height: auto; }
+.diagram .box { fill: var(--surface); stroke: var(--axis); stroke-width: 1.5; }
+.diagram .box-accent { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.diagram .t { fill: var(--ink); font-size: 13px; font-weight: 600; font-family: inherit; }
+.diagram .s { fill: var(--ink-2); font-size: 11.5px; font-family: inherit; }
+.diagram .arrow { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+.diagram .arrowhead { fill: var(--muted); }
+.compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.compare .tile .num small { font-size: 16px; color: var(--ink-2); font-weight: 500; }
+.note { font-size: 14px; color: var(--ink-2); }
+footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 14px; color: var(--muted); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 720px) {
+  body { font-size: 16px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero { padding-top: 36px; }
+  nav.links { gap: 12px; }
+}
+@media (max-width: 420px) {
+  .compare { grid-template-columns: 1fr; }
+  .tile .num { font-size: 26px; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#">Knee MRI Abnormality Detection</a>
+    <nav class="links" aria-label="Sections">
+      <a href="#approach">Approach</a>
+      <a href="#results">Results</a>
+      <a href="#labels">Labels</a>
+      <a href="#engineering">Engineering</a>
+      <a href="https://github.com/davolio03/rsna-knee-abnormality-detection">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="hero">
+    <p class="eyebrow">Medical imaging · Multiple-instance learning · PyTorch</p>
+    <h1>Detecting 12 knee abnormalities from complete MRI studies</h1>
+    <p class="lede">A study-level model for the RSNA Knee Abnormality Detection challenge. It reads every
+      series of a knee MRI, learns which slices matter for each abnormality, and reached a private
+      ROC-AUC of 0.923. The largest late gain came from better training labels, not a bigger model.</p>
+    <p class="byline">David Sulleiro Albi · November 2026 ·
+      <a href="https://github.com/davolio03/rsna-knee-abnormality-detection">Code (MIT)</a> ·
+      <a href="https://github.com/davolio03/rsna-knee-abnormality-detection/blob/main/docs/MODEL_CARD.md">Model card</a></p>
+
+    <div class="tiles" role="list">
+      <div class="tile" role="listitem"><div class="num">0.923</div><div class="lbl">private ROC-AUC, 12 targets (public 0.934)</div></div>
+      <div class="tile" role="listitem"><div class="num">+0.303</div><div class="lbl">over the first submission (0.620)</div></div>
+      <div class="tile" role="listitem"><div class="num">4,407</div><div class="lbl">labelled studies in the final models</div></div>
+      <div class="tile" role="listitem"><div class="num">59</div><div class="lbl">recorded experiments, negative results included</div></div>
+    </div>
+    <p class="note">All Kaggle scores are late submissions, made after the competition closed on 2026-10-22.
+      They are not on the official leaderboard.</p>
+  </div>
+
+  <section id="problem">
+    <h2>The problem</h2>
+    <p>Each case is a full knee MRI study: several series (sagittal, coronal, axial; different
+      sequences), each with dozens of slices. The task is to predict, for the whole study, the
+      probability of 12 findings: ACL and MCL tears, medial and lateral meniscus tears, medial,
+      lateral and patellofemoral osteoarthritis, effusion, synovitis, Baker's cyst, bone contusion
+      and fracture. The metric is the mean ROC-AUC over the 12 targets.</p>
+    <p>Two things make it hard. A finding may be visible on only a few slices of one series, so the
+      model must find the evidence without being told where it is. And the training data comes with
+      radiology reports, not labels, so the targets themselves have to be built and checked.</p>
+  </section>
+
+  <section id="approach">
+    <h2>Approach: attention over slices and series, per target</h2>
+    <p>The model treats a study as a bag of slices grouped into series (multiple-instance learning).
+      A shared ResNet-50, pretrained on radiology images (RadImageNet), encodes each slice. A linear
+      head scores all 12 targets on every slice. Then, <strong>for each target separately</strong>, an
+      attention layer decides which slices of a series matter, and a second one decides which series
+      of the study matter. ACL evidence and effusion evidence live on different slices, so each
+      target gets its own weights.</p>
+
+    <figure class="card diagram" aria-labelledby="diag-cap">
+      <svg viewBox="0 0 820 230" role="img" aria-label="Model architecture: study, series, 16 slices per series, shared ResNet-50, per-slice logits, per-target slice attention, per-target series attention, 12 study logits.">
+        <defs>
+          <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M0,0 L8,4 L0,8 z" class="arrowhead"/>
+          </marker>
+        </defs>
+        <rect class="box" x="6" y="70" width="112" height="90" rx="10"/>
+        <text class="t" x="62" y="104" text-anchor="middle">MRI study</text>
+        <text class="s" x="62" y="124" text-anchor="middle">all series</text>
+        <text class="s" x="62" y="140" text-anchor="middle">(DICOM)</text>
+
+        <rect class="box" x="148" y="70" width="120" height="90" rx="10"/>
+        <text class="t" x="208" y="104" text-anchor="middle">16 slices</text>
+        <text class="s" x="208" y="124" text-anchor="middle">per series, ordered</text>
+        <text class="s" x="208" y="140" text-anchor="middle">224 × 224, masked</text>
+
+        <rect class="box" x="298" y="70" width="126" height="90" rx="10"/>
+        <text class="t" x="361" y="104" text-anchor="middle">ResNet-50</text>
+        <text class="s" x="361" y="124" text-anchor="middle">RadImageNet init</text>
+        <text class="s" x="361" y="140" text-anchor="middle">layer3-4 fine-tuned</text>
+
+        <rect class="box" x="454" y="20" width="164" height="62" rx="10"/>
+        <text class="t" x="536" y="46" text-anchor="middle">12 logits per slice</text>
+        <text class="s" x="536" y="66" text-anchor="middle">shared linear head</text>
+
+        <rect class="box-accent" x="454" y="100" width="164" height="50" rx="10"/>
+        <text class="t" x="536" y="122" text-anchor="middle">Slice attention</text>
+        <text class="s" x="536" y="140" text-anchor="middle">one softmax per target</text>
+
+        <rect class="box-accent" x="454" y="166" width="164" height="50" rx="10"/>
+        <text class="t" x="536" y="188" text-anchor="middle">Series attention</text>
+        <text class="s" x="536" y="206" text-anchor="middle">one softmax per target</text>
+
+        <rect class="box" x="650" y="70" width="164" height="90" rx="10"/>
+        <text class="t" x="732" y="104" text-anchor="middle">12 study logits</text>
+        <text class="s" x="732" y="124" text-anchor="middle">mean over 7 models</text>
+        <text class="s" x="732" y="140" text-anchor="middle">→ probabilities</text>
+
+        <path class="arrow" d="M118 115 H146" marker-end="url(#ah)"/>
+        <path class="arrow" d="M268 115 H296" marker-end="url(#ah)"/>
+        <path class="arrow" d="M424 100 C440 100 440 51 452 51" marker-end="url(#ah)"/>
+        <path class="arrow" d="M424 125 H452" marker-end="url(#ah)"/>
+        <path class="arrow" d="M536 150 V164" marker-end="url(#ah)"/>
+        <path class="arrow" d="M618 191 C636 191 634 130 648 130" marker-end="url(#ah)"/>
+        <path class="arrow" d="M536 82 V98" marker-end="url(#ah)"/>
+      </svg>
+      <figcaption id="diag-cap" class="note">Slice logits are pooled with per-target slice weights into series logits,
+        then with per-target series weights into study logits. Both attention layers start at zero,
+        so training begins from plain mean pooling and learns where to look.</figcaption>
+    </figure>
+
+    <ul>
+      <li><strong>Input:</strong> every series, up to 16 uniformly spaced slices each, 224 × 224 px,
+        intensities in [0, 1], with masks for padded pixels.</li>
+      <li><strong>Objective:</strong> binary cross-entropy on soft labels (probabilities, not 0/1),
+        masked where a label is unknown.</li>
+      <li><strong>Training:</strong> Adam (head 1e-3, backbone 1e-5), 5 epochs, one study per step,
+        BatchNorm frozen. The final epoch is fixed in advance; there is no early stopping on
+        validation.</li>
+      <li><strong>Final model:</strong> mean logits of 7 networks: three cross-validation fold models
+        and four models trained on every labelled study with different seeds.</li>
+    </ul>
+  </section>
+
+  <section id="results">
+    <h2>Results: from 0.620 to 0.923</h2>
+    <p>Nine submissions trace the path. Each row adds one idea to the previous one, so consecutive
+      rows change more than a single variable; the controlled comparisons are in the cross-validation
+      section below.</p>
+
+    <div class="card">
+      <p class="chart-title">Kaggle ROC-AUC per submission</p>
+      <p class="chart-sub">Mean ROC-AUC over 12 targets on the hidden test set (late submissions)</p>
+      <div class="legend" aria-hidden="true">
+        <span><i class="key-line" style="background:var(--series-1)"></i>Private</span>
+        <span><i class="key-line" style="background:var(--series-2)"></i>Public</span>
+      </div>
+      <div class="chart" id="chart-progress"></div>
+      <details class="data">
+        <summary>Show the data as a table</summary>
+        <div class="table-scroll"><table id="table-progress">
+          <thead><tr><th>Experiment</th><th>Change</th><th class="n">Public</th><th class="n">Private</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <p class="chart-title">Private AUC gained by each step</p>
+      <p class="chart-sub">Difference from the previous submission</p>
+      <div class="chart" id="chart-gains"></div>
+    </div>
+
+    <h3>Cross-validation per target</h3>
+    <p>Model changes were measured with 3-fold cross-validation on 4,298 studies, with folds grouped
+      by normalized report so studies with identical reports never straddle a split. Fold-to-fold spread of the macro AUC
+      is ±0.003, so a change needs a clear margin over that, ideally on every fold, to count.</p>
+    <div class="card">
+      <p class="chart-title">ROC-AUC per target, 3-fold cross-validation</p>
+      <p class="chart-sub">Layer3 fine-tuning recipe (E055), report-derived labels. Dot: mean over folds; bar: ± one standard deviation. Macro 0.864 ± 0.003.</p>
+      <div class="chart" id="chart-targets"></div>
+      <details class="data">
+        <summary>Show the data as a table</summary>
+        <div class="table-scroll"><table id="table-targets">
+          <thead><tr><th>Target</th><th class="n">Mean AUC</th><th class="n">± std</th><th class="n">Positives / n</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </details>
+    </div>
+    <p>Ligament and lateral meniscus tears are the hardest targets (0.81–0.83); synovitis, Baker's
+      cyst and fracture are the easiest (0.90–0.91). These numbers are scored against noisy
+      report-derived labels, so they are a proxy, not an estimate against radiologists.</p>
+  </section>
+
+  <section id="labels">
+    <h2>The biggest late lesson: better labels beat a better model</h2>
+    <p>The training data has radiology reports, not labels. Early models used labels that an LLM
+      extracted from the report text alone. Those labels were noisy in a specific way: they marked
+      far more positives than the images support (synovitis in 79% of observed cells against 16% in
+      the image-aware labels) and left a quarter of all cells unknown.</p>
+    <p>The 7th-place team of the challenge published labels built from the images as well as the
+      reports. Swapping them in, with the model, data and protocol unchanged, was the single largest
+      gain since the attention model:</p>
+
+    <div class="compare">
+      <div class="tile">
+        <div class="num">0.871 → 0.897</div>
+        <div class="lbl">macro AUC against expert labels (58 studies the models never saw)</div>
+      </div>
+      <div class="tile">
+        <div class="num">0.877 → 0.919</div>
+        <div class="lbl">Kaggle private AUC, same 3-fold ensemble</div>
+      </div>
+    </div>
+    <p>That +0.042 is more than 16 slices, layer3 fine-tuning and ensembling added together (+0.029).</p>
+
+    <h3>How the decision was made</h3>
+    <p>Cross-validation could not settle it: a model trained on new labels scores worse against the
+      old labels and better against its own, whichever labels are right. So the comparison used the
+      only expert-labelled data available, 58 studies with radiologist labels ("Gold-58"), kept out
+      of all training and model selection until then. The decision rule was written before any
+      result: adopt the new labels only if they win on Gold-58 <em>and</em> on the private
+      leaderboard. Both held. Gold-58 predicted the direction and underestimated the size.</p>
+  </section>
+
+  <section id="engineering">
+    <h2>Engineering for trustworthy results</h2>
+    <ul>
+      <li><strong>Leak-proof folds.</strong> Study-level folds grouped by normalized report hash and
+        balanced with an iterative multilabel allocator.</li>
+      <li><strong>Decisions before data.</strong> Every experiment fixes its epoch, metrics and
+        decision rule before training. 59 experiment records and a decision log keep negative and
+        inconclusive results.</li>
+      <li><strong>Deterministic training.</strong> Kaggle T4 GPUs and a local RTX 3060 reproduce the
+        same cross-validation AUC to four decimals. A run resumed from a checkpoint ends with
+        weights identical to an uninterrupted one, which made it safe to split 12-hour trainings
+        across time-limited sessions.</li>
+      <li><strong>Two machines, one protocol.</strong> Folds and final models trained in parallel on a
+        6 GB laptop GPU and on Kaggle T4 × 2, with a runner that restores earlier outputs and
+        resumes.</li>
+      <li><strong>Pinned artifacts.</strong> Checkpoints, model exports and inference sources are
+        verified by SHA-256 inside the offline Kaggle notebook, which scores the visible test
+        studies in under a minute.</li>
+      <li><strong>Tested code.</strong> 357 unit and regression tests on synthetic data run in CI;
+        no patient data is ever committed.</li>
+    </ul>
+  </section>
+
+  <section id="limits">
+    <h2>Limitations</h2>
+    <ul>
+      <li>Training labels come from LLMs, not radiologists, and only 58 studies carry expert
+        labels, so per-target expert AUCs are noisy.</li>
+      <li>All data comes from one challenge dataset; behaviour on other scanners, protocols or sites
+        is unknown.</li>
+      <li>This is research code. The model is not a medical device and must not inform diagnosis or
+        treatment.</li>
+      <li>Model weights are not published: they derive from challenge data under the RSNA MIRA
+        license and from labels licensed CC BY-NC-SA 4.0.</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    Code and write-up by David Sulleiro Albi, MIT License ·
+    <a href="https://github.com/davolio03/rsna-knee-abnormality-detection">github.com/davolio03/rsna-knee-abnormality-detection</a> ·
+    Training labels for the final models by songqizhou
+    (<a href="https://www.kaggle.com/datasets/songqizhou/rsna-knee-llm-labels">rsna-knee-llm-labels</a>, CC BY-NC-SA 4.0).
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var REPO = "https://github.com/davolio03/rsna-knee-abnormality-detection/blob/main/experiments/";
+
+  var progress = [
+    { id: "E032", change: "ResNet-18, binary labels, 500 studies", pub: 0.642, priv: 0.620, path: "archive/E032_hidden_submission_candidate.md" },
+    { id: "E040", change: "ResNet-18, masked soft labels, full cohort", pub: 0.701, priv: 0.683, path: "archive/E040_masked_model_evaluation_submission.md" },
+    { id: "E047", change: "RadImageNet ResNet-50, 8 slices, mean pooling", pub: 0.825, priv: 0.802, path: "archive/E047_radimagenet_model_submission.md" },
+    { id: "E049", change: "+ target-specific attention", pub: 0.869, priv: 0.848, path: "archive/E049_attention_model_submission.md" },
+    { id: "E051", change: "+ 16 slices per series", pub: 0.885, priv: 0.862, path: "E051_attention16_model_submission.md" },
+    { id: "E056", change: "+ layer3 fine-tuning", pub: 0.891, priv: 0.868, path: "E056_attention16_layer3_submission.md" },
+    { id: "E057", change: "+ 3-fold ensemble", pub: 0.902, priv: 0.877, path: "E057_attention16_layer3_ensemble_submission.md" },
+    { id: "E058", change: "+ image-and-report training labels", pub: 0.932, priv: 0.919, path: "E058_attention16_seventh_place_labels.md" },
+    { id: "E059", change: "+ 4 all-data models, 7-member ensemble", pub: 0.934, priv: 0.923, path: "E059_attention16_final_all_data.md" }
+  ];
+
+  var targets = [
+    { name: "ACL", mean: 0.832, sd: 0.012, n: "954 / 3,987" },
+    { name: "MCL", mean: 0.810, sd: 0.016, n: "679 / 3,912" },
+    { name: "Medial meniscus", mean: 0.870, sd: 0.012, n: "2,330 / 4,108" },
+    { name: "Lateral meniscus", mean: 0.827, sd: 0.020, n: "1,116 / 3,917" },
+    { name: "Medial OA", mean: 0.885, sd: 0.002, n: "1,648 / 3,469" },
+    { name: "Lateral OA", mean: 0.863, sd: 0.005, n: "1,259 / 3,280" },
+    { name: "PF OA", mean: 0.843, sd: 0.007, n: "2,022 / 3,600" },
+    { name: "Effusion", mean: 0.844, sd: 0.002, n: "2,606 / 3,919" },
+    { name: "Synovitis", mean: 0.914, sd: 0.027, n: "551 / 701" },
+    { name: "Baker's cyst", mean: 0.901, sd: 0.012, n: "1,075 / 2,256" },
+    { name: "Contusion", mean: 0.882, sd: 0.009, n: "1,080 / 3,304" },
+    { name: "Fracture", mean: 0.900, sd: 0.010, n: "315 / 2,482" }
+  ];
+
+  function el(name, attrs, parent) {
+    var node = document.createElementNS(NS, name);
+    for (var k in attrs) node.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+  function txt(name, attrs, content, parent) {
+    var node = el(name, attrs, parent);
+    node.textContent = content;
+    return node;
+  }
+  function fmt(v) { return v.toFixed(3); }
+  function signed(v) { return (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(3); }
+
+  function makeTip(container) {
+    var tip = document.createElement("div");
+    tip.className = "tip";
+    tip.setAttribute("role", "status");
+    container.appendChild(tip);
+    return tip;
+  }
+  function tipRow(tip, color, value, label) {
+    var row = document.createElement("div");
+    row.className = "t-row";
+    if (color) {
+      var key = document.createElement("i");
+      key.className = "key-line";
+      key.style.background = color;
+      row.appendChild(key);
+    }
+    var strong = document.createElement("strong");
+    strong.textContent = value;
+    row.appendChild(strong);
+    var name = document.createElement("span");
+    name.className = "n";
+    name.textContent = label;
+    row.appendChild(name);
+    tip.appendChild(row);
+  }
+  function placeTip(tip, container, x, y) {
+    var cw = container.clientWidth;
+    var tw = tip.offsetWidth;
+    var left = x + 14;
+    if (left + tw > cw) left = x - tw - 14;
+    if (left < 0) left = 0;
+    tip.style.left = left + "px";
+    tip.style.top = Math.max(0, y - 10) + "px";
+  }
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+  /* ---- Chart 1: progression (line, two series, crosshair tooltip) ---- */
+  function drawProgress() {
+    var box = document.getElementById("chart-progress");
+    box.textContent = "";
+    var W = Math.max(320, box.clientWidth), narrow = W < 560;
+    var H = narrow ? 260 : 300;
+    var m = { l: 40, r: narrow ? 52 : 64, t: 12, b: 34 };
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img",
+      "aria-label": "Line chart of public and private ROC-AUC across nine submissions, rising from 0.642 and 0.620 to 0.934 and 0.923." }, box);
+    var y0 = 0.60, y1 = 0.95;
+    var iw = W - m.l - m.r, ih = H - m.t - m.b;
+    function X(i) { return m.l + (iw * i) / (progress.length - 1); }
+    function Y(v) { return m.t + ih * (1 - (v - y0) / (y1 - y0)); }
+    [0.6, 0.7, 0.8, 0.9].forEach(function (v) {
+      el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: css("--grid"), "stroke-width": 1 }, svg);
+      txt("text", { x: m.l - 8, y: Y(v) + 4, "text-anchor": "end" }, v.toFixed(1), svg);
+    });
+    progress.forEach(function (d, i) {
+      if (narrow && i % 2 === 1 && i !== progress.length - 1) return;
+      txt("text", { x: X(i), y: H - 12, "text-anchor": "middle" }, d.id, svg);
+    });
+    var series = [
+      { key: "priv", color: css("--series-1"), name: "Private" },
+      { key: "pub", color: css("--series-2"), name: "Public" }
+    ];
+    series.forEach(function (s) {
+      var dpath = progress.map(function (d, i) { return (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(d[s.key]).toFixed(1); }).join(" ");
+      el("path", { d: dpath, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+    });
+    var surface = css("--surface");
+    series.forEach(function (s) {
+      progress.forEach(function (d, i) {
+        el("circle", { cx: X(i), cy: Y(d[s.key]), r: 4, fill: s.color, stroke: surface, "stroke-width": 2 }, svg);
+      });
+    });
+    var last = progress[progress.length - 1], li = progress.length - 1;
+    txt("text", { x: X(li) + 9, y: Y(last.pub) - 2, "class": "lab" }, "Public " + fmt(last.pub), svg);
+    txt("text", { x: X(li) + 9, y: Y(last.priv) + 12, "class": "lab-strong" }, "Private " + fmt(last.priv), svg);
+    if (narrow) {
+      svg.lastChild.textContent = fmt(last.priv);
+      svg.lastChild.previousSibling.textContent = fmt(last.pub);
+    }
+
+    var hair = el("line", { y1: m.t, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1, opacity: 0 }, svg);
+    var hit = el("rect", { x: m.l - 10, y: 0, width: iw + 20, height: H - m.b, fill: "transparent", tabindex: 0,
+      "aria-label": "Chart data: use the arrow keys to move between submissions" }, svg);
+    var tip = makeTip(box);
+    var current = -1;
+    function show(i) {
+      current = i;
+      var d = progress[i];
+      var scale = box.clientWidth / W;
+      hair.setAttribute("x1", X(i)); hair.setAttribute("x2", X(i)); hair.setAttribute("opacity", 1);
+      tip.textContent = "";
+      var head = document.createElement("div");
+      head.className = "t-head";
+      head.textContent = d.id + " · " + d.change;
+      tip.appendChild(head);
+      tipRow(tip, series[0].color, fmt(d.priv), "Private");
+      tipRow(tip, series[1].color, fmt(d.pub), "Public");
+      tip.classList.add("on");
+      placeTip(tip, box, X(i) * scale, Y(d.priv) * scale);
+    }
+    function hide() { hair.setAttribute("opacity", 0); tip.classList.remove("on"); }
+    function nearest(evt) {
+      var r = svg.getBoundingClientRect();
+      var x = (evt.clientX - r.left) * (W / r.width);
+      var i = Math.round(((x - m.l) / iw) * (progress.length - 1));
+      return Math.max(0, Math.min(progress.length - 1, i));
+    }
+    hit.addEventListener("pointermove", function (e) { show(nearest(e)); });
+    hit.addEventListener("pointerleave", hide);
+    hit.addEventListener("focus", function () { show(current < 0 ? progress.length - 1 : current); });
+    hit.addEventListener("blur", hide);
+    hit.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowRight") { show(Math.min(progress.length - 1, current + 1)); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { show(Math.max(0, current - 1)); e.preventDefault(); }
+    });
+  }
+
+  /* ---- Chart 2: private gain per step (horizontal bars) ---- */
+  function drawGains() {
+    var box = document.getElementById("chart-gains");
+    box.textContent = "";
+    var steps = progress.slice(1).map(function (d, i) { return { id: d.id, change: d.change, gain: d.priv - progress[i].priv }; });
+    var W = Math.max(320, box.clientWidth), narrow = W < 560;
+    var labelW = narrow ? 150 : 300, row = 30;
+    var m = { l: labelW, r: 56, t: 4, b: 8 };
+    var H = m.t + m.b + row * steps.length;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img",
+      "aria-label": "Bar chart of private AUC gained at each step. Largest: RadImageNet ResNet-50 +0.119, then target attention +0.046 and image-and-report labels +0.042." }, box);
+    var max = 0.12, iw = W - m.l - m.r;
+    var color = css("--series-1"), tip = makeTip(box);
+    el("line", { x1: m.l, x2: m.l, y1: m.t, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1 }, svg);
+    steps.forEach(function (s, i) {
+      var y = m.t + i * row;
+      var label = narrow ? s.change.replace("RadImageNet ResNet-50, 8 slices, mean pooling", "RadImageNet ResNet-50").replace("+ 4 all-data models, 7-member ensemble", "+ 4 all-data models").replace("ResNet-18, masked soft labels, full cohort", "Soft labels, full cohort").replace("+ image-and-report training labels", "+ better labels").replace("+ target-specific attention", "+ attention") : s.change;
+      txt("text", { x: m.l - 8, y: y + row / 2 + 4, "text-anchor": "end", "class": "lab" }, label, svg);
+      var w = Math.max(2, (iw * s.gain) / max);
+      var g = el("g", { tabindex: 0, "aria-label": s.change + ": " + signed(s.gain) }, svg);
+      el("rect", { x: m.l - 4, y: y, width: iw + 60, height: row, fill: "transparent" }, g);
+      var bar = el("path", { d: "M" + m.l + " " + (y + 7) + " h" + (w - 4) + " a4 4 0 0 1 4 4 v" + (row - 22) + " a4 4 0 0 1 -4 4 h-" + (w - 4) + " z", fill: color }, g);
+      txt("text", { x: m.l + w + 6, y: y + row / 2 + 4, "class": "lab" }, signed(s.gain), g);
+      function on(e) {
+        bar.setAttribute("opacity", 0.8);
+        tip.textContent = "";
+        var head = document.createElement("div"); head.className = "t-head"; head.textContent = s.id + " · " + s.change; tip.appendChild(head);
+        tipRow(tip, color, signed(s.gain), "private AUC");
+        tip.classList.add("on");
+        var scale = box.clientWidth / W;
+        placeTip(tip, box, (m.l + w) * scale, y * scale);
+      }
+      function off() { bar.setAttribute("opacity", 1); tip.classList.remove("on"); }
+      g.addEventListener("pointerenter", on); g.addEventListener("pointerleave", off);
+      g.addEventListener("focus", on); g.addEventListener("blur", off);
+    });
+  }
+
+  /* ---- Chart 3: per-target AUC (dot + range) ---- */
+  function drawTargets() {
+    var box = document.getElementById("chart-targets");
+    box.textContent = "";
+    var data = targets.slice().sort(function (a, b) { return b.mean - a.mean; });
+    var W = Math.max(320, box.clientWidth), narrow = W < 560;
+    var m = { l: narrow ? 118 : 140, r: 20, t: 8, b: 30 }, row = 26;
+    var H = m.t + m.b + row * data.length;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img",
+      "aria-label": "Dot plot of cross-validation ROC-AUC per target, from synovitis 0.914 down to MCL 0.810." }, box);
+    var x0 = 0.78, x1 = 0.95, iw = W - m.l - m.r;
+    function X(v) { return m.l + (iw * (v - x0)) / (x1 - x0); }
+    [0.80, 0.85, 0.90, 0.95].forEach(function (v) {
+      el("line", { x1: X(v), x2: X(v), y1: m.t, y2: H - m.b, stroke: css("--grid"), "stroke-width": 1 }, svg);
+      txt("text", { x: X(v), y: H - 10, "text-anchor": "middle" }, v.toFixed(2), svg);
+    });
+    var macro = 0.864;
+    el("line", { x1: X(macro), x2: X(macro), y1: m.t, y2: H - m.b, stroke: css("--muted"), "stroke-width": 1, "stroke-dasharray": "3 3" }, svg);
+    var color = css("--series-1"), surface = css("--surface"), tip = makeTip(box);
+    data.forEach(function (d, i) {
+      var y = m.t + i * row + row / 2;
+      txt("text", { x: m.l - 10, y: y + 4, "text-anchor": "end", "class": "lab" }, d.name, svg);
+      var g = el("g", { tabindex: 0, "aria-label": d.name + ": " + fmt(d.mean) + " plus or minus " + fmt(d.sd) }, svg);
+      el("rect", { x: m.l, y: y - row / 2, width: iw, height: row, fill: "transparent" }, g);
+      el("line", { x1: X(d.mean - d.sd), x2: X(d.mean + d.sd), y1: y, y2: y, stroke: color, "stroke-width": 2, "stroke-linecap": "round", opacity: 0.55 }, g);
+      var dot = el("circle", { cx: X(d.mean), cy: y, r: 5, fill: color, stroke: surface, "stroke-width": 2 }, g);
+      function on() {
+        dot.setAttribute("r", 6.5);
+        tip.textContent = "";
+        var head = document.createElement("div"); head.className = "t-head"; head.textContent = d.name; tip.appendChild(head);
+        tipRow(tip, color, fmt(d.mean) + " ± " + fmt(d.sd), "mean AUC");
+        tipRow(tip, null, d.n, "positives / n");
+        tip.classList.add("on");
+        var scale = box.clientWidth / W;
+        placeTip(tip, box, X(d.mean + d.sd) * scale, (y - 10) * scale);
+      }
+      function off() { dot.setAttribute("r", 5); tip.classList.remove("on"); }
+      g.addEventListener("pointerenter", on); g.addEventListener("pointerleave", off);
+      g.addEventListener("focus", on); g.addEventListener("blur", off);
+    });
+    txt("text", { x: X(macro) + 4, y: m.t + 10, "class": "lab" }, "macro 0.864", svg);
+  }
+
+  function fillTables() {
+    var tb = document.querySelector("#table-progress tbody");
+    progress.forEach(function (d) {
+      var tr = document.createElement("tr");
+      var a = document.createElement("a"); a.href = REPO + d.path; a.textContent = d.id;
+      var c0 = document.createElement("td"); c0.appendChild(a); tr.appendChild(c0);
+      [d.change, fmt(d.pub), fmt(d.priv)].forEach(function (v, j) {
+        var td = document.createElement("td"); td.textContent = v; if (j) td.className = "n"; tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    var tt = document.querySelector("#table-targets tbody");
+    targets.forEach(function (d) {
+      var tr = document.createElement("tr");
+      [d.name, fmt(d.mean), fmt(d.sd), d.n].forEach(function (v, j) {
+        var td = document.createElement("td"); td.textContent = v; if (j) td.className = "n"; tr.appendChild(td);
+      });
+      tt.appendChild(tr);
+    });
+  }
+
+  function drawAll() { drawProgress(); drawGains(); drawTargets(); }
+  fillTables();
+  drawAll();
+  var pending = null;
+  window.addEventListener("resize", function () {
+    if (pending) cancelAnimationFrame(pending);
+    pending = requestAnimationFrame(drawAll);
+  });
+  if (window.matchMedia) {
+    var mq = window.matchMedia("(prefers-color-scheme: dark)");
+    if (mq.addEventListener) mq.addEventListener("change", drawAll);
+  }
+})();
+</script>
+</body>
+</html>

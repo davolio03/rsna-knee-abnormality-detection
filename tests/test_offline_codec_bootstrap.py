@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from rsna_knee.inference import offline_codec_bootstrap as bootstrap
+from private_artifacts import requires
 
 
 PACKAGE_DATA = (
@@ -83,6 +84,7 @@ class OfflineCodecBootstrapTests(unittest.TestCase):
             )
             self.assertFalse(manifest.is_symlink())
 
+    @requires('data/private/hidden-submission-codecs/run07-bundle-final/rsna-knee-offline-dicom-codecs.zip')
     def test_real_pinned_bundle_accepts_actual_multiline_wheel_tags(self):
         bundle = (Path(__file__).resolve().parents[1] /
                   "data/private/hidden-submission-codecs/run07-bundle-final/rsna-knee-offline-dicom-codecs.zip")

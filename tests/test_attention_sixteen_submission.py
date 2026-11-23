@@ -21,6 +21,10 @@ from rsna_knee.inference.attention_sixteen import (
 from scripts.build_kaggle_attention_sixteen_submission_package import (
     _extend_source_archive, _notebook_code, validate_private_artifacts,
 )
+from private_artifacts import requires
+
+needs_artifacts = requires('data/private/attention-sixteen-slices/local16-attention-run01/training-report.json',
+                           'data/private/attention-sixteen-slices/local16-attention-run01/target_attention/checkpoint-epoch-05.pt')
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +40,7 @@ def archive_bytes(members):
 
 
 class AttentionSixteenSubmissionTests(unittest.TestCase):
+    @needs_artifacts
     def test_pins_and_report_bind_complete_epoch_five_sixteen_slice_run(self):
         raw = REPORT.read_bytes()
         self.assertEqual(hashlib.sha256(raw).hexdigest(), SOURCE_REPORT_SHA256)
@@ -44,6 +49,7 @@ class AttentionSixteenSubmissionTests(unittest.TestCase):
                          "631536a30d0da51c0f6872fb45fac15b5bcb0f6185b5a53708eed1ef2be42f21")
         validate_attention16_source_report(__import__("json").loads(raw))
 
+    @needs_artifacts
     def test_report_rejects_mutated_slice_count_or_incomplete_epoch_evidence(self):
         import json
         report = json.loads(REPORT.read_text(encoding="utf-8"))
@@ -51,6 +57,7 @@ class AttentionSixteenSubmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source_report_provenance_mismatch"):
             validate_attention16_source_report(report)
 
+    @needs_artifacts
     def test_private_report_is_sanitized_and_source_artifacts_are_pinned(self):
         report, raw, checkpoint, checkpoint_hash, sanitized = validate_private_artifacts(
             REPORT, ROOT / "data/private/attention-sixteen-slices/local16-attention-run01/target_attention/checkpoint-epoch-05.pt")
@@ -61,6 +68,7 @@ class AttentionSixteenSubmissionTests(unittest.TestCase):
         self.assertEqual(safe["configuration"]["max_slices"], 16)
         self.assertEqual(safe["completed_epochs"], 5)
 
+    @needs_artifacts
     def test_model_only_export_drops_optimizer_rng_and_keeps_sixteen_slice_pin(self):
         checkpoint = ROOT / "data/private/attention-sixteen-slices/local16-attention-run01/target_attention/checkpoint-epoch-05.pt"
         with TemporaryDirectory() as temporary:
@@ -94,6 +102,7 @@ class AttentionSixteenSubmissionTests(unittest.TestCase):
         self.assertEqual(images[0].shape[0], 16)
         self.assertEqual(masks[0].shape[0], 16)
 
+    @needs_artifacts
     def test_canary_runs_real_model_interface_but_never_writes_submission_csv(self):
         source_report = json.loads(REPORT.read_text(encoding="utf-8"))
         provenance = sanitized_attention16_provenance(source_report)
@@ -129,6 +138,7 @@ class AttentionSixteenSubmissionTests(unittest.TestCase):
             self.assertFalse((output / "submission.csv").exists())
             self.assertEqual(len(ToyDataset.study_ids), summary["study_count"])
 
+    @needs_artifacts
     def test_source_archive_is_closed_over_sixteen_slice_adapter_and_native_model(self):
         base = archive_bytes({"rsna_knee/__init__.py": b"", "rsna_knee/inference/fold0.py": b"# codec\n"})
         result, members = _extend_source_archive(base, ROOT)
@@ -139,6 +149,7 @@ class AttentionSixteenSubmissionTests(unittest.TestCase):
         with ZipFile(io.BytesIO(result)) as archive:
             self.assertEqual(set(archive.namelist()), set(members))
 
+    @needs_artifacts
     def test_notebook_embeds_closed_source_and_keeps_canary_from_publishing_submission(self):
         export_sha = "a" * 64
         report_sha = "b" * 64

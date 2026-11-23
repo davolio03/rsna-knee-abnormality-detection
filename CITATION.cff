@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite it as below."
+title: "RSNA Knee Abnormality Detection: target-specific attention MIL for study-level knee MRI"
+type: software
+authors:
+  - family-names: "Sulleiro Albi"
+    given-names: "David"
+version: "1.0.0"
+date-released: "2026-11-23"
+license: MIT
+repository-code: "https://github.com/davolio03/rsna-knee-abnormality-detection"
+url: "https://davolio03.github.io/rsna-knee-abnormality-detection/"
+keywords:
+  - medical imaging
+  - knee MRI
+  - multiple-instance learning
+  - attention
+  - PyTorch

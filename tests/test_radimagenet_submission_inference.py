@@ -26,6 +26,7 @@ from rsna_knee.inference.radimagenet import (
     run_radimagenet_inference,
     _model,
 )
+from private_artifacts import requires
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -42,6 +43,8 @@ class ToyModel(nn.Module):
         return self.weight.reshape(1, 12)
 
 
+@requires('data/private/local-radimagenet-final-epochs/final-run01/training-report.json',
+          'data/private/local-radimagenet-final-epochs/final-run01/checkpoint-epoch-05.pt')
 class RadImageNetContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

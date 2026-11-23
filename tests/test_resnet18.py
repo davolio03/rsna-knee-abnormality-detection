@@ -9,6 +9,9 @@ try:
     import torchvision
 except ModuleNotFoundError as exc:
     raise unittest.SkipTest("optional PyTorch/TorchVision training dependencies are unavailable") from exc
+from private_artifacts import requires
+
+needs_artifacts = requires('data/private/resnet18-comparison/weights/resnet18-f37072fd.pth')
 
 
 class ResNet18StudyModelTests(unittest.TestCase):
@@ -16,6 +19,7 @@ class ResNet18StudyModelTests(unittest.TestCase):
     def setUpClass(cls):
         torch.set_num_threads(1)
 
+    @needs_artifacts
     def test_random_and_pretrained_models_have_matching_head_and_valid_output(self):
         from rsna_knee.models.resnet18 import build_resnet18_study_model
 
@@ -52,6 +56,7 @@ class ResNet18StudyModelTests(unittest.TestCase):
                             and torch.equal(item.num_batches_tracked, snapshot[2])
                             for item, snapshot in zip(batch_norms, bn_before)))
 
+    @needs_artifacts
     def test_frozen_imagenet_backbone_stays_bitwise_fixed_while_head_trains(self):
         from rsna_knee.models.resnet18 import build_resnet18_study_model
 

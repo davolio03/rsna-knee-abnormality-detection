@@ -7,11 +7,16 @@ import unittest
 from pathlib import Path
 
 from scripts.build_local16_cache_package import build_local16_cache_package
+from private_artifacts import requires
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class BuildLocal16CachePackageTests(unittest.TestCase):
+    @requires('data/private/full-cohort-prefilter/run01/full-cohort-soft-label-manifest.json',
+              'data/private/full-cohort-prefilter/run01/full-cohort-grouped-folds.json',
+              'data/private/masked-soft-training-preparation/run09/upload/masked-training-inventory.json',
+              'data/private/masked-soft-training-preparation/run09/upload/offline-codecs.zip.b64')
     def test_builds_plan_default_and_bounded_opt_in_artifacts_without_private_ids(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "package"
