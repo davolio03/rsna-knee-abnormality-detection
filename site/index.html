@@ -84,7 +84,6 @@ nav.links { display: flex; gap: 16px; font-size: 15px; flex-wrap: wrap; }
 nav.links a { color: var(--ink-2); text-decoration: none; }
 nav.links a:hover { color: var(--ink); }
 .hero { padding: 56px 0 24px; }
-.eyebrow { font-size: 14px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
 h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.15; margin: 0 0 16px; letter-spacing: -0.02em; }
 .lede { font-size: 19px; color: var(--ink-2); margin: 0 0 24px; max-width: 46em; }
 .byline { font-size: 15px; color: var(--muted); margin: 0; }
@@ -104,8 +103,6 @@ code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; bac
 .card h3 { margin-top: 0; }
 .chart-title { font-size: 16px; font-weight: 600; margin: 0 0 2px; }
 .chart-sub { font-size: 14px; color: var(--ink-2); margin: 0 0 12px; }
-.legend { display: flex; gap: 16px; font-size: 14px; color: var(--ink-2); margin: 0 0 8px; flex-wrap: wrap; }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
 .key-line { width: 16px; height: 2px; border-radius: 1px; display: inline-block; }
 .chart { position: relative; width: 100%; }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -172,11 +169,10 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
 
 <main class="wrap">
   <div class="hero">
-    <p class="eyebrow">Medical imaging · Multiple-instance learning · PyTorch</p>
     <h1>Detecting 12 knee abnormalities from complete MRI studies</h1>
     <p class="lede">A study-level model for the RSNA Knee Abnormality Detection challenge. It reads every
-      series of a knee MRI, learns which slices matter for each abnormality, and reached a private
-      ROC-AUC of 0.923. The largest late gain came from better training labels, not a bigger model.</p>
+      series of a knee MRI, weights slices separately for each abnormality, and reached a private
+      ROC-AUC of 0.923. The largest late gain came from better training labels.</p>
     <p class="byline">David Sulleiro Albi · November 2026 ·
       <a href="https://github.com/davolio03/rsna-knee-abnormality-detection">Code (MIT)</a> ·
       <a href="https://github.com/davolio03/rsna-knee-abnormality-detection/blob/main/docs/MODEL_CARD.md">Model card</a></p>
@@ -261,7 +257,7 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
       </svg>
       <figcaption id="diag-cap" class="note">Slice logits are pooled with per-target slice weights into series logits,
         then with per-target series weights into study logits. Both attention layers start at zero,
-        so training begins from plain mean pooling and learns where to look.</figcaption>
+        so training begins from plain mean pooling.</figcaption>
     </figure>
 
     <ul>
@@ -279,17 +275,12 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
 
   <section id="results">
     <h2>Results: from 0.620 to 0.923</h2>
-    <p>Nine submissions trace the path. Each row adds one idea to the previous one, so consecutive
-      rows change more than a single variable; the controlled comparisons are in the cross-validation
+    <p>Each of the nine submissions adds one idea to the previous one, so consecutive submissions
+      change more than a single variable. The controlled comparisons are in the cross-validation
       section below.</p>
 
     <div class="card">
       <p class="chart-title">Kaggle ROC-AUC per submission</p>
-      <p class="chart-sub">Mean ROC-AUC over 12 targets on the hidden test set (late submissions)</p>
-      <div class="legend" aria-hidden="true">
-        <span><i class="key-line" style="background:var(--series-1)"></i>Private</span>
-        <span><i class="key-line" style="background:var(--series-2)"></i>Public</span>
-      </div>
       <div class="chart" id="chart-progress"></div>
       <details class="data">
         <summary>Show the data as a table</summary>
@@ -302,7 +293,6 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
 
     <div class="card">
       <p class="chart-title">Private AUC gained by each step</p>
-      <p class="chart-sub">Difference from the previous submission</p>
       <div class="chart" id="chart-gains"></div>
     </div>
 
@@ -311,8 +301,7 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
       by normalized report so studies with identical reports never straddle a split. Fold-to-fold spread of the macro AUC
       is ±0.003, so a change needs a clear margin over that, ideally on every fold, to count.</p>
     <div class="card">
-      <p class="chart-title">ROC-AUC per target, 3-fold cross-validation</p>
-      <p class="chart-sub">Layer3 fine-tuning recipe (E055), report-derived labels. Dot: mean over folds; bar: ± one standard deviation. Macro 0.864 ± 0.003.</p>
+      <p class="chart-sub">Layer3 fine-tuning recipe (E055), report-derived labels. Bars span ± one standard deviation across folds.</p>
       <div class="chart" id="chart-targets"></div>
       <details class="data">
         <summary>Show the data as a table</summary>
@@ -328,7 +317,7 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
   </section>
 
   <section id="labels">
-    <h2>The biggest late lesson: better labels beat a better model</h2>
+    <h2>Better labels beat a better model</h2>
     <p>The training data has radiology reports, not labels. Early models used labels that an LLM
       extracted from the report text alone. Those labels were noisy in a specific way: they marked
       far more positives than the images support (synovitis in 79% of observed cells against 16% in
@@ -350,7 +339,7 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
     <p>That +0.042 is more than 16 slices, layer3 fine-tuning and ensembling added together (+0.029).</p>
 
     <h3>How the decision was made</h3>
-    <p>Cross-validation could not settle it: a model trained on new labels scores worse against the
+    <p>Cross-validation could not settle it. A model trained on new labels scores worse against the
       old labels and better against its own, whichever labels are right. So the comparison used the
       only expert-labelled data available, 58 studies with radiologist labels ("Gold-58"), kept out
       of all training and model selection until then. The decision rule was written before any
@@ -359,18 +348,18 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
   </section>
 
   <section id="engineering">
-    <h2>Engineering for trustworthy results</h2>
+    <h2>Engineering</h2>
     <ul>
-      <li><strong>Leak-proof folds.</strong> Study-level folds grouped by normalized report hash and
+      <li><strong>Grouped folds.</strong> Study-level folds grouped by normalized report hash and
         balanced with an iterative multilabel allocator.</li>
-      <li><strong>Decisions before data.</strong> Every experiment fixes its epoch, metrics and
+      <li><strong>Pre-declared decisions.</strong> Every experiment fixes its epoch, metrics and
         decision rule before training. 59 experiment records and a decision log keep negative and
         inconclusive results.</li>
       <li><strong>Deterministic training.</strong> Kaggle T4 GPUs and a local RTX 3060 reproduce the
         same cross-validation AUC to four decimals. A run resumed from a checkpoint ends with
         weights identical to an uninterrupted one, which made it safe to split 12-hour trainings
         across time-limited sessions.</li>
-      <li><strong>Two machines, one protocol.</strong> Folds and final models trained in parallel on a
+      <li><strong>Two training machines.</strong> Folds and final models trained in parallel on a
         6 GB laptop GPU and on Kaggle T4 × 2, with a runner that restores earlier outputs and
         resumes.</li>
       <li><strong>Pinned artifacts.</strong> Checkpoints, model exports and inference sources are
@@ -390,7 +379,7 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
         is unknown.</li>
       <li>This is research code. The model is not a medical device and must not inform diagnosis or
         treatment.</li>
-      <li>Model weights are not published: they derive from challenge data under the RSNA MIRA
+      <li>Model weights are not published. They derive from challenge data under the RSNA MIRA
         license and from labels licensed CC BY-NC-SA 4.0.</li>
     </ul>
   </section>
@@ -398,8 +387,8 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
 
 <footer>
   <div class="wrap">
-    Code and write-up by David Sulleiro Albi, MIT License ·
-    <a href="https://github.com/davolio03/rsna-knee-abnormality-detection">github.com/davolio03/rsna-knee-abnormality-detection</a> ·
+    Code and write-up by David Sulleiro Albi, MIT License.
+    <a href="https://github.com/davolio03/rsna-knee-abnormality-detection">github.com/davolio03/rsna-knee-abnormality-detection</a>.
     Training labels for the final models by songqizhou
     (<a href="https://www.kaggle.com/datasets/songqizhou/rsna-knee-llm-labels">rsna-knee-llm-labels</a>, CC BY-NC-SA 4.0).
   </div>
@@ -494,7 +483,7 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
     box.textContent = "";
     var W = Math.max(320, box.clientWidth), narrow = W < 560;
     var H = narrow ? 260 : 300;
-    var m = { l: 40, r: narrow ? 52 : 64, t: 12, b: 34 };
+    var m = { l: 40, r: 88, t: 12, b: 34 };
     var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img",
       "aria-label": "Line chart of public and private ROC-AUC across nine submissions, rising from 0.642 and 0.620 to 0.934 and 0.923." }, box);
     var y0 = 0.60, y1 = 0.95;
@@ -526,10 +515,6 @@ footer { border-top: 1px solid var(--border); padding: 24px 0 48px; font-size: 1
     var last = progress[progress.length - 1], li = progress.length - 1;
     txt("text", { x: X(li) + 9, y: Y(last.pub) - 2, "class": "lab" }, "Public " + fmt(last.pub), svg);
     txt("text", { x: X(li) + 9, y: Y(last.priv) + 12, "class": "lab-strong" }, "Private " + fmt(last.priv), svg);
-    if (narrow) {
-      svg.lastChild.textContent = fmt(last.priv);
-      svg.lastChild.previousSibling.textContent = fmt(last.pub);
-    }
 
     var hair = el("line", { y1: m.t, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1, opacity: 0 }, svg);
     var hit = el("rect", { x: m.l - 10, y: 0, width: iw + 20, height: H - m.b, fill: "transparent", tabindex: 0,
